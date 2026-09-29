@@ -1,0 +1,31 @@
+name: Supabase Anti-Pause Keep-Alive
+
+on:
+  schedule:
+    # Se ejecuta todos los días a las 06:00 UTC (3:00 AM ARG)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Permite ejecución manual desde GitHub
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase Database & Rest API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "Ejecutando Heartbeat contra Supabase para prevenir pausa por inactividad..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+            -X GET "$SUPABASE_URL/rest/v1/supabase_keep_alive?select=*&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+          
+          echo "Respuesta de Supabase:"
+          echo "$RESPONSE"
+          
+          if [[ "$RESPONSE" == *"HTTP_STATUS:200"* ]]; then
+            echo "✅ Heartbeat exitoso! Supabase responde activamente."
+          else
+            echo "⚠️ Advertencia: HTTP Status no es 200. Verifique credenciales."
+          fi

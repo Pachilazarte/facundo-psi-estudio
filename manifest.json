@@ -1,0 +1,39 @@
+{
+  "name": "PsiEstudio Ultra Apple Edition",
+  "short_name": "PsiEstudio",
+  "description": "Plataforma de gestión académica, protocolo de clases, ingestión de PDFs y sincronización offline con Supabase.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#007AFF",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/isometric-folders/512/brain.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://img.icons8.com/isometric-folders/192/brain.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "share_target": {
+    "action": "./index.html?shared=true",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "file",
+          "accept": ["application/pdf", "image/*", "text/*"]
+        }
+      ]
+    }
+  }
+}

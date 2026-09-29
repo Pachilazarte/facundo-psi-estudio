@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <title>PsiEstudio Ultra — Plataforma Académica</title>
+  <meta name="description" content="Plataforma de alta fidelidad académica: materias, bibliografía, clases, apuntes, PDFs y sincronización Supabase.">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#06281B">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="index.css">
+  <!-- Supabase + PDF.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+<!-- ══ APP HEADER ══ -->
+<header class="app-header">
+  <div class="header-inner">
+    <div class="header-top">
+      <div class="brand-container">
+        <div class="brand-crest">🏛️</div>
+        <div class="brand-info">
+          <h1>PsiEstudio <span>Ultra</span></h1>
+          <div class="brand-badge">Academic Suite & Cloud</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div id="statusPill" class="status-pill online">
+          <span class="dot"></span>
+          <span id="statusText">En línea</span>
+        </div>
+      </div>
+    </div>
+    <!-- Nav Tabs con sección Mi Perfil -->
+    <nav class="nav-tabs" id="mainNavTabs">
+      <button class="nav-tab active" data-tab="materias">📚 Materias</button>
+      <button class="nav-tab" data-tab="pdf">📑 Ingestión PDF</button>
+      <button class="nav-tab" data-tab="perfil">👤 Mi Perfil</button>
+      <button class="nav-tab" data-tab="system">⚡ Sistema</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ══ CONTENIDO PRINCIPAL ══ -->
+<main class="app-wrap">
+
+  <!-- ══ TAB: MATERIAS ══ -->
+  <section id="tab-materias" class="tab-content active">
+
+    <!-- Vista: Lista de Materias -->
+    <div id="view-materias-list">
+      <div class="section-top">
+        <h2 class="section-title">📚 Materias en Cursado</h2>
+        <div style="display:flex;gap:10px;">
+          <button class="btn-primary" onclick="openSheetMateria()">+ Nueva Materia</button>
+        </div>
+      </div>
+
+      <!-- Banner de Próximos Exámenes -->
+      <div id="proximosExamenesBanner"></div>
+
+      <!-- Grid de Materias -->
+      <div id="materiasGrid" class="grid">
+        <div class="empty">
+          <div class="empty-icon">🎓</div>
+          <div class="empty-title">Cargando materias...</div>
+          <div class="empty-sub">Conectando con Supabase Cloud</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vista: Detalle de Materia Seleccionada -->
+    <div id="view-materia-detail" class="materia-detail">
+      <div class="detail-header-bar">
+        <div class="detail-left">
+          <button class="back-btn" onclick="backToMaterias()">← Volver a Materias</button>
+          <div class="detail-title" id="detailMateriaName">Materia</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-sm" onclick="openSheetMateria(currentMateriaId)">⚙️ Parámetros</button>
+          <button class="btn-sm emerald" onclick="openSheetBiblio()">+ Texto</button>
+          <button class="btn-sm navy" onclick="openSheetClase()">+ Clase</button>
+          <button class="btn-sm gold" onclick="openSheetApunte()">+ Apunte</button>
+        </div>
+      </div>
+
+      <!-- Pestañas internas de la Materia -->
+      <div class="inner-tabs-container" id="innerTabs">
+        <button class="inner-tab active" data-inner="params">📋 Parámetros & Temario</button>
+        <button class="inner-tab" data-inner="biblio">📖 Bibliografía</button>
+        <button class="inner-tab" data-inner="clases">🎓 Protocolo de Clases</button>
+        <button class="inner-tab" data-inner="apuntes">📝 Apuntes & Resúmenes</button>
+        <button class="inner-tab" data-inner="pdfs">📑 PDFs Ingestados</button>
+        <button class="inner-tab" data-inner="examenes">📅 Fechas de Examen</button>
+      </div>
+
+      <!-- 1. PARÁMETROS & TEMARIO -->
+      <div class="inner-content active" id="inner-params">
+        <div id="paramsContent"></div>
+      </div>
+
+      <!-- 2. BIBLIOGRAFÍA -->
+      <div class="inner-content" id="inner-biblio">
+        <div class="chip-bar">
+          <button class="chip active" data-biblio-filter="todos">Todos los textos</button>
+          <button class="chip amber" data-biblio-filter="parcial">⭐ Va al Parcial</button>
+          <button class="chip" data-biblio-filter="Pendiente">⏳ Pendientes</button>
+          <button class="chip" data-biblio-filter="Leído">✅ Leídos</button>
+          <button class="chip" data-biblio-filter="Resumiendo">📝 En Resumen</button>
+        </div>
+        <div id="biblioGrid" class="grid"></div>
+      </div>
+
+      <!-- 3. PROTOCOLO DE CLASES -->
+      <div class="inner-content" id="inner-clases">
+        <div id="clasesGrid" class="grid"></div>
+      </div>
+
+      <!-- 4. APUNTES Y RESÚMENES -->
+      <div class="inner-content" id="inner-apuntes">
+        <div id="apuntesGrid" class="grid"></div>
+      </div>
+
+      <!-- 5. PDFs INGESTADOS -->
+      <div class="inner-content" id="inner-pdfs">
+        <div id="pdfsGrid" class="grid"></div>
+      </div>
+
+      <!-- 6. EXÁMENES -->
+      <div class="inner-content" id="inner-examenes">
+        <div style="margin-bottom:16px;">
+          <button class="btn-primary" onclick="openSheetExamen()">+ Registrar Fecha de Examen</button>
+        </div>
+        <div id="examenesContent"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ TAB: INGESTIÓN PDF ══ -->
+  <section id="tab-pdf" class="tab-content">
+    <div class="section-top">
+      <h2 class="section-title">📑 Ingestión Inteligente de PDFs</h2>
+    </div>
+
+    <!-- Dropzone -->
+    <div class="dropzone" id="pdfDropzone" onclick="$('pdfInput').click()">
+      <div class="dropzone-icon">📥</div>
+      <div class="dropzone-title">Compartir PDF o Arrastrar Documento</div>
+      <div class="dropzone-sub">Compatible con iOS Share Sheet, WhatsApp y navegador</div>
+      <input type="file" id="pdfInput" accept="application/pdf" style="display:none" onchange="handlePDFSelect(event)">
+    </div>
+
+    <!-- Formulario de Ingestión -->
+    <div id="pdfMatchBox" style="display:none;">
+      <div class="config-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div style="font-size:17px;font-weight:800;color:var(--text-cream);" id="pdfFileName">documento.pdf</div>
+          <span class="card-tag emerald" id="pdfPageCount">0 págs</span>
+        </div>
+        <form onsubmit="confirmIngestion(event)">
+          <div class="fg-row">
+            <div class="fg">
+              <label class="fl">Materia Asignada</label>
+              <select class="fsel" id="ingMateriaSelect" required></select>
+            </div>
+            <div class="fg">
+              <label class="fl">Unidad Temática</label>
+              <input class="fi" id="ingUnidad" value="Unidad 1" required>
+            </div>
+          </div>
+          <div class="fg">
+            <label class="fl">Título del Texto</label>
+            <input class="fi" id="ingTitulo" required placeholder="Nombre del capítulo o texto">
+          </div>
+          <div class="fg">
+            <label class="fl">Autores</label>
+            <input class="fi" id="ingAutores" placeholder="Apellido, Nombre (Año)">
+          </div>
+          <div class="cb-row">
+            <input type="checkbox" id="ingVaParcial">
+            <label for="ingVaParcial">⭐ ESTE TEXTO VA PARA EL PARCIAL</label>
+          </div>
+          <div class="fg">
+            <label class="fl">Texto Extraído (OCR / Primeras Páginas)</label>
+            <textarea class="fta" id="ingExtracted" readonly style="font-size:12px;color:var(--text-muted);height:120px;"></textarea>
+          </div>
+          <button type="submit" class="btn-primary" style="width:100%;">✅ Confirmar e Ingestar a Supabase</button>
+        </form>
+      </div>
+    </div>
+
+    <h3 style="font-size:17px;font-weight:800;color:var(--text-cream);margin:24px 0 14px;">Documentos Ingestados Recientemente</h3>
+    <div id="pdfRecentGrid" class="grid"></div>
+  </section>
+
+  <!-- ══ TAB: MI PERFIL (NUEVO APARTADO) ══ -->
+  <section id="tab-perfil" class="tab-content">
+    <div class="section-top">
+      <h2 class="section-title">👤 Mi Perfil Académico</h2>
+      <button class="btn-primary" onclick="openSheetMateria()">+ Crear Nueva Materia</button>
+    </div>
+
+    <!-- Hero Estudiante -->
+    <div class="profile-hero">
+      <div class="profile-header-grid">
+        <div class="profile-avatar">🧠</div>
+        <div class="profile-info">
+          <div class="profile-name" id="studentProfileName">Facundo Lazarte</div>
+          <div class="profile-title">Licenciatura en Psicología — Cursado Activo 2026</div>
+          <div class="profile-tags">
+            <span class="profile-tag">📚 Sistema PsiEstudio Ultra</span>
+            <span class="profile-tag">⚡ Supabase Cloud Sync</span>
+            <span class="profile-tag">🍏 iOS 18 Glass Edition</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Estadísticas Globales del Perfil -->
+    <div class="stats-banner">
+      <div class="stat-box">
+        <div class="stat-box-icon">📚</div>
+        <div class="stat-box-val" id="profStatMaterias">0</div>
+        <div class="stat-box-lbl">Materias Activas</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-icon">📖</div>
+        <div class="stat-box-val" id="profStatTextos">0</div>
+        <div class="stat-box-lbl">Textos en Biblioteca</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-icon">✅</div>
+        <div class="stat-box-val" id="profStatLeidos">0</div>
+        <div class="stat-box-lbl">Lecturas Completadas</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-icon">📝</div>
+        <div class="stat-box-val" id="profStatApuntes">0</div>
+        <div class="stat-box-lbl">Apuntes Generados</div>
+      </div>
+    </div>
+
+    <!-- Gestión de Materias y Parámetros desde el Perfil -->
+    <div class="config-card">
+      <div class="config-card-title">⚙️ Administración de Materias</div>
+      <p style="font-size:13.5px;color:var(--text-muted);margin-bottom:16px;">
+        Configura aquí tus materias, docentes, fechas clave y programas de estudio.
+      </p>
+      <div id="perfilMateriasList" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+
+    <!-- Preferencias y Respaldo -->
+    <div class="config-card">
+      <div class="config-card-title">💾 Respaldo y Acciones Rápidas</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn-sm emerald" onclick="exportBackupJSON()">📤 Exportar Backup (JSON)</button>
+        <button class="btn-sm navy" onclick="triggerPing()">⚡ Ping Keep-Alive</button>
+        <button class="btn-sm ruby" onclick="clearLocalCache()">🗑️ Limpiar Caché Local</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ TAB: SISTEMA & CLOUD ══ -->
+  <section id="tab-system" class="tab-content">
+    <div class="section-top">
+      <h2 class="section-title">⚡ Sistema y Conexión Supabase</h2>
+    </div>
+
+    <div class="config-card">
+      <div class="config-card-title">🔌 Estado de Supabase Database</div>
+      <div class="fg">
+        <label class="fl">Project URL</label>
+        <input class="fi" id="sbUrl" value="https://eckgwyvbevlpnhjrsaxy.supabase.co" readonly>
+      </div>
+      <div class="fg">
+        <label class="fl">Anon Public Key</label>
+        <input class="fi" id="sbKey" type="password" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVja2d3eXZiZXZscG5oanJzYXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MzM1ODgsImV4cCI6MjEwNjIwOTU4OH0.MfgjL7yQPidqir2ybVEpcfeAsrioZGIIvgVv_bMyI7I">
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn-primary" onclick="testConnection()">🔗 Probar Conexión Supabase</button>
+        <button class="btn-sm" onclick="processSyncQueue()">🔄 Sincronizar Cola Offline</button>
+      </div>
+      <div id="connStatus" style="margin-top:12px;font-size:13.5px;color:var(--text-muted);"></div>
+    </div>
+
+    <div class="config-card">
+      <div class="config-card-title">🟢 Anti-Pausa Automático (Keep-Alive)</div>
+      <div style="background:rgba(16,185,129,.1);border:1px solid var(--emerald-500);border-radius:var(--radius-md);padding:14px;margin-bottom:14px;">
+        <div style="font-weight:800;color:var(--emerald-500);font-size:14px;">🟢 Keep-Alive Engine: <span id="kaStatus">Activo</span></div>
+        <div style="font-size:12.5px;color:var(--text-muted);margin-top:4px;" id="kaLastPing">Consultando historial de pings...</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn-sm emerald" onclick="triggerPing()">⚡ Enviar Ping Manual</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- FAB -->
+<button class="fab" id="fabBtn" onclick="fabAction()" title="Acción Rápida">+</button>
+
+<!-- ══ MODAL: NUEVA/EDITAR MATERIA ══ -->
+<div class="sheet-overlay" id="sheetMateria">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="sheet-title-txt" id="sheetMateriaTitle">Nueva Materia</span>
+      <button class="sheet-x" onclick="closeSheet('sheetMateria')">✕</button>
+    </div>
+    <form onsubmit="saveMateria(event)">
+      <input type="hidden" id="mId">
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Nombre de la Materia</label>
+          <input class="fi" id="mNombre" required placeholder="Ej: Semiosis Social">
+        </div>
+        <div class="fg">
+          <label class="fl">Abreviatura / Sigla</label>
+          <input class="fi" id="mAbrev" placeholder="SEM">
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Docente a Cargo</label>
+          <input class="fi" id="mDocente" placeholder="Dr. / Prof. Apellido">
+        </div>
+        <div class="fg">
+          <label class="fl">Color de Identificación</label>
+          <input type="color" id="mColor" value="#10B981" style="width:100%;height:44px;border-radius:var(--radius-md);background:transparent;border:1px solid var(--border-medium);cursor:pointer;">
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Año de Cursado</label>
+          <input class="fi" id="mAño" type="number" value="2026">
+        </div>
+        <div class="fg">
+          <label class="fl">Cuatrimestre</label>
+          <select class="fsel" id="mCuatri">
+            <option value="1">1° Cuatrimestre</option>
+            <option value="2" selected>2° Cuatrimestre</option>
+            <option value="0">Anual</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Descripción / Observaciones</label>
+        <textarea class="fta" id="mDescripcion" placeholder="Detalles de la cursada, correlatividades..."></textarea>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Fecha Parcial 1</label>
+          <input class="fi" id="mFecha1" type="date">
+        </div>
+        <div class="fg">
+          <label class="fl">Fecha Parcial 2</label>
+          <input class="fi" id="mFecha2" type="date">
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Fecha Examen Final</label>
+          <input class="fi" id="mFechaFinal" type="date">
+        </div>
+        <div class="fg">
+          <label class="fl">Modalidad de Evaluación</label>
+          <select class="fsel" id="mModalidad">
+            <option value="Presencial">Presencial Escrito</option>
+            <option value="Domiciliario">Trabajo Domiciliario</option>
+            <option value="Oral">Examen Oral</option>
+            <option value="Multiple Choice">Multiple Choice</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Temas Parcial 1</label>
+        <textarea class="fta" id="mTemas1" placeholder="Unidades y autores que entran..."></textarea>
+      </div>
+      <div class="fg">
+        <label class="fl">Temas Parcial 2</label>
+        <textarea class="fta" id="mTemas2" placeholder="Unidades y autores que entran..."></textarea>
+      </div>
+      <div class="fg">
+        <label class="fl">Temario Examen Final</label>
+        <textarea class="fta" id="mTemasF" placeholder="Programa completo o ejes principales..."></textarea>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Link Programa Oficial</label>
+          <input class="fi" id="mLinkProg" type="url" placeholder="https://...">
+        </div>
+        <div class="fg">
+          <label class="fl">Link Carpeta Google Drive</label>
+          <input class="fi" id="mLinkDrive" type="url" placeholder="https://drive.google.com/...">
+        </div>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;">💾 Guardar Parámetros de Materia</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ MODAL: NUEVA BIBLIOGRAFÍA ══ -->
+<div class="sheet-overlay" id="sheetBiblio">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="sheet-title-txt" id="sheetBiblioTitle">Nuevo Texto Académico</span>
+      <button class="sheet-x" onclick="closeSheet('sheetBiblio')">✕</button>
+    </div>
+    <form onsubmit="saveBiblio(event)">
+      <input type="hidden" id="bId">
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Unidad Temática</label>
+          <input class="fi" id="bUnidad" required value="Unidad 1">
+        </div>
+        <div class="fg">
+          <label class="fl">Nº de Texto</label>
+          <input class="fi" id="bNro" type="number" value="1">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Título del Texto / Capítulo</label>
+        <input class="fi" id="bTitulo" required placeholder="Ej: Introducción a la Lingüística">
+      </div>
+      <div class="fg">
+        <label class="fl">Autores</label>
+        <input class="fi" id="bAutores" placeholder="Apellido, Nombre">
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Estado de Lectura</label>
+          <select class="fsel" id="bEstado">
+            <option value="Pendiente">⏳ Pendiente</option>
+            <option value="Leído">✅ Leído</option>
+            <option value="Resumiendo">📝 Resumiendo</option>
+            <option value="Salteado">⏩ Salteado</option>
+            <option value="No va">❌ No va</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Tipo de Clase</label>
+          <select class="fsel" id="bTipo">
+            <option value="Teórica">Teórica</option>
+            <option value="Práctica">Práctica</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Parcial que Cubre</label>
+          <select class="fsel" id="bParcial">
+            <option value="1">Parcial 1</option>
+            <option value="2">Parcial 2</option>
+            <option value="3">Final</option>
+          </select>
+        </div>
+        <div class="fg" style="display:flex;align-items:flex-end;padding-bottom:4px;">
+          <div class="cb-row" style="margin:0;">
+            <input type="checkbox" id="bVaParcial">
+            <label for="bVaParcial">⭐ Va al Parcial</label>
+          </div>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Link al Resumen / Drive</label>
+        <input class="fi" id="bLinkRes" type="url" placeholder="https://docs.google.com/...">
+      </div>
+      <div class="fg">
+        <label class="fl">Notas y Conceptos Clave</label>
+        <textarea class="fta" id="bNotas" placeholder="Ideas clave, preguntas de examen..."></textarea>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;">📚 Guardar Texto en Bibliografía</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ MODAL: PROTOCOLO DE CLASE ══ -->
+<div class="sheet-overlay" id="sheetClase">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="sheet-title-txt">Protocolo de Clase</span>
+      <button class="sheet-x" onclick="closeSheet('sheetClase')">✕</button>
+    </div>
+    <form onsubmit="saveClase(event)">
+      <input type="hidden" id="cId">
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Fecha</label>
+          <input class="fi" id="cFecha" type="date" required>
+        </div>
+        <div class="fg">
+          <label class="fl">Nº de Clase</label>
+          <input class="fi" id="cNro" type="number" value="1">
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Tipo</label>
+          <select class="fsel" id="cTipo">
+            <option value="Teórica">Teórica</option>
+            <option value="Práctica">Práctica</option>
+            <option value="Taller">Taller / Seminario</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Estado</label>
+          <select class="fsel" id="cEstado">
+            <option value="Completada">Completada</option>
+            <option value="Pendiente revisión">Pendiente revisión</option>
+            <option value="Sin asistir">Sin asistir</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Tema Principal Dictado</label>
+        <input class="fi" id="cTitulo" required placeholder="Ej: Estructura del Signo y Valor Lingüístico">
+      </div>
+      <div class="fg">
+        <label class="fl">💡 Aclaraciones & Énfasis del Docente</label>
+        <textarea class="fta" id="cAclar" placeholder="Puntos que el profesor remarcó como clave para el parcial..."></textarea>
+      </div>
+      <div class="fg">
+        <label class="fl">📊 Diapositivas / Diapos Proyectadas</label>
+        <textarea class="fta" id="cPPT" placeholder="Contenido o esquema visto en las filminas..."></textarea>
+      </div>
+      <div class="fg">
+        <label class="fl">🎙️ Transcripción / Audio Notas</label>
+        <textarea class="fta" id="cTranscripcion" placeholder="Puntos extraídos de la grabación..."></textarea>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Link Grabación</label>
+          <input class="fi" id="cGrab" type="url" placeholder="https://drive.google.com/...">
+        </div>
+        <div class="fg">
+          <label class="fl">Link Documento Resumen</label>
+          <input class="fi" id="cDoc" type="url" placeholder="https://docs.google.com/...">
+        </div>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;">🎓 Guardar Protocolo de Clase</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ MODAL: APUNTE & RESUMEN (MARKDOWN) ══ -->
+<div class="sheet-overlay" id="sheetApunte">
+  <div class="sheet" style="max-height:95vh;">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="sheet-title-txt" id="sheetApunteTitle">Nuevo Apunte Académico</span>
+      <button class="sheet-x" onclick="closeSheet('sheetApunte')">✕</button>
+    </div>
+    <form onsubmit="saveApunte(event)">
+      <input type="hidden" id="aId">
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Título del Apunte</label>
+          <input class="fi" id="aTitulo" required placeholder="Ej: Resumen Integrador — Unidad 1">
+        </div>
+        <div class="fg">
+          <label class="fl">Formato</label>
+          <select class="fsel" id="aTipo">
+            <option value="Resumen">📋 Resumen Completo</option>
+            <option value="Mapa Conceptual">🗺️ Mapa Conceptual</option>
+            <option value="Fichas">🗂️ Fichas de Repaso</option>
+            <option value="Cuestionario">❓ Preguntas de Examen</option>
+            <option value="Notas de Clase">🎓 Notas de Clase</option>
+          </select>
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Unidad Temática</label>
+          <input class="fi" id="aUnidad" placeholder="Unidad 1">
+        </div>
+        <div class="fg" style="display:flex;align-items:flex-end;padding-bottom:4px;">
+          <div class="cb-row" style="margin:0;">
+            <input type="checkbox" id="aVaParcial">
+            <label for="aVaParcial">⭐ Va para el Parcial</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Editor con Toolbar Markdown -->
+      <div class="fg">
+        <label class="fl">Contenido del Apunte (Editor Markdown)</label>
+        <div class="apunte-editor">
+          <div class="editor-toolbar">
+            <button type="button" class="tb-btn" onclick="insertMD('**','**')">Negrita</button>
+            <button type="button" class="tb-btn" onclick="insertMD('*','*')">Cursiva</button>
+            <button type="button" class="tb-btn" onclick="insertMD('## ','')">H2</button>
+            <button type="button" class="tb-btn" onclick="insertMD('### ','')">H3</button>
+            <button type="button" class="tb-btn" onclick="insertMD('- ','')">• Lista</button>
+            <button type="button" class="tb-btn" onclick="insertMD('> ','')">❝ Cita</button>
+            <button type="button" class="tb-btn" onclick="togglePreview()" id="previewToggleBtn">👁️ Vista Previa</button>
+          </div>
+          <textarea class="editor-area" id="aContenido" placeholder="## Ejes Principales&#10;&#10;**Concepto central:** Definición detallada...&#10;&#10;> 'Cita textual importante del autor'&#10;&#10;- Punto 1&#10;- Punto 2"></textarea>
+          <div class="preview-area" id="aPreview"></div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-primary" style="width:100%;">📝 Guardar Apunte en Supabase</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ MODAL: NUEVO EXAMEN ══ -->
+<div class="sheet-overlay" id="sheetExamen">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-head">
+      <span class="sheet-title-txt">Registrar Fecha de Examen</span>
+      <button class="sheet-x" onclick="closeSheet('sheetExamen')">✕</button>
+    </div>
+    <form onsubmit="saveExamen(event)">
+      <input type="hidden" id="exId">
+      <div class="fg">
+        <label class="fl">Nombre / Instancia de Evaluación</label>
+        <input class="fi" id="exNombre" required placeholder="Ej: Primer Parcial Presencial">
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Tipo</label>
+          <select class="fsel" id="exTipo">
+            <option value="Parcial 1">Parcial 1</option>
+            <option value="Parcial 2">Parcial 2</option>
+            <option value="Final">Examen Final</option>
+            <option value="Recuperatorio">Recuperatorio</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Fecha del Examen</label>
+          <input class="fi" id="exFecha" type="date" required>
+        </div>
+      </div>
+      <div class="fg-row">
+        <div class="fg">
+          <label class="fl">Modalidad</label>
+          <select class="fsel" id="exModalidad">
+            <option value="Presencial">Presencial Escrito</option>
+            <option value="Domiciliario">Trabajo Domiciliario</option>
+            <option value="Oral">Examen Oral</option>
+            <option value="Multiple Choice">Multiple Choice</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Calificación (Opcional)</label>
+          <input class="fi" id="exNota" type="number" step="0.25" min="1" max="10" placeholder="Ej: 8.50">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Temario Específico</label>
+        <textarea class="fta" id="exTemas" placeholder="Unidades 1 y 2, autores destacados..."></textarea>
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%;">📅 Guardar Examen</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══ MODAL: PDF VIEWER INTEGRADO ══ -->
+<div class="pdf-modal-overlay" id="pdfViewerModal">
+  <div class="pdf-modal-inner">
+    <div class="pdf-modal-header">
+      <div class="pdf-modal-title" id="pdfViewerTitle">Documento PDF</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-sm" id="pdfPrevPage" onclick="pdfChangePage(-1)">‹ Ant</button>
+        <span id="pdfPageInfo" style="font-size:12.5px;color:var(--text-muted);align-self:center;white-space:nowrap;">1 / 1</span>
+        <button class="btn-sm" id="pdfNextPage" onclick="pdfChangePage(1)">Sig ›</button>
+        <button class="btn-sm ruby" onclick="closePDFViewer()">✕ Cerrar</button>
+      </div>
+    </div>
+    <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
+      <canvas id="pdfCanvas"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NOTIFICACIÓN TOAST ══ -->
+<div class="toast" id="toast">
+  <span id="toastIcon">✨</span>
+  <span id="toastMsg">Mensaje del sistema</span>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
