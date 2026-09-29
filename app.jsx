@@ -1,6 +1,6 @@
 /* ======================================================
-   PSIESTUDIO ULTRA — REACT 18 & TAILWIND ARCHITECTURE
-   Integrated with Centralized Color Tokens & Supabase Sync
+   PSIESTUDIO ULTRA — REACT 18 + TAILWIND ACADEMIC SUITE
+   Complete Edition: Exam Pending Analyzer, Split-View Notes & PDF Canvas Engine
    ====================================================== */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -20,7 +20,7 @@ try {
   console.warn('Supabase fallback:', e);
 }
 
-// ── 2. LUCIDE SVG ICON COMPONENT ──
+// ── 2. LUCIDE SVG ICON HELPER ──
 const Icon = ({ name, className = "w-5 h-5", size = 20 }) => {
   const iconRef = useRef(null);
 
@@ -33,18 +33,30 @@ const Icon = ({ name, className = "w-5 h-5", size = 20 }) => {
   return <i ref={iconRef} data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block' }}></i>;
 };
 
-// ── 3. MAIN REACT APPLICATION ──
+// ── 3. SIMPLE MARKDOWN PARSER ──
+function parseMarkdownToHTML(md) {
+  if (!md) return '';
+  let html = md
+    .replace(/^### (.*$)/gim, '<h3 class="text-base font-bold text-app-text mt-3 mb-1">$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2 class="text-lg font-extrabold text-app-text mt-4 mb-1">$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1 class="text-xl font-black text-app-emerald mt-4 mb-2">$1</h1>')
+    .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-2.5 my-2 rounded-r-lg text-xs italic text-app-text">$1</blockquote>')
+    .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-app-emerald font-bold">$1</strong>')
+    .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold">$1</em>')
+    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed">$1</li>')
+    .replace(/\n$/gim, '<br />');
+  return html;
+}
+
+// ── 4. MAIN REACT APPLICATION ──
 function App() {
-  // Theme state
   const [theme, setTheme] = useState(localStorage.getItem('psi_theme') || 'light');
-  
-  // Navigation state
   const [activeTab, setActiveTab] = useState('materias'); // 'materias', 'pdf', 'perfil', 'system'
   const [selectedMateriaId, setSelectedMateriaId] = useState(null);
-  const [innerTab, setInnerTab] = useState('params'); // 'params', 'biblio', 'clases', 'apuntes', 'pdfs', 'examenes'
+  const [innerTab, setInnerTab] = useState('params');
   const [biblioFilter, setBiblioFilter] = useState('todos');
 
-  // Academic Data State (cached in localStorage)
+  // Academic State (local cache)
   const [materias, setMaterias] = useState(() => JSON.parse(localStorage.getItem('psi_materias_cache') || '[]'));
   const [biblio, setBiblio] = useState(() => JSON.parse(localStorage.getItem('psi_biblio_cache') || '[]'));
   const [clases, setClases] = useState(() => JSON.parse(localStorage.getItem('psi_clases_cache') || '[]'));
@@ -52,12 +64,11 @@ function App() {
   const [pdfs, setPdfs] = useState(() => JSON.parse(localStorage.getItem('psi_pdfs_cache') || '[]'));
   const [examenes, setExamenes] = useState(() => JSON.parse(localStorage.getItem('psi_examenes_cache') || '[]'));
 
-  // Connectivity & Sync
+  // Connectivity & Modals
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncQueue, setSyncQueue] = useState(() => JSON.parse(localStorage.getItem('psi_sync_queue') || '[]'));
   const [toast, setToast] = useState({ show: false, msg: '', icon: '✨' });
 
-  // Modals state
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
   const [modalClase, setModalClase] = useState({ open: false, data: null });
@@ -65,16 +76,15 @@ function App() {
   const [modalExamen, setModalExamen] = useState({ open: false, data: null });
   const [modalPDFViewer, setModalPDFViewer] = useState({ open: false, data: null });
 
-  // Ingestion form state
   const [ingestionData, setIngestionData] = useState(null);
 
-  // Apply Theme on load / change
+  // Apply Theme
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('psi_theme', theme);
   }, [theme]);
 
-  // Online / Offline Listeners
+  // Initial Fetch & Offline Handling
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -89,27 +99,23 @@ function App() {
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, [syncQueue]);
 
-  // Initial Data Fetch & Seed
-  useEffect(() => {
     if (materias.length === 0 && localStorage.getItem('psi_first_run') !== 'done') {
       seedInitialData();
     }
     fetchAllData();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
-  // Toast Helper
   const showToast = (msg, icon = '✨') => {
     setToast({ show: true, msg, icon });
     setTimeout(() => setToast({ show: false, msg: '', icon: '✨' }), 3200);
   };
 
-  // Seed default subjects if empty
   const seedInitialData = () => {
     localStorage.setItem('psi_first_run', 'done');
     const initialMats = [
@@ -117,34 +123,97 @@ function App() {
         id: 'mat_semiosis',
         nombre: 'Semiosis Social',
         abreviatura: 'SEM',
-        docente: 'Cátedra A',
+        docente: 'Cátedra A (Prof. González)',
         color: '#10B981',
         año_cursado: 2026,
         cuatrimestre: 2,
         descripcion: 'Teoría de la significación, discursos sociales y semiótica.',
         fecha_parcial1: '2026-10-15',
-        modalidad_parcial: 'Presencial',
-        temas_parcial1: 'Unidad 1: Saussure, Peirce. Unidad 2: Verón y discursos sociales.'
+        modalidad_parcial: 'Presencial Escrito',
+        temas_parcial1: 'Unidad 1: Saussure y Peirce. Unidad 2: Verón y discursos sociales.'
       },
       {
         id: 'mat_psicopatologia',
         nombre: 'Psicopatología I',
         abreviatura: 'PSICOPAT',
-        docente: 'Cátedra Única',
+        docente: 'Cátedra Única (Prof. Martínez)',
         color: '#2563EB',
         año_cursado: 2026,
         cuatrimestre: 2,
         descripcion: 'Estructuras clínicas: neurosis, psicosis y perversión.',
         fecha_parcial1: '2026-10-28',
-        modalidad_parcial: 'Presencial',
+        modalidad_parcial: 'Presencial Escrito',
         temas_parcial1: 'Neurosis obsesiva e histeria en Freud y Lacan.'
       }
     ];
+
+    const initialBib = [
+      {
+        id: 'bib_saussure',
+        materia_id: 'mat_semiosis',
+        materia: 'Semiosis Social',
+        unidad: 'Unidad 1',
+        nro_texto: 1,
+        titulo_texto: 'Curso de Lingüística General (Cap. 1 a 4)',
+        autores: 'Saussure, F. (1916)',
+        estado: 'Leído',
+        va_parcial: true,
+        nro_parcial: 1,
+        link_resumen: 'https://docs.google.com',
+        notas: 'Conceptos clave: Signo lingüístico, significante/significado, arbitrariedad y valor.'
+      },
+      {
+        id: 'bib_peirce',
+        materia_id: 'mat_semiosis',
+        materia: 'Semiosis Social',
+        unidad: 'Unidad 1',
+        nro_texto: 2,
+        titulo_texto: 'La Ciencia de la Semiótica',
+        autores: 'Peirce, C. S. (1931)',
+        estado: 'Pendiente',
+        va_parcial: true,
+        nro_parcial: 1,
+        link_resumen: '',
+        notas: 'Representamen, Objeto e Interpretante. Semiosis infinita.'
+      },
+      {
+        id: 'bib_veron',
+        materia_id: 'mat_semiosis',
+        materia: 'Semiosis Social',
+        unidad: 'Unidad 2',
+        nro_texto: 3,
+        titulo_texto: 'La Semiosis Social: Fragmentos de una Teoría de la Discursividad',
+        autores: 'Verón, E. (1987)',
+        estado: 'Pendiente',
+        va_parcial: true,
+        nro_parcial: 1,
+        link_resumen: '',
+        notas: 'Condiciones de producción y de reconocimiento. Gramática discursiva.'
+      }
+    ];
+
+    const initialExams = [
+      {
+        id: 'ex_semiosis_p1',
+        materia_id: 'mat_semiosis',
+        materia: 'Semiosis Social',
+        nombre: 'Primer Parcial Presencial',
+        tipo: 'Parcial 1',
+        fecha: '2026-10-15',
+        modalidad: 'Presencial Escrito',
+        temas: 'Unidad 1 y Unidad 2 completas. Autores: Saussure, Peirce, Verón.',
+        finalizado: false
+      }
+    ];
+
     setMaterias(initialMats);
+    setBiblio(initialBib);
+    setExamenes(initialExams);
     localStorage.setItem('psi_materias_cache', JSON.stringify(initialMats));
+    localStorage.setItem('psi_biblio_cache', JSON.stringify(initialBib));
+    localStorage.setItem('psi_examenes_cache', JSON.stringify(initialExams));
   };
 
-  // Fetch all from Supabase
   const fetchAllData = async () => {
     if (!supabaseClient || !navigator.onLine) return;
     try {
@@ -186,14 +255,12 @@ function App() {
     }
   };
 
-  // Enqueue offline action
   const enqueueAction = (action, table, payload) => {
     const newQueue = [...syncQueue, { id: Date.now(), action, table, payload }];
     setSyncQueue(newQueue);
     localStorage.setItem('psi_sync_queue', JSON.stringify(newQueue));
   };
 
-  // Process offline queue
   const processSyncQueue = async () => {
     if (!navigator.onLine || !supabaseClient || syncQueue.length === 0) return;
     const queue = [...syncQueue];
@@ -212,7 +279,6 @@ function App() {
     showToast('Cola offline sincronizada con Supabase', '☁️');
   };
 
-  // Current selected materia object
   const currentMateria = useMemo(() => {
     return materias.find(m => m.id === selectedMateriaId) || null;
   }, [materias, selectedMateriaId]);
@@ -236,13 +302,7 @@ function App() {
       created_at: formData.created_at || new Date().toISOString()
     };
 
-    let updated;
-    if (isEdit) {
-      updated = materias.map(m => m.id === payload.id ? payload : m);
-    } else {
-      updated = [...materias, payload];
-    }
-
+    const updated = isEdit ? materias.map(m => m.id === payload.id ? payload : m) : [...materias, payload];
     setMaterias(updated);
     localStorage.setItem('psi_materias_cache', JSON.stringify(updated));
     setModalMateria({ open: false, data: null });
@@ -286,13 +346,7 @@ function App() {
       created_at: formData.created_at || new Date().toISOString()
     };
 
-    let updated;
-    if (isEdit) {
-      updated = biblio.map(b => b.id === payload.id ? payload : b);
-    } else {
-      updated = [payload, ...biblio];
-    }
-
+    const updated = isEdit ? biblio.map(b => b.id === payload.id ? payload : b) : [payload, ...biblio];
     setBiblio(updated);
     localStorage.setItem('psi_biblio_cache', JSON.stringify(updated));
     setModalBiblio({ open: false, data: null });
@@ -392,13 +446,7 @@ function App() {
       created_at: formData.created_at || new Date().toISOString()
     };
 
-    let updated;
-    if (isEdit) {
-      updated = apuntes.map(a => a.id === payload.id ? payload : a);
-    } else {
-      updated = [payload, ...apuntes];
-    }
-
+    const updated = isEdit ? apuntes.map(a => a.id === payload.id ? payload : a) : [payload, ...apuntes];
     setApuntes(updated);
     localStorage.setItem('psi_apuntes_cache', JSON.stringify(updated));
     setModalApunte({ open: false, data: null });
@@ -470,7 +518,7 @@ function App() {
     }
   };
 
-  // PDF File Upload Handler (PDF.js OCR)
+  // PDF File Upload Handler (PDF.js)
   const handlePDFUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || file.type !== 'application/pdf') {
@@ -570,7 +618,6 @@ function App() {
     }
   };
 
-  // Export & Utilities
   const exportBackupJSON = () => {
     const data = { materias, biblio, clases, apuntes, pdfs, examenes, exportDate: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -628,7 +675,6 @@ function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Theme Switcher Toggle */}
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
               className="w-10 h-10 rounded-full bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card hover:scale-105"
@@ -637,7 +683,6 @@ function App() {
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-5 h-5 text-app-text" />
             </button>
 
-            {/* Supabase Status Pill */}
             <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
               <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-app-emerald shadow-[0_0_8px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
               <span className="hidden sm:inline">{isOnline ? 'En línea' : 'Sin conexión'}</span>
@@ -715,7 +760,7 @@ function App() {
               </div>
             )}
 
-            {/* Grid of Materias (Tablet 2 Cols, Desktop 3 Cols, Mobile 1 Col) */}
+            {/* Grid of Materias */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {materias.map(m => {
                 const textsInMat = biblio.filter(b => b.materia_id === m.id || b.materia === m.nombre);
@@ -744,7 +789,6 @@ function App() {
                         <Icon name="user" className="w-3.5 h-3.5" /> {m.docente || 'Profesor no especificado'}
                       </p>
 
-                      {/* Progress bar */}
                       <div className="mb-4">
                         <div className="flex justify-between text-xs font-bold mb-1">
                           <span className="text-app-muted">Lecturas ({leidos}/{textsInMat.length})</span>
@@ -812,7 +856,7 @@ function App() {
                 { id: 'clases', label: 'Protocolo de Clases', icon: 'presentation' },
                 { id: 'apuntes', label: 'Apuntes & Resúmenes', icon: 'file-edit' },
                 { id: 'pdfs', label: 'PDFs', icon: 'file-check' },
-                { id: 'examenes', label: 'Exámenes', icon: 'calendar' }
+                { id: 'examenes', label: 'Exámenes & Pendientes', icon: 'calendar' }
               ].map(t => (
                 <button
                   key={t.id}
@@ -919,6 +963,11 @@ function App() {
                             {t.va_parcial ? '⭐ Va al Parcial' : 'Lectura regular'}
                           </span>
                           <div className="flex gap-2">
+                            {t.link_resumen && (
+                              <a href={t.link_resumen} target="_blank" className="p-1.5 rounded-lg bg-app-emerald-bg text-app-emerald border border-app-emerald/30 text-xs font-bold flex items-center gap-1">
+                                <Icon name="external-link" className="w-3.5 h-3.5" /> Resumen
+                              </a>
+                            )}
                             <button onClick={() => setModalBiblio({ open: true, data: t })} className="p-1.5 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald">
                               <Icon name="edit-2" className="w-3.5 h-3.5" />
                             </button>
@@ -968,7 +1017,7 @@ function App() {
             {innerTab === 'apuntes' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {apuntes.filter(a => a.materia_id === selectedMateriaId || a.materia === currentMateria.nombre).map(a => (
-                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between">
+                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">{a.tipo}</span>
@@ -1010,25 +1059,84 @@ function App() {
               </div>
             )}
 
-            {/* 6. EXÁMENES */}
+            {/* 6. EXÁMENES & DESGLOSE PENDIENTES (ESTUDIO-APP CORE FEATURE) */}
             {innerTab === 'examenes' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <button onClick={() => setModalExamen({ open: true, data: null })} className="bg-app-emerald text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-emerald">
                   <Icon name="plus" className="w-4 h-4" /> Registrar Fecha de Examen
                 </button>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {examenes.filter(e => e.materia_id === selectedMateriaId || e.materia === currentMateria.nombre).map(ex => (
-                    <div key={ex.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="text-lg font-extrabold text-app-text">{ex.nombre}</h4>
-                          <p className="text-xs text-app-muted">📅 Fecha: {ex.fecha} • Modalidad: {ex.modalidad}</p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {examenes.filter(e => e.materia_id === selectedMateriaId || e.materia === currentMateria.nombre).map(ex => {
+                    // Filter texts associated to this exam / materia
+                    const relevantTexts = biblio.filter(b => (b.materia_id === selectedMateriaId || b.materia === currentMateria.nombre) && (b.va_parcial || b.nro_parcial === (ex.tipo.includes('2') ? 2 : 1)));
+                    const readCount = relevantTexts.filter(t => t.estado === 'Leído' || t.estado === 'Salteado').length;
+                    const pendingTexts = relevantTexts.filter(t => t.estado !== 'Leído' && t.estado !== 'Salteado');
+                    const pct = relevantTexts.length > 0 ? Math.round((readCount / relevantTexts.length) * 100) : 100;
+
+                    // Group pending by unit
+                    const pendingByUnit = {};
+                    pendingTexts.forEach(t => {
+                      const u = t.unidad || 'Unidad 1';
+                      if (!pendingByUnit[u]) pendingByUnit[u] = [];
+                      pendingByUnit[u].push(t);
+                    });
+
+                    return (
+                      <div key={ex.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
+                              {ex.tipo}
+                            </span>
+                            <h4 className="text-xl font-extrabold text-app-text mt-1">{ex.nombre}</h4>
+                            <p className="text-xs text-app-muted mt-0.5">📅 Fecha: {ex.fecha} • {ex.modalidad}</p>
+                          </div>
+                          <button onClick={() => handleDeleteExamen(ex.id)} className="text-app-ruby p-1.5"><Icon name="trash" className="w-4 h-4" /></button>
                         </div>
-                        <button onClick={() => handleDeleteExamen(ex.id)} className="text-app-ruby p-1.5"><Icon name="trash" className="w-4 h-4" /></button>
+
+                        {/* Progress Bar */}
+                        <div>
+                          <div className="flex justify-between text-xs font-bold mb-1">
+                            <span className="text-app-muted">Progreso de Lectura</span>
+                            <span className="text-app-emerald">{readCount}/{relevantTexts.length} ({pct}%)</span>
+                          </div>
+                          <div className="w-full h-2.5 bg-app-surface rounded-full overflow-hidden border border-app-border">
+                            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                          </div>
+                        </div>
+
+                        {/* Pending Texts by Unit Breakdown */}
+                        {pendingTexts.length === 0 ? (
+                          <div className="p-3 bg-app-emerald-bg border border-app-emerald/20 rounded-xl text-xs font-bold text-app-emerald flex items-center gap-2">
+                            <Icon name="check-circle" className="w-4 h-4" /> ¡Todo listo para este examen! No hay textos pendientes.
+                          </div>
+                        ) : (
+                          <div className="space-y-3 pt-2">
+                            <div className="text-xs font-extrabold uppercase tracking-wider text-app-ruby flex items-center gap-1.5">
+                              <Icon name="alert-circle" className="w-3.5 h-3.5" /> Falta Leer para este Parcial ({pendingTexts.length})
+                            </div>
+                            {Object.entries(pendingByUnit).map(([unidad, txs]) => (
+                              <div key={unidad} className="bg-app-surface p-3.5 rounded-2xl border border-app-border space-y-2">
+                                <div className="text-xs font-extrabold text-app-emerald">{unidad}</div>
+                                {txs.map(t => (
+                                  <div key={t.id} className="flex items-center justify-between gap-2 text-xs py-1 border-b border-app-border/40 last:border-0">
+                                    <span className="text-app-text font-semibold flex-1 truncate">{t.titulo_texto}</span>
+                                    <button
+                                      onClick={() => handleToggleBiblioEstado(t.id)}
+                                      className="px-2 py-0.5 rounded-md bg-app-card border border-app-border text-[11px] font-bold text-app-muted hover:text-app-emerald hover:border-app-emerald"
+                                    >
+                                      Marcar Leído
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      {ex.temas && <p className="text-xs text-app-text bg-app-surface p-3 rounded-xl border border-app-border">{ex.temas}</p>}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1042,7 +1150,6 @@ function App() {
               <Icon name="file-up" className="w-7 h-7 text-app-emerald" /> Ingestión Inteligente de PDFs
             </h2>
 
-            {/* Dropzone */}
             <label className="block border-2 border-dashed border-app-emerald/60 hover:border-app-emerald bg-app-card/60 p-10 rounded-3xl text-center cursor-pointer shadow-fluffy transition-all hover:bg-app-emerald-bg/10">
               <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-2xl mx-auto flex items-center justify-center mb-3">
                 <Icon name="upload-cloud" className="w-8 h-8" />
@@ -1052,7 +1159,6 @@ function App() {
               <input type="file" accept="application/pdf" className="hidden" onChange={handlePDFUpload} />
             </label>
 
-            {/* Ingestion Match Form */}
             {ingestionData && (
               <form onSubmit={handleConfirmIngestion} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-fluffy space-y-4">
                 <div className="flex justify-between items-center">
@@ -1114,7 +1220,6 @@ function App() {
               </form>
             )}
 
-            {/* Recent Ingested PDFs */}
             <div className="space-y-3">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                 <Icon name="history" className="w-5 h-5 text-app-emerald" /> Documentos Ingestados Recientemente
@@ -1149,7 +1254,6 @@ function App() {
               </button>
             </div>
 
-            {/* Profile Hero */}
             <div className="bg-gradient-to-br from-app-surface to-app-card border border-app-border p-6 md:p-8 rounded-3xl shadow-fluffy flex flex-wrap items-center gap-6">
               <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-500 to-blue-600 text-white flex items-center justify-center text-4xl shadow-emerald border-2 border-white/20">
                 🧠
@@ -1165,7 +1269,6 @@ function App() {
               </div>
             </div>
 
-            {/* Global Stats */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { lbl: 'Materias Activas', val: materias.length, icon: 'book' },
@@ -1185,7 +1288,6 @@ function App() {
               ))}
             </div>
 
-            {/* Materias Management in Profile */}
             <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                 <Icon name="sliders" className="w-5 h-5 text-app-emerald" /> Configuración de Materias
@@ -1206,7 +1308,6 @@ function App() {
               </div>
             </div>
 
-            {/* Backups & Actions */}
             <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                 <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Acciones Rápidas
@@ -1256,7 +1357,7 @@ function App() {
         )}
       </main>
 
-      {/* ══ MODAL MATERIA ══ */}
+      {/* ══ MODALS ══ */}
       {modalMateria.open && (
         <ModalMateria
           initialData={modalMateria.data}
@@ -1265,7 +1366,6 @@ function App() {
         />
       )}
 
-      {/* ══ MODAL BIBLIOGRAFIA ══ */}
       {modalBiblio.open && (
         <ModalBiblio
           initialData={modalBiblio.data}
@@ -1274,7 +1374,6 @@ function App() {
         />
       )}
 
-      {/* ══ MODAL CLASE ══ */}
       {modalClase.open && (
         <ModalClase
           initialData={modalClase.data}
@@ -1283,16 +1382,14 @@ function App() {
         />
       )}
 
-      {/* ══ MODAL APUNTE ══ */}
       {modalApunte.open && (
-        <ModalApunte
+        <ModalApunteSplitView
           initialData={modalApunte.data}
           onClose={() => setModalApunte({ open: false, data: null })}
           onSave={handleSaveApunte}
         />
       )}
 
-      {/* ══ MODAL EXAMEN ══ */}
       {modalExamen.open && (
         <ModalExamen
           initialData={modalExamen.data}
@@ -1301,7 +1398,6 @@ function App() {
         />
       )}
 
-      {/* ══ MODAL PDF VIEWER ══ */}
       {modalPDFViewer.open && (
         <ModalPDFViewer
           data={modalPDFViewer.data}
@@ -1320,7 +1416,7 @@ function App() {
   );
 }
 
-// ── 4. MODAL COMPONENTS ──
+// ── 5. MODAL COMPONENTS ──
 
 function ModalMateria({ initialData, onClose, onSave }) {
   const [form, setForm] = useState(initialData || {
@@ -1444,9 +1540,14 @@ function ModalBiblio({ initialData, onClose, onSave }) {
             <input value={form.autores} onChange={e => setForm({ ...form, autores: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="Apellido, Nombre" />
           </div>
 
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="bibVaParcial" checked={form.va_parcial} onChange={e => setForm({ ...form, va_parcial: e.target.checked })} className="w-5 h-5 accent-emerald-500 rounded" />
-            <label htmlFor="bibVaParcial" className="text-sm font-bold text-app-amber cursor-pointer">⭐ Va para el Parcial</label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="bibVaParcial" checked={form.va_parcial} onChange={e => setForm({ ...form, va_parcial: e.target.checked })} className="w-5 h-5 accent-emerald-500 rounded" />
+              <label htmlFor="bibVaParcial" className="text-sm font-bold text-app-amber cursor-pointer">⭐ Va para el Parcial</label>
+            </div>
+            <div>
+              <input type="url" value={form.link_resumen || ''} onChange={e => setForm({ ...form, link_resumen: e.target.value })} placeholder="Link Drive / Docs" className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none" />
+            </div>
           </div>
 
           <div>
@@ -1508,64 +1609,92 @@ function ModalClase({ initialData, onClose, onSave }) {
   );
 }
 
-function ModalApunte({ initialData, onClose, onSave }) {
+// ── SPLIT-VIEW MARKDOWN NOTES EDITOR ──
+function ModalApunteSplitView({ initialData, onClose, onSave }) {
   const [form, setForm] = useState(initialData || {
     titulo: '', tipo: 'Resumen', unidad: 'Unidad 1', va_parcial: false, contenido: ''
   });
-  const [preview, setPreview] = useState(false);
+  const textareaRef = useRef(null);
+
+  const insertSyntax = (prefix, suffix = '') => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const text = el.value;
+    const sel = text.substring(start, end);
+    const newText = text.substring(0, start) + prefix + sel + suffix + text.substring(end);
+    setForm({ ...form, contenido: newText });
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + prefix.length, end + prefix.length);
+    }, 50);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 shadow-fluffy space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Apunte' : 'Nuevo Apunte'}</h3>
-          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text">✕</button>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-5xl h-[92vh] flex flex-col rounded-3xl p-6 shadow-fluffy space-y-4 overflow-hidden">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div>
+            <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Apunte' : 'Nuevo Apunte Académico'}</h3>
+            <span className="text-xs text-app-muted font-bold">Editor Split-View en Tiempo Real</span>
+          </div>
+          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text text-lg">✕</button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Título</label>
-              <input value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tipo</label>
-              <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none">
-                <option value="Resumen">📋 Resumen Completo</option>
-                <option value="Mapa Conceptual">🗺️ Mapa Conceptual</option>
-                <option value="Fichas">🗂️ Fichas de Repaso</option>
-                <option value="Notas de Clase">🎓 Notas de Clase</option>
-              </select>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <input
+            value={form.titulo}
+            onChange={e => setForm({ ...form, titulo: e.target.value })}
+            placeholder="Título del Apunte (Ej: Saussure - El Signo)"
+            className="p-2.5 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none col-span-1 sm:col-span-2"
+            required
+          />
+          <select
+            value={form.tipo}
+            onChange={e => setForm({ ...form, tipo: e.target.value })}
+            className="p-2.5 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
+          >
+            <option value="Resumen">📋 Resumen Completo</option>
+            <option value="Mapa Conceptual">🗺️ Mapa Conceptual</option>
+            <option value="Fichas">🗂️ Fichas de Repaso</option>
+            <option value="Notas de Clase">🎓 Notas de Clase</option>
+          </select>
+        </div>
 
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <input type="checkbox" id="apuVaParcial" checked={form.va_parcial} onChange={e => setForm({ ...form, va_parcial: e.target.checked })} className="w-5 h-5 accent-emerald-500 rounded" />
-              <label htmlFor="apuVaParcial" className="text-sm font-bold text-app-amber cursor-pointer">⭐ Va para el Parcial</label>
-            </div>
-            <button type="button" onClick={() => setPreview(!preview)} className="px-3 py-1 bg-app-surface border border-app-border rounded-lg text-xs font-bold text-app-text">
-              {preview ? '✏️ Modo Editor' : '👁️ Vista Previa'}
-            </button>
-          </div>
+        {/* Toolbar */}
+        <div className="flex flex-wrap gap-1.5 p-2 bg-app-surface border border-app-border rounded-xl">
+          <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">B</button>
+          <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs italic font-bold">I</button>
+          <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">H2</button>
+          <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">H3</button>
+          <button type="button" onClick={() => insertSyntax('- ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">• Lista</button>
+          <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">❝ Cita</button>
+        </div>
 
-          {preview ? (
-            <div className="p-4 bg-app-surface border border-app-border rounded-2xl min-h-[220px] text-sm text-app-text leading-relaxed whitespace-pre-wrap">
-              {form.contenido || 'Sin contenido aún...'}
-            </div>
-          ) : (
-            <textarea
-              value={form.contenido}
-              onChange={e => setForm({ ...form, contenido: e.target.value })}
-              className="w-full h-56 p-4 rounded-2xl bg-app-surface border border-app-border text-sm text-app-text outline-none leading-relaxed font-mono"
-              placeholder="## Ejes principales...&#10;&#10;**Concepto:** Definición..."
-            />
-          )}
+        {/* Split View Editor & Live Preview */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
+          <textarea
+            ref={textareaRef}
+            value={form.contenido}
+            onChange={e => setForm({ ...form, contenido: e.target.value })}
+            placeholder="Escribe tu apunte con Markdown..."
+            className="w-full h-full p-4 rounded-2xl bg-app-surface border border-app-border text-sm text-app-text outline-none font-mono resize-none overflow-y-auto"
+          />
 
-          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110">
-            📝 Guardar Apunte en Supabase
-          </button>
-        </form>
+          <div
+            className="w-full h-full p-5 rounded-2xl bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-sm leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en vivo aparecerá aquí...</span>' }}
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onSave(form)}
+          className="w-full py-3 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110"
+        >
+          📝 Guardar Apunte en Supabase
+        </button>
       </div>
     </div>
   );
@@ -1639,7 +1768,7 @@ function ModalPDFViewer({ data, onClose }) {
   );
 }
 
-// ── 5. MOUNT REACT APP ──
+// ── 6. MOUNT REACT APP ──
 const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
