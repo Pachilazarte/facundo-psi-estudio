@@ -1,0 +1,83 @@
+/* ======================================================
+   PSIESTUDIO ULTRA — COLOR TOKENS & BASE PALETTE
+   Centralized CSS Color System for React + Tailwind
+   ====================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ── CREAM LIGHT PALETTE (DEFAULT) ── */
+  --color-bg-base: #FBF8F3;
+  --color-bg-surface: #F4EFE6;
+  --color-bg-elevated: #EDE5D8;
+  --color-bg-card: #FFFFFF;
+  --color-bg-modal: #FAF7F2;
+
+  --color-text-main: #18202F;
+  --color-text-muted: #64748B;
+  --color-text-faint: #94A3B8;
+
+  --color-border-subtle: #EAE2D5;
+  --color-border-medium: #DCCFBC;
+  --color-border-card: #E8E0D2;
+
+  --color-emerald-main: #10B981;
+  --color-emerald-dark: #0F766E;
+  --color-emerald-bg: rgba(16, 185, 129, 0.12);
+
+  --color-navy-main: #2563EB;
+  --color-navy-dark: #1E3A8A;
+  --color-navy-bg: rgba(37, 99, 235, 0.12);
+
+  --color-amber-main: #F59E0B;
+  --color-amber-bg: rgba(245, 158, 11, 0.12);
+
+  --color-ruby-main: #EF4444;
+  --color-ruby-bg: rgba(239, 68, 68, 0.12);
+
+  --shadow-fluffy: 0 14px 40px -6px rgba(160, 140, 110, 0.18);
+  --shadow-card: 0 8px 24px -4px rgba(160, 140, 110, 0.12);
+  --shadow-emerald: 0 8px 24px rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="dark"] {
+  /* ── OBSIDIAN DARK PALETTE ── */
+  --color-bg-base: #080C14;
+  --color-bg-surface: #0E1524;
+  --color-bg-elevated: #151F33;
+  --color-bg-card: #111A2E;
+  --color-bg-modal: #0B101D;
+
+  --color-text-main: #F8FAFC;
+  --color-text-muted: #94A3B8;
+  --color-text-faint: #475569;
+
+  --color-border-subtle: rgba(226, 215, 197, 0.08);
+  --color-border-medium: rgba(226, 215, 197, 0.16);
+  --color-border-card: rgba(255, 255, 255, 0.08);
+
+  --color-emerald-main: #10B981;
+  --color-emerald-dark: #0A3D2A;
+  --color-emerald-bg: rgba(16, 185, 129, 0.15);
+
+  --color-navy-main: #3B82F6;
+  --color-navy-dark: #1E293B;
+  --color-navy-bg: rgba(59, 130, 246, 0.15);
+
+  --shadow-fluffy: 0 14px 40px -6px rgba(0, 0, 0, 0.7);
+  --shadow-card: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+}
+
+body {
+  background-color: var(--color-bg-base);
+  color: var(--color-text-main);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
+}
+
+/* Custom Scrollbar for Fluffy Aesthetic */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-medium); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-emerald-main); }
