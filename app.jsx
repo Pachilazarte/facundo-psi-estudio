@@ -304,6 +304,26 @@ function App() {
     return detected;
   }, [currentMateriaTexts]);
 
+  const currentMateriaExams = useMemo(() => {
+    if (!currentMateria) return [];
+    return examenes.filter(e => e.materia_id === currentMateria.id || e.materia === currentMateria.nombre);
+  }, [examenes, currentMateria]);
+
+  const currentMateriaClases = useMemo(() => {
+    if (!currentMateria) return [];
+    return clases.filter(c => c.materia_id === currentMateria.id || c.materia === currentMateria.nombre);
+  }, [clases, currentMateria]);
+
+  const currentMateriaApuntes = useMemo(() => {
+    if (!currentMateria) return [];
+    return apuntes.filter(a => a.materia_id === currentMateria.id || a.materia === currentMateria.nombre);
+  }, [apuntes, currentMateria]);
+
+  const currentMateriaPdfs = useMemo(() => {
+    if (!currentMateria) return [];
+    return pdfs.filter(p => p.materia_id === currentMateria.id || p.materia === currentMateria.nombre);
+  }, [pdfs, currentMateria]);
+
   // Global Next Exam Calculation
   const nextExam = useMemo(() => {
     const hoyMs = new Date().setHours(0, 0, 0, 0);
@@ -712,7 +732,7 @@ function App() {
       {/* ══ HEADER ══ */}
       <header className="sticky top-0 z-40 bg-app-base/90 backdrop-blur-xl border-b border-app-border px-4 md:px-8 py-3 transition-colors">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('materias'); setSelectedMateriaId(null); }}>
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
               <Icon name="graduation-cap" className="w-5 h-5 text-white" size={22} />
             </div>
@@ -726,50 +746,76 @@ function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Desktop Navigation Tabs */}
+          <div className="hidden md:flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-2xl">
+            {[
+              { id: 'materias', label: 'Aulas & Materias', icon: 'book-open' },
+              { id: 'pdf', label: 'Ingestión PDF', icon: 'file-text' },
+              { id: 'perfil', label: 'Mi Perfil', icon: 'user' },
+              { id: 'system', label: 'Sistema', icon: 'cpu' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveTab(tab.id); setSelectedMateriaId(null); }}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-app-card text-app-emerald shadow-card border border-app-border'
+                    : 'text-app-muted hover:text-app-text'
+                }`}
+              >
+                <Icon name={tab.icon} className="w-3.5 h-3.5" />
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2.5">
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="w-10 h-10 rounded-full bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card hover:scale-105"
+              className="w-9 h-9 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card hover:scale-105"
               title="Alternar Modo Crema / Oscuro"
             >
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-4 h-4 text-app-text" />
             </button>
 
             {/* Supabase Status */}
-            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
               <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-app-emerald shadow-[0_0_8px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
               <span className="hidden sm:inline">{isOnline ? 'Cloud Activo' : 'Offline'}</span>
             </div>
           </div>
         </div>
-
-        {/* ══ NAV TABS ══ */}
-        <div className="max-w-7xl mx-auto mt-2 flex gap-2 overflow-x-auto no-scrollbar">
-          {[
-            { id: 'materias', label: 'Materias', icon: 'book-open' },
-            { id: 'pdf', label: 'Ingestión PDF', icon: 'file-text' },
-            { id: 'perfil', label: 'Mi Perfil', icon: 'user' },
-            { id: 'system', label: 'Sistema', icon: 'cpu' },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setSelectedMateriaId(null); }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-sm font-bold transition-all border-b-2 whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-app-emerald text-app-emerald bg-app-emerald/10'
-                  : 'border-transparent text-app-muted hover:text-app-text hover:bg-app-surface'
-              }`}
-            >
-              <Icon name={tab.icon} className="w-4 h-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
       </header>
 
+      {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-3 py-2 flex justify-around items-center shadow-fluffy">
+        {[
+          { id: 'materias', label: 'Aulas', icon: 'book-open' },
+          { id: 'pdf', label: 'PDF OCR', icon: 'file-text' },
+          { id: 'perfil', label: 'Mi Perfil', icon: 'user' },
+          { id: 'system', label: 'Sistema', icon: 'cpu' },
+        ].map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => { setActiveTab(tab.id); if (tab.id !== 'materias') setSelectedMateriaId(null); }}
+              className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+                isActive ? 'text-app-emerald font-extrabold scale-105' : 'text-app-muted hover:text-app-text font-medium'
+              }`}
+            >
+              <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-app-emerald-bg border border-app-emerald/30' : ''}`}>
+                <Icon name={tab.icon} className={`w-4 h-4 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
+              </div>
+              <span className="text-[10px] tracking-tight mt-0.5">{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       {/* ══ MAIN VIEW CONTAINER ══ */}
-      <main className="max-w-7xl mx-auto p-4 md:p-8 pb-32">
+      <main className="max-w-7xl mx-auto p-3.5 md:p-8 pb-28 md:pb-16">
 
         {/* ── TAB: MATERIAS (AULAS Y CARPETAS) ── */}
         {activeTab === 'materias' && !selectedMateriaId && (
@@ -790,20 +836,20 @@ function App() {
                   const m = materias.find(x => x.nombre.toLowerCase() === nextExam.materia.toLowerCase());
                   if (m) setSelectedMateriaId(m.id);
                 }}
-                className="bg-gradient-to-r from-app-surface to-app-card border border-app-border hover:border-app-emerald p-5 rounded-2xl shadow-fluffy flex items-center gap-4 cursor-pointer transition-all hover:-translate-y-0.5"
+                className="bg-gradient-to-r from-app-surface to-app-card border border-app-border hover:border-app-emerald p-4 sm:p-5 rounded-2xl shadow-fluffy flex items-center gap-3.5 cursor-pointer transition-all hover:-translate-y-0.5"
               >
-                <div className="w-14 text-center">
-                  <div className="text-3xl font-black text-app-emerald leading-none">
+                <div className="w-12 sm:w-14 text-center">
+                  <div className="text-2xl sm:text-3xl font-black text-app-emerald leading-none">
                     {Math.ceil((new Date(nextExam.fecha + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 864e5) || '0'}
                   </div>
-                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-muted mt-1">Días</div>
+                  <div className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider text-app-muted mt-1">Días</div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-extrabold uppercase tracking-wider text-app-emerald flex items-center gap-1.5">
-                    <Icon name="bell" className="w-3.5 h-3.5" /> Próximo Examen Académico
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald flex items-center gap-1">
+                    <Icon name="bell" className="w-3.5 h-3.5" /> Próximo Examen
                   </div>
-                  <div className="text-lg font-extrabold text-app-text truncate">{nextExam.nombre}</div>
-                  <div className="text-xs text-app-muted mt-0.5">{nextExam.materia} • {nextExam.fecha}</div>
+                  <div className="text-base sm:text-lg font-extrabold text-app-text truncate">{nextExam.nombre}</div>
+                  <div className="text-xs text-app-muted mt-0.5 truncate">{nextExam.materia} • {nextExam.fecha}</div>
                 </div>
                 <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
                   Ver Aula <Icon name="chevron-right" className="w-3.5 h-3.5" />
@@ -812,7 +858,7 @@ function App() {
             )}
 
             {/* Materias Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
               {materias.map(m => {
                 const textsInMat = biblio.filter(b => b.materia_id === m.id || b.materia === m.nombre);
                 const leidos = textsInMat.filter(b => b.estado === 'Leído' || b.estado === 'Salteado').length;
@@ -824,7 +870,7 @@ function App() {
                   <div
                     key={m.id}
                     onClick={() => setSelectedMateriaId(m.id)}
-                    className="bg-app-card border border-app-border hover:border-app-emerald p-6 rounded-2xl shadow-card hover:shadow-fluffy transition-all duration-300 cursor-pointer flex flex-col justify-between hover:-translate-y-1"
+                    className="bg-app-card border border-app-border hover:border-app-emerald p-5 sm:p-6 rounded-3xl shadow-card hover:shadow-fluffy transition-all duration-300 cursor-pointer flex flex-col justify-between hover:-translate-y-1"
                   >
                     <div>
                       <div className="flex justify-between items-start mb-3">
@@ -871,94 +917,130 @@ function App() {
 
         {/* ── TAB: AULA / MATERIA DETALLE ── */}
         {activeTab === 'materias' && selectedMateriaId && currentMateria && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-app-border">
-              <div className="flex items-center gap-3">
+          <div className="space-y-5 animate-fade-in">
+            
+            {/* Aula Header & Quick Actions Card */}
+            <div className="bg-app-card border border-app-border p-4 sm:p-6 rounded-3xl shadow-card space-y-4">
+              <div className="flex items-center justify-between gap-3">
                 <button
                   onClick={() => setSelectedMateriaId(null)}
-                  className="px-3.5 py-2 rounded-xl bg-app-card border border-app-border hover:border-app-emerald text-sm font-bold text-app-text flex items-center gap-1.5 shadow-card transition-all"
+                  className="px-3.5 py-1.5 rounded-xl bg-app-surface border border-app-border hover:border-app-emerald text-xs font-bold text-app-text flex items-center gap-1.5 shadow-card transition-all"
                 >
-                  <Icon name="arrow-left" className="w-4 h-4" /> Todas las Aulas
+                  <Icon name="arrow-left" className="w-3.5 h-3.5" /> Volver a Aulas
                 </button>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-app-text">{currentMateria.nombre}</h2>
+                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
+                  {currentMateria.abreviatura || 'MAT'}
+                </span>
               </div>
 
-              {/* Action Buttons in Materia */}
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => setModalExamen({ open: true, data: null })} className="px-3.5 py-2 rounded-xl bg-app-emerald text-white text-xs font-bold flex items-center gap-1.5 shadow-emerald hover:brightness-110">
-                  <Icon name="calendar-plus" className="w-3.5 h-3.5 text-white" /> Crear Examen
-                </button>
-                <button onClick={() => setModalBiblio({ open: true, data: null })} className="px-3.5 py-2 rounded-xl bg-app-card border border-app-border text-xs font-bold flex items-center gap-1.5 shadow-card hover:border-app-emerald">
-                  <Icon name="plus" className="w-3.5 h-3.5" /> Agregar Texto
-                </button>
-                <button onClick={() => setModalBiblioBatch(true)} className="px-3.5 py-2 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center gap-1.5 shadow-card hover:border-app-emerald">
-                  <Icon name="list-plus" className="w-3.5 h-3.5" /> Importar Programa
-                </button>
-                <button onClick={() => setModalClase({ open: true, data: null })} className="px-3.5 py-2 rounded-xl bg-app-navy text-white text-xs font-bold flex items-center gap-1.5 shadow-card hover:brightness-110">
-                  <Icon name="video" className="w-3.5 h-3.5" /> Protocolo Clase
-                </button>
-                <button onClick={() => setModalApunte({ open: true, data: null })} className="px-3.5 py-2 rounded-xl bg-app-amber text-black text-xs font-bold flex items-center gap-1.5 shadow-card hover:brightness-110">
-                  <Icon name="edit-3" className="w-3.5 h-3.5" /> Nuevo Apunte
-                </button>
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-black text-app-text leading-tight">{currentMateria.nombre}</h2>
+                <p className="text-xs text-app-muted mt-1 flex items-center gap-1.5">
+                  <Icon name="user" className="w-3.5 h-3.5 text-app-emerald" /> {currentMateria.docente || 'Docente no asignado'} • {currentMateria.cuatrimestre === 0 ? 'Anual' : `${currentMateria.cuatrimestre}° Cuatrimestre`}
+                </p>
+              </div>
+
+              {/* Acciones Rápidas en Grid Móvil */}
+              <div className="pt-3 border-t border-app-border">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald mb-2 flex items-center gap-1">
+                  <Icon name="zap" className="w-3.5 h-3.5 text-app-emerald" /> Acciones Rápidas
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                  <button onClick={() => setModalExamen({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-emerald text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-emerald hover:brightness-110">
+                    <Icon name="calendar-plus" className="w-3.5 h-3.5 text-white" /> Crear Examen
+                  </button>
+                  <button onClick={() => setModalBiblio({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center justify-center gap-1.5 hover:border-app-emerald text-app-text">
+                    <Icon name="plus" className="w-3.5 h-3.5 text-app-emerald" /> Agregar Texto
+                  </button>
+                  <button onClick={() => setModalBiblioBatch(true)} className="p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center justify-center gap-1.5 hover:border-app-emerald text-app-text col-span-2 sm:col-span-1">
+                    <Icon name="file-spreadsheet" className="w-3.5 h-3.5 text-app-emerald" /> Carga Rápida
+                  </button>
+                  <button onClick={() => setModalClase({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-navy-bg text-app-navy border border-app-navy/30 text-xs font-bold flex items-center justify-center gap-1.5 hover:brightness-110">
+                    <Icon name="presentation" className="w-3.5 h-3.5" /> Protocolo Clase
+                  </button>
+                  <button onClick={() => setModalApunte({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-amber-bg text-app-amber border border-app-amber/30 text-xs font-bold flex items-center justify-center gap-1.5 hover:brightness-110">
+                    <Icon name="file-edit" className="w-3.5 h-3.5" /> Nuevo Apunte
+                  </button>
+                </div>
               </div>
             </div>
 
-            {/* Inner Tabs Navigation */}
-            <div className="flex gap-2 overflow-x-auto p-1.5 bg-app-surface border border-app-border rounded-2xl no-scrollbar">
-              {[
-                { id: 'params', label: 'Parámetros & Temario', icon: 'clipboard-list' },
-                { id: 'biblio', label: `Bibliografía (${currentMateriaTexts.length})`, icon: 'book-marked' },
-                { id: 'examenes', label: 'Exámenes & Vinculación', icon: 'calendar-check' },
-                { id: 'clases', label: 'Protocolo de Clases', icon: 'presentation' },
-                { id: 'apuntes', label: 'Apuntes & Resúmenes', icon: 'file-edit' },
-                { id: 'pdfs', label: 'PDFs Ingestados', icon: 'file-check' }
-              ].map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setInnerTab(t.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-bold whitespace-nowrap transition-all ${
-                    innerTab === t.id
-                      ? 'bg-app-card text-app-emerald shadow-card border border-app-border'
-                      : 'text-app-muted hover:text-app-text'
-                  }`}
-                >
-                  <Icon name={t.icon} className="w-4 h-4" /> {t.label}
-                </button>
-              ))}
+            {/* ══ SECCIONES DEL AULA EN GRID RESPONSIVO (NO SLIDE / 100% VISIBLE) ══ */}
+            <div className="space-y-2">
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-app-muted flex items-center gap-1.5">
+                <Icon name="layout-grid" className="w-3.5 h-3.5 text-app-emerald" /> Secciones del Aula
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {[
+                  { id: 'params', label: 'Cátedra & Temario', count: null, icon: 'clipboard-list' },
+                  { id: 'biblio', label: 'Bibliografía', count: currentMateriaTexts.length, icon: 'book-marked' },
+                  { id: 'examenes', label: 'Exámenes & Link', count: currentMateriaExams.length, icon: 'calendar-check' },
+                  { id: 'clases', label: 'Clases', count: currentMateriaClases.length, icon: 'presentation' },
+                  { id: 'apuntes', label: 'Apuntes', count: currentMateriaApuntes.length, icon: 'file-edit' },
+                  { id: 'pdfs', label: 'PDFs OCR', count: currentMateriaPdfs.length, icon: 'file-check' }
+                ].map(sec => {
+                  const isSelected = innerTab === sec.id;
+                  return (
+                    <button
+                      key={sec.id}
+                      onClick={() => setInnerTab(sec.id)}
+                      className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                        isSelected
+                          ? 'bg-app-card border-app-emerald shadow-card ring-1 ring-app-emerald scale-[1.02]'
+                          : 'bg-app-surface border-app-border text-app-muted hover:border-app-emerald/50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-2">
+                        <Icon name={sec.icon} className={`w-4 h-4 ${isSelected ? 'text-app-emerald' : 'text-app-muted'}`} />
+                        {sec.count !== null && (
+                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-text'
+                          }`}>
+                            {sec.count}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-xs font-extrabold leading-tight ${isSelected ? 'text-app-text' : 'text-app-muted'}`}>
+                        {sec.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* 1. PARÁMETROS & TEMARIO */}
             {innerTab === 'params' && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card">
+              <div className="space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Docente / Cátedra</div>
                     <div className="text-lg font-extrabold text-app-text">{currentMateria.docente || 'Sin docente asignado'}</div>
                     <div className="text-xs text-app-muted mt-2">Año: {currentMateria.año_cursado || 2026} • Cuatrimestre: {currentMateria.cuatrimestre || '2'}</div>
                   </div>
-                  <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card">
+                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Fechas de Parciales</div>
                     <div className="text-sm font-extrabold text-app-text">1° Parcial: {currentMateria.fecha_parcial1 || 'A definir'}</div>
                     <div className="text-sm font-extrabold text-app-text mt-1">2° Parcial: {currentMateria.fecha_parcial2 || 'A definir'}</div>
                     <div className="text-xs text-app-muted mt-2">Modalidad: {currentMateria.modalidad_parcial || 'Presencial'}</div>
                   </div>
-                  <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card">
+                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Examen Final & Enlaces</div>
                     <div className="text-sm font-extrabold text-app-text">Final: {currentMateria.fecha_final || 'A definir'}</div>
-                    <div className="flex gap-2 mt-3">
+                    <div className="flex flex-wrap gap-2 mt-3">
                       {currentMateria.link_programa && <a href={currentMateria.link_programa} target="_blank" className="px-3 py-1 bg-app-emerald-bg text-app-emerald text-xs font-bold rounded-lg border border-app-emerald/30">Programa Oficial</a>}
                       {currentMateria.link_drive && <a href={currentMateria.link_drive} target="_blank" className="px-3 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-lg border border-app-navy/30">Carpeta Drive</a>}
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-app-card border border-app-border p-6 rounded-2xl shadow-card space-y-3">
+                <div className="bg-app-card border border-app-border p-5 sm:p-6 rounded-3xl shadow-card space-y-3">
                   <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
                     <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 1° Parcial
                   </h4>
                   <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial1 || 'No hay temario cargado para el 1° parcial.'}</p>
                 </div>
-                <div className="bg-app-card border border-app-border p-6 rounded-2xl shadow-card space-y-3">
+                <div className="bg-app-card border border-app-border p-5 sm:p-6 rounded-3xl shadow-card space-y-3">
                   <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
                     <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 2° Parcial
                   </h4>
@@ -967,27 +1049,36 @@ function App() {
               </div>
             )}
 
-            {/* 2. BIBLIOGRAFÍA & FORMATO ESTABLECIDO */}
+            {/* 2. BIBLIOGRAFÍA & FORMATO ESTABLECIDO (NO HORIZONTAL SLIDER) */}
             {innerTab === 'biblio' && (
               <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                    {['todos', 'Obligatorio', 'Optativo', 'parcial', 'Pendiente', 'Leído', 'Resumiendo'].map(f => (
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                  {/* Filter Chips wrapping cleanly */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: 'todos', label: 'Todos' },
+                      { id: 'Obligatorio', label: 'Obligatorio' },
+                      { id: 'Optativo', label: 'Optativo' },
+                      { id: 'parcial', label: 'Va al Parcial' },
+                      { id: 'Pendiente', label: 'Pendientes' },
+                      { id: 'Resumiendo', label: 'Resumiendo' },
+                      { id: 'Leído', label: 'Leídos' },
+                    ].map(f => (
                       <button
-                        key={f}
-                        onClick={() => setBiblioFilter(f)}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
-                          biblioFilter === f
+                        key={f.id}
+                        onClick={() => setBiblioFilter(f.id)}
+                        className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                          biblioFilter === f.id
                             ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
-                            : 'bg-app-card border-app-border text-app-muted hover:text-app-text'
+                            : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
                         }`}
                       >
-                        {f === 'todos' ? 'Todos' : f === 'parcial' ? 'Va al Parcial' : f}
+                        {f.label}
                       </button>
                     ))}
                   </div>
 
-                  <button onClick={() => setModalBiblioBatch(true)} className="px-3 py-1.5 bg-app-surface border border-app-border rounded-xl text-xs font-bold text-app-text hover:border-app-emerald flex items-center gap-1.5">
+                  <button onClick={() => setModalBiblioBatch(true)} className="px-3.5 py-1.5 bg-app-surface border border-app-border rounded-xl text-xs font-bold text-app-text hover:border-app-emerald flex items-center gap-1.5 shadow-card">
                     <Icon name="file-spreadsheet" className="w-3.5 h-3.5 text-app-emerald" /> Carga Estructurada
                   </button>
                 </div>
@@ -1001,7 +1092,7 @@ function App() {
                       return b.estado === biblioFilter;
                     })
                     .map(t => (
-                      <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                      <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                         <div>
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex gap-1.5 items-center">
