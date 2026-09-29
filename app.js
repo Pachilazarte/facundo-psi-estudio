@@ -1,6 +1,6 @@
 /* ======================================================
    PSIESTUDIO ULTRA — HIGH-FIDELITY APP ENGINE
-   Academic Management, Supabase Sync & Markdown Engine
+   Dual Theme, Lucide Icons, Supabase Sync & Markdown
    ====================================================== */
 
 // ── 1. GLOBAL STATE ──
@@ -14,6 +14,7 @@ const STATE = {
   apuntes: JSON.parse(localStorage.getItem('psi_apuntes_cache') || '[]'),
   pdfs: JSON.parse(localStorage.getItem('psi_pdfs_cache') || '[]'),
   examenes: JSON.parse(localStorage.getItem('psi_examenes_cache') || '[]'),
+  theme: localStorage.getItem('psi_theme') || 'light',
   currentMateriaId: null,
   currentPDFDoc: null,
   currentPDFPage: 1,
@@ -29,7 +30,35 @@ const SUPABASE_CONFIG = {
 // DOM Helper
 const $ = (id) => document.getElementById(id);
 
-// ── 2. TOAST NOTIFICATION ──
+// Refresh Lucide Icons Helper
+function refreshIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+}
+
+// ── 2. THEME CONTROLLER ──
+function initTheme() {
+  document.documentElement.setAttribute('data-theme', STATE.theme);
+  updateThemeIcon();
+}
+
+function toggleTheme() {
+  STATE.theme = STATE.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', STATE.theme);
+  localStorage.setItem('psi_theme', STATE.theme);
+  updateThemeIcon();
+  showToast(STATE.theme === 'dark' ? 'Modo Oscuro activado' : 'Modo Crema activado', STATE.theme === 'dark' ? '🌙' : '☀️');
+}
+
+function updateThemeIcon() {
+  const icon = $('themeIcon');
+  if (!icon) return;
+  icon.setAttribute('data-lucide', STATE.theme === 'dark' ? 'sun' : 'moon');
+  refreshIcons();
+}
+
+// ── 3. TOAST NOTIFICATION ──
 let _toastTimer = null;
 function showToast(msg, icon = '✨', ms = 3000) {
   const toast = $('toast');
@@ -44,7 +73,7 @@ function showToast(msg, icon = '✨', ms = 3000) {
   _toastTimer = setTimeout(() => toast.classList.remove('show'), ms);
 }
 
-// ── 3. SUPABASE INITIALIZATION & SYNC ──
+// ── 4. SUPABASE INITIALIZATION & SYNC ──
 function initSupabase() {
   const url = SUPABASE_CONFIG.url;
   const key = SUPABASE_CONFIG.key;
@@ -123,7 +152,7 @@ async function processSyncQueue() {
   showToast('Todos los cambios sincronizados con Supabase', '☁️');
 }
 
-// ── 4. FETCH DATA ──
+// ── 5. FETCH ALL DATA ──
 async function fetchAllData() {
   if (!STATE.supabase || !STATE.isOnline) {
     renderAll();
@@ -172,7 +201,7 @@ async function fetchAllData() {
   }
 }
 
-// ── 5. RENDERING PIPELINE ──
+// ── 6. RENDERING PIPELINE ──
 function renderAll() {
   renderMateriasList();
   renderProximosExamenesBanner();
@@ -183,6 +212,7 @@ function renderAll() {
     renderMateriaDetail(STATE.currentMateriaId);
   }
   renderPDFRecents();
+  refreshIcons();
 }
 
 // Banner de Exámenes Global
@@ -206,21 +236,23 @@ function renderProximosExamenesBanner() {
   const urgLabel = diffDays === 0 ? '¡Rinde Hoy!' : diffDays === 1 ? '¡Rinde Mañana!' : `En ${diffDays} días`;
 
   container.innerHTML = `
-    <div class="countdown-box" style="margin-bottom: 20px; cursor: pointer;" onclick="openMateriaByName('${next.materia}')">
+    <div class="countdown-box" style="cursor: pointer;" onclick="openMateriaByName('${next.materia}')">
       <div class="countdown-days">
         <div class="countdown-num">${diffDays === 0 ? '🚨' : diffDays}</div>
         <div class="countdown-label">${diffDays === 0 ? 'HOY' : 'DÍAS'}</div>
       </div>
       <div style="flex: 1;">
-        <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--emerald-500); letter-spacing: 0.6px;">
-          ⭐ Próximo Examen Académico
+        <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--emerald-600); letter-spacing: 0.6px; display:flex; align-items:center; gap:4px;">
+          <i data-lucide="bell" class="lucide-icon lucide-sm"></i> Próximo Examen Académico
         </div>
-        <div style="font-size: 16px; font-weight: 800; color: var(--text-cream);">${next.nombre}</div>
-        <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">
+        <div style="font-size: 17px; font-weight: 800; color: var(--text-main); margin-top:2px;">${next.nombre}</div>
+        <div style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">
           ${next.materia} • ${formatDate(next.fecha)} (${urgLabel})
         </div>
       </div>
-      <div class="card-tag gold">Ver Temario →</div>
+      <div class="card-tag gold">
+        Ver Temario <i data-lucide="chevron-right" class="lucide-icon lucide-sm"></i>
+      </div>
     </div>
   `;
 }
@@ -231,14 +263,13 @@ function renderMateriasList() {
   if (!grid) return;
 
   if (STATE.materias.length === 0) {
-    // Si no hay materias, generamos un mock inicial amigable si está vacío
     if (localStorage.getItem('psi_first_run') !== 'done') {
       seedDefaultMaterias();
       return;
     }
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📚</div>
+        <div class="empty-icon"><i data-lucide="book" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Aún no tienes materias registradas</div>
         <div class="empty-sub">Toca "+ Nueva Materia" para cargar tu primera materia del cuatrimestre.</div>
       </div>
@@ -254,35 +285,34 @@ function renderMateriasList() {
     const clasesCount = STATE.clases.filter(c => (c.materia_id === m.id) || (c.materia === m.nombre)).length;
     const apuntesCount = STATE.apuntes.filter(a => (a.materia_id === m.id) || (a.materia === m.nombre)).length;
 
-    // Próximo examen de esta materia
     let examHtml = '';
     if (m.fecha_parcial1) {
-      examHtml = `<span class="mat-stat-pill exam-pill-urgent">📅 P1: ${formatDate(m.fecha_parcial1)}</span>`;
+      examHtml = `<span class="mat-stat-pill exam-pill-urgent"><i data-lucide="calendar" class="lucide-icon lucide-sm"></i> P1: ${formatDate(m.fecha_parcial1)}</span>`;
     }
 
     return `
-      <div class="card mat-card" onclick="openMateriaDetail('${m.id}')" style="border-left-color: ${m.color || 'var(--emerald-600)'}">
+      <div class="card mat-card" onclick="openMateriaDetail('${m.id}')">
         <div class="mat-card-header">
           <span class="mat-card-badge">${m.abreviatura || 'MAT'}</span>
-          <span class="card-tag">${m.cuatrimestre === 0 ? 'Anual' : m.cuatrimestre + '° Cuatri'}</span>
+          <span class="card-tag"><i data-lucide="bookmark" class="lucide-icon lucide-sm"></i> ${m.cuatrimestre === 0 ? 'Anual' : m.cuatrimestre + '° Cuatri'}</span>
         </div>
         <div class="mat-card-name">${m.nombre}</div>
-        <div class="mat-card-prof">${m.docente ? '👤 ' + m.docente : 'Profesor sin asignar'}</div>
+        <div class="mat-card-prof"><i data-lucide="user" class="lucide-icon lucide-sm"></i> ${m.docente ? m.docente : 'Profesor sin asignar'}</div>
         
-        <div style="margin: 8px 0 12px;">
-          <div style="display:flex; justify-content:space-between; font-size:11.5px; font-weight:700; color:var(--text-muted); margin-bottom:4px;">
+        <div style="margin: 8px 0 14px;">
+          <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:5px;">
             <span>Lecturas (${leidosTexts}/${totalTexts})</span>
-            <span style="color:var(--emerald-500);">${pct}%</span>
+            <span style="color:var(--emerald-600); font-weight:800;">${pct}%</span>
           </div>
-          <div style="height:5px; background:rgba(255,255,255,0.08); border-radius:999px; overflow:hidden;">
+          <div style="height:6px; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:999px; overflow:hidden;">
             <div style="width:${pct}%; height:100%; background:linear-gradient(90deg, #10B981, #34D399); border-radius:999px;"></div>
           </div>
         </div>
 
         <div class="mat-card-stats">
-          <span class="mat-stat-pill">📖 ${totalTexts} textos</span>
-          <span class="mat-stat-pill">🎓 ${clasesCount} clases</span>
-          <span class="mat-stat-pill">📝 ${apuntesCount} apuntes</span>
+          <span class="mat-stat-pill"><i data-lucide="book-open" class="lucide-icon lucide-sm"></i> ${totalTexts} textos</span>
+          <span class="mat-stat-pill"><i data-lucide="presentation" class="lucide-icon lucide-sm"></i> ${clasesCount} clases</span>
+          <span class="mat-stat-pill"><i data-lucide="file-edit" class="lucide-icon lucide-sm"></i> ${apuntesCount} apuntes</span>
           ${examHtml}
         </div>
       </div>
@@ -290,7 +320,7 @@ function renderMateriasList() {
   }).join('');
 }
 
-// ── 6. MATERIA DETAIL & INNER TABS ──
+// ── 7. MATERIA DETAIL & INNER TABS ──
 let currentMateriaId = null;
 
 function openMateriaDetail(id) {
@@ -303,7 +333,6 @@ function openMateriaDetail(id) {
   $('view-materia-detail').classList.add('active');
   $('detailMateriaName').textContent = mat.nombre;
 
-  // Reset inner tab to params
   switchInnerTab('params');
   renderMateriaDetail(id);
 }
@@ -320,6 +349,7 @@ function backToMaterias() {
   $('view-materias-list').style.display = 'block';
   renderMateriasList();
   renderProximosExamenesBanner();
+  refreshIcons();
 }
 
 function switchInnerTab(target) {
@@ -329,6 +359,7 @@ function switchInnerTab(target) {
   document.querySelectorAll('.inner-content').forEach(c => {
     c.classList.toggle('active', c.id === `inner-${target}`);
   });
+  refreshIcons();
 }
 
 document.querySelectorAll('.inner-tab').forEach(btn => {
@@ -347,66 +378,57 @@ function renderMateriaDetail(materiaId) {
     paramsDiv.innerHTML = `
       <div class="param-grid">
         <div class="param-card">
-          <div class="param-title">👤 Cátedra / Docente</div>
+          <div class="param-title"><i data-lucide="user" class="lucide-icon lucide-sm"></i> Cátedra / Docente</div>
           <div class="param-value">${mat.docente || 'No especificado'}</div>
           <div class="param-value secondary" style="margin-top:4px;">Año Cursado: ${mat.año_cursado || 2026} • Cuatrimestre: ${mat.cuatrimestre || '2'}</div>
         </div>
         <div class="param-card">
-          <div class="param-title">📅 Fechas de Parciales</div>
+          <div class="param-title"><i data-lucide="calendar" class="lucide-icon lucide-sm"></i> Fechas de Parciales</div>
           <div class="param-value">1° Parcial: ${mat.fecha_parcial1 ? formatDate(mat.fecha_parcial1) : 'Sin fecha'}</div>
           <div class="param-value" style="margin-top:4px;">2° Parcial: ${mat.fecha_parcial2 ? formatDate(mat.fecha_parcial2) : 'Sin fecha'}</div>
           <div class="param-value secondary" style="margin-top:4px;">Modalidad: ${mat.modalidad_parcial || 'Presencial'}</div>
         </div>
         <div class="param-card">
-          <div class="param-title">🎓 Examen Final</div>
+          <div class="param-title"><i data-lucide="award" class="lucide-icon lucide-sm"></i> Examen Final</div>
           <div class="param-value">${mat.fecha_final ? formatDate(mat.fecha_final) : 'A definir'}</div>
-          <div class="param-value secondary" style="margin-top:4px;">Estado de regularidad: En curso</div>
+          <div class="param-value secondary" style="margin-top:4px;">Condición: Regular en curso</div>
         </div>
         <div class="param-card">
-          <div class="param-title">🔗 Enlaces Clave</div>
+          <div class="param-title"><i data-lucide="link" class="lucide-icon lucide-sm"></i> Enlaces Clave</div>
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-            ${mat.link_programa ? `<a href="${mat.link_programa}" target="_blank" class="btn-sm emerald">📖 Programa</a>` : ''}
-            ${mat.link_drive ? `<a href="${mat.link_drive}" target="_blank" class="btn-sm navy">📁 Carpeta Drive</a>` : ''}
-            ${!mat.link_programa && !mat.link_drive ? '<span style="font-size:12.5px;color:var(--text-muted);">Sin enlaces cargados</span>' : ''}
+            ${mat.link_programa ? `<a href="${mat.link_programa}" target="_blank" class="btn-sm emerald"><i data-lucide="file-text" class="lucide-icon lucide-sm"></i> Programa</a>` : ''}
+            ${mat.link_drive ? `<a href="${mat.link_drive}" target="_blank" class="btn-sm navy"><i data-lucide="folder" class="lucide-icon lucide-sm"></i> Drive</a>` : ''}
+            ${!mat.link_programa && !mat.link_drive ? '<span style="font-size:13px;color:var(--text-muted);">Sin enlaces cargados</span>' : ''}
           </div>
         </div>
       </div>
 
-      <!-- Temario Específico -->
       <div class="config-card">
-        <div class="config-card-title">📖 Temario Parcial 1</div>
-        <p style="font-size:13.5px;color:var(--text-cream);white-space:pre-wrap;line-height:1.6;">${mat.temas_parcial1 || 'No hay temario cargado para el 1° parcial. Haz clic en "⚙️ Parámetros" para agregarlo.'}</p>
+        <div class="config-card-title"><i data-lucide="file-check-2" class="lucide-icon"></i> Temario 1° Parcial</div>
+        <p style="font-size:14px;color:var(--text-main);white-space:pre-wrap;line-height:1.7;">${mat.temas_parcial1 || 'No hay temario cargado para el 1° parcial. Toca "⚙️ Parámetros" para agregarlo.'}</p>
       </div>
 
       <div class="config-card">
-        <div class="config-card-title">📖 Temario Parcial 2</div>
-        <p style="font-size:13.5px;color:var(--text-cream);white-space:pre-wrap;line-height:1.6;">${mat.temas_parcial2 || 'No hay temario cargado para el 2° parcial.'}</p>
+        <div class="config-card-title"><i data-lucide="file-check-2" class="lucide-icon"></i> Temario 2° Parcial</div>
+        <p style="font-size:14px;color:var(--text-main);white-space:pre-wrap;line-height:1.7;">${mat.temas_parcial2 || 'No hay temario cargado para el 2° parcial.'}</p>
       </div>
 
       <div class="config-card">
-        <div class="config-card-title">🏛️ Temario Examen Final</div>
-        <p style="font-size:13.5px;color:var(--text-cream);white-space:pre-wrap;line-height:1.6;">${mat.temas_final || 'No hay temario cargado para el examen final.'}</p>
+        <div class="config-card-title"><i data-lucide="graduation-cap" class="lucide-icon"></i> Temario Examen Final</div>
+        <p style="font-size:14px;color:var(--text-main);white-space:pre-wrap;line-height:1.7;">${mat.temas_final || 'No hay temario cargado para el examen final.'}</p>
       </div>
     `;
   }
 
-  // 2. Render Bibliografía
   renderBiblioGrid(materiaId);
-
-  // 3. Render Clases
   renderClasesGrid(materiaId);
-
-  // 4. Render Apuntes
   renderApuntesGrid(materiaId);
-
-  // 5. Render PDFs
   renderPDFsGrid(materiaId);
-
-  // 6. Render Exámenes
   renderExamenesContent(materiaId);
+  refreshIcons();
 }
 
-// ── 7. BIBLIOGRAFÍA SUB-SYSTEM ──
+// ── 8. BIBLIOGRAFÍA SUB-SYSTEM ──
 let currentBiblioFilter = 'todos';
 
 function renderBiblioGrid(materiaId) {
@@ -427,7 +449,7 @@ function renderBiblioGrid(materiaId) {
   if (list.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📖</div>
+        <div class="empty-icon"><i data-lucide="book-open" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">No hay textos en esta vista</div>
         <div class="empty-sub">Usa "+ Texto" para agregar bibliografía con unidad, autor y estado.</div>
       </div>
@@ -437,26 +459,28 @@ function renderBiblioGrid(materiaId) {
 
   grid.innerHTML = list.map(t => {
     return `
-      <div class="card ${t.va_parcial ? 'va-parcial' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span class="card-tag">${t.unidad || 'Unidad 1'}</span>
-          <span class="badge-estado e-${(t.estado || 'Pendiente').replace(/\s+/g, '_')}" onclick="toggleEstadoBiblio('${t.id}')" title="Toca para cambiar estado">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-tag"><i data-lucide="bookmark" class="lucide-icon lucide-sm"></i> ${t.unidad || 'Unidad 1'}</span>
+          <span class="badge-estado e-${(t.estado || 'Pendiente').replace(/\s+/g, '_')}" onclick="toggleEstadoBiblio('${t.id}')" title="Toca para alternar estado">
             ${t.estado || 'Pendiente'}
           </span>
         </div>
-        <div style="font-size:16px;font-weight:800;color:var(--text-cream);line-height:1.35;margin-bottom:4px;">${t.titulo_texto}</div>
-        <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;">✍️ ${t.autores || 'Autor no especificado'}</div>
+        <div style="font-size:17px;font-weight:800;color:var(--text-main);line-height:1.35;margin-bottom:6px;">${t.titulo_texto}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:5px;">
+          <i data-lucide="pen-tool" class="lucide-icon lucide-sm"></i> ${t.autores || 'Autor no especificado'}
+        </div>
         
-        ${t.notas ? `<div style="font-size:12px;color:var(--text-muted);background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:8px;margin-bottom:12px;line-height:1.5;">${t.notas}</div>` : ''}
+        ${t.notas ? `<div style="font-size:12.5px;color:var(--text-muted);background:var(--bg-surface);padding:10px 12px;border-radius:10px;margin-bottom:14px;line-height:1.5;border:1px solid var(--border-subtle);">${t.notas}</div>` : ''}
 
-        <div style="display:flex;gap:6px;justify-content:space-between;align-items:center;margin-top:auto;padding-top:10px;border-top:1px solid var(--border-subtle);">
-          <span style="font-size:11px;font-weight:700;color:${t.va_parcial ? 'var(--amber-500)' : 'var(--text-muted)'};">
-            ${t.va_parcial ? '⭐ Va al Parcial' : 'Lectura regular'}
+        <div style="display:flex;gap:6px;justify-content:space-between;align-items:center;margin-top:auto;padding-top:12px;border-top:1px solid var(--border-subtle);">
+          <span style="font-size:11.5px;font-weight:700;color:${t.va_parcial ? 'var(--amber-600)' : 'var(--text-muted)'};display:flex;align-items:center;gap:4px;">
+            ${t.va_parcial ? '<i data-lucide="star" class="lucide-icon lucide-sm" style="color:var(--amber-500)"></i> Va al Parcial' : 'Lectura regular'}
           </span>
           <div style="display:flex;gap:6px;">
-            ${t.link_resumen ? `<a href="${t.link_resumen}" target="_blank" class="btn-sm emerald" style="padding:4px 8px;font-size:11px;">Resumen</a>` : ''}
-            <button class="btn-sm" style="padding:4px 8px;font-size:11px;" onclick="openSheetBiblio('${t.id}')">✏️</button>
-            <button class="btn-sm ruby" style="padding:4px 8px;font-size:11px;" onclick="deleteBiblio('${t.id}')">🗑️</button>
+            ${t.link_resumen ? `<a href="${t.link_resumen}" target="_blank" class="btn-sm emerald" style="padding:4px 8px;font-size:11.5px;"><i data-lucide="external-link" class="lucide-icon lucide-sm"></i> Resumen</a>` : ''}
+            <button class="btn-sm" style="padding:4px 8px;font-size:11.5px;" onclick="openSheetBiblio('${t.id}')"><i data-lucide="edit-2" class="lucide-icon lucide-sm"></i></button>
+            <button class="btn-sm ruby" style="padding:4px 8px;font-size:11.5px;" onclick="deleteBiblio('${t.id}')"><i data-lucide="trash" class="lucide-icon lucide-sm"></i></button>
           </div>
         </div>
       </div>
@@ -464,13 +488,13 @@ function renderBiblioGrid(materiaId) {
   }).join('');
 }
 
-// Filter buttons in Biblio
 document.querySelectorAll('[data-biblio-filter]').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('[data-biblio-filter]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentBiblioFilter = btn.dataset.biblioFilter;
     if (STATE.currentMateriaId) renderBiblioGrid(STATE.currentMateriaId);
+    refreshIcons();
   });
 });
 
@@ -485,6 +509,7 @@ async function toggleEstadoBiblio(id) {
   localStorage.setItem('psi_biblio_cache', JSON.stringify(STATE.biblio));
   if (STATE.currentMateriaId) renderBiblioGrid(STATE.currentMateriaId);
   renderProfileStats();
+  refreshIcons();
 
   if (STATE.supabase && STATE.isOnline) {
     try {
@@ -497,7 +522,7 @@ async function toggleEstadoBiblio(id) {
   }
 }
 
-// ── 8. PROTOCOLO DE CLASES ──
+// ── 9. PROTOCOLO DE CLASES ──
 function renderClasesGrid(materiaId) {
   const grid = $('clasesGrid');
   if (!grid) return;
@@ -509,7 +534,7 @@ function renderClasesGrid(materiaId) {
   if (list.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">🎓</div>
+        <div class="empty-icon"><i data-lucide="presentation" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Sin clases registradas</div>
         <div class="empty-sub">Carga el protocolo de tu primera clase teórica o práctica con "+ Clase".</div>
       </div>
@@ -520,35 +545,37 @@ function renderClasesGrid(materiaId) {
   grid.innerHTML = list.map(c => {
     return `
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span class="card-tag emerald">Clase #${c.nro_clase || 1} • ${c.tipo || 'Teórica'}</span>
-          <span style="font-size:12px;color:var(--text-muted);font-weight:600;">📅 ${formatDate(c.fecha)}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-tag emerald"><i data-lucide="video" class="lucide-icon lucide-sm"></i> Clase #${c.nro_clase || 1} • ${c.tipo || 'Teórica'}</span>
+          <span style="font-size:12.5px;color:var(--text-muted);font-weight:700;display:flex;align-items:center;gap:4px;">
+            <i data-lucide="calendar" class="lucide-icon lucide-sm"></i> ${formatDate(c.fecha)}
+          </span>
         </div>
-        <div style="font-size:16px;font-weight:800;color:var(--text-cream);margin-bottom:8px;">${c.titulo_clase}</div>
+        <div style="font-size:17px;font-weight:800;color:var(--text-main);margin-bottom:10px;">${c.titulo_clase}</div>
         
         ${c.aclaraciones ? `
-          <div style="background:rgba(16,185,129,0.08);border-left:3px solid var(--emerald-500);border-radius:6px;padding:10px;margin-bottom:10px;font-size:12.5px;color:var(--text-cream);line-height:1.5;">
-            <strong>💡 Aclaraciones Cátedra:</strong><br>${c.aclaraciones}
+          <div style="background:rgba(16,185,129,0.08);border:1.5px solid var(--border-medium);border-radius:10px;padding:12px;margin-bottom:12px;font-size:13px;color:var(--text-main);line-height:1.6;">
+            <strong style="color:var(--emerald-600);"><i data-lucide="lightbulb" class="lucide-icon lucide-sm"></i> Aclaraciones del Docente:</strong><br>${c.aclaraciones}
           </div>
         ` : ''}
 
         ${c.contenido_ppt ? `
-          <div style="background:rgba(255,255,255,0.03);padding:10px;border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-muted);line-height:1.5;">
-            <strong>📊 Diapositivas:</strong> ${c.contenido_ppt.slice(0, 140)}...
+          <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);padding:10px 12px;border-radius:10px;margin-bottom:12px;font-size:12.5px;color:var(--text-muted);line-height:1.5;">
+            <strong>Diapositivas:</strong> ${c.contenido_ppt.slice(0, 140)}...
           </div>
         ` : ''}
 
-        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:auto;padding-top:10px;border-top:1px solid var(--border-subtle);">
-          ${c.link_grabacion ? `<a href="${c.link_grabacion}" target="_blank" class="btn-sm navy">🎙️ Audio</a>` : ''}
-          ${c.link_doc_resumen ? `<a href="${c.link_doc_resumen}" target="_blank" class="btn-sm emerald">📄 Doc</a>` : ''}
-          <button class="btn-sm ruby" onclick="deleteClase('${c.id}')">🗑️</button>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:auto;padding-top:12px;border-top:1px solid var(--border-subtle);">
+          ${c.link_grabacion ? `<a href="${c.link_grabacion}" target="_blank" class="btn-sm navy"><i data-lucide="headphones" class="lucide-icon lucide-sm"></i> Audio</a>` : ''}
+          ${c.link_doc_resumen ? `<a href="${c.link_doc_resumen}" target="_blank" class="btn-sm emerald"><i data-lucide="file-text" class="lucide-icon lucide-sm"></i> Doc</a>` : ''}
+          <button class="btn-sm ruby" onclick="deleteClase('${c.id}')"><i data-lucide="trash" class="lucide-icon lucide-sm"></i></button>
         </div>
       </div>
     `;
   }).join('');
 }
 
-// ── 9. APUNTES Y MARKDOWN ENGINE ──
+// ── 10. APUNTES & MARKDOWN ENGINE ──
 function renderApuntesGrid(materiaId) {
   const grid = $('apuntesGrid');
   if (!grid) return;
@@ -560,7 +587,7 @@ function renderApuntesGrid(materiaId) {
   if (list.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📝</div>
+        <div class="empty-icon"><i data-lucide="feather" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Sin apuntes o resúmenes</div>
         <div class="empty-sub">Crea un apunte o resumen completo con formato Markdown tocando "+ Apunte".</div>
       </div>
@@ -570,22 +597,22 @@ function renderApuntesGrid(materiaId) {
 
   grid.innerHTML = list.map(a => {
     return `
-      <div class="card ${a.va_parcial ? 'va-parcial' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span class="card-tag gold">${a.tipo || 'Resumen'}</span>
-          <span style="font-size:11.5px;color:var(--text-muted);">${a.unidad || 'Unidad 1'}</span>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-tag gold"><i data-lucide="file-text" class="lucide-icon lucide-sm"></i> ${a.tipo || 'Resumen'}</span>
+          <span style="font-size:12px;color:var(--text-muted);">${a.unidad || 'Unidad 1'}</span>
         </div>
-        <div style="font-size:17px;font-weight:800;color:var(--text-cream);margin-bottom:8px;">${a.titulo}</div>
-        <div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px;">
+        <div style="font-size:18px;font-weight:800;color:var(--text-main);margin-bottom:8px;">${a.titulo}</div>
+        <div style="font-size:13.5px;color:var(--text-muted);line-height:1.6;margin-bottom:14px;">
           ${(a.contenido || '').replace(/[#*`>]/g, '').slice(0, 160)}...
         </div>
-        <div style="display:flex;gap:6px;justify-content:space-between;align-items:center;margin-top:auto;padding-top:10px;border-top:1px solid var(--border-subtle);">
-          <span style="font-size:11px;color:${a.va_parcial ? 'var(--amber-500)' : 'var(--text-muted)'};font-weight:700;">
-            ${a.va_parcial ? '⭐ Para el Parcial' : 'Apunte General'}
+        <div style="display:flex;gap:6px;justify-content:space-between;align-items:center;margin-top:auto;padding-top:12px;border-top:1px solid var(--border-subtle);">
+          <span style="font-size:12px;color:${a.va_parcial ? 'var(--amber-600)' : 'var(--text-muted)'};font-weight:700;display:flex;align-items:center;gap:4px;">
+            ${a.va_parcial ? '<i data-lucide="star" class="lucide-icon lucide-sm" style="color:var(--amber-500)"></i> Para el Parcial' : 'Apunte General'}
           </span>
           <div style="display:flex;gap:6px;">
-            <button class="btn-sm emerald" onclick="openSheetApunte('${a.id}')">✏️ Editar</button>
-            <button class="btn-sm ruby" onclick="deleteApunte('${a.id}')">🗑️</button>
+            <button class="btn-sm emerald" onclick="openSheetApunte('${a.id}')"><i data-lucide="edit-3" class="lucide-icon lucide-sm"></i> Editar</button>
+            <button class="btn-sm ruby" onclick="deleteApunte('${a.id}')"><i data-lucide="trash" class="lucide-icon lucide-sm"></i></button>
           </div>
         </div>
       </div>
@@ -593,7 +620,6 @@ function renderApuntesGrid(materiaId) {
   }).join('');
 }
 
-// Markdown Toolbar Helper
 function insertMD(prefix, suffix) {
   const textarea = $('aContenido');
   if (!textarea) return;
@@ -632,17 +658,18 @@ function togglePreview() {
     preview.innerHTML = parseMarkdown(area.value);
     area.style.display = 'none';
     preview.style.display = 'block';
-    btn.textContent = '✏️ Editor';
+    btn.innerHTML = '<i data-lucide="edit-2" class="lucide-icon lucide-sm"></i> Editor';
     previewActive = true;
   } else {
     area.style.display = 'block';
     preview.style.display = 'none';
-    btn.textContent = '👁️ Vista Previa';
+    btn.innerHTML = '<i data-lucide="eye" class="lucide-icon lucide-sm"></i> Vista Previa';
     previewActive = false;
   }
+  refreshIcons();
 }
 
-// ── 10. PDF SUB-SYSTEM & INGESTION ──
+// ── 11. PDF SUB-SYSTEM & INGESTION ──
 function renderPDFsGrid(materiaId) {
   const grid = $('pdfsGrid');
   if (!grid) return;
@@ -654,7 +681,7 @@ function renderPDFsGrid(materiaId) {
   if (list.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📑</div>
+        <div class="empty-icon"><i data-lucide="file" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Sin PDFs ingestados</div>
         <div class="empty-sub">Arrastra o comparte archivos en la pestaña "Ingestión PDF".</div>
       </div>
@@ -665,16 +692,18 @@ function renderPDFsGrid(materiaId) {
   grid.innerHTML = list.map(p => {
     return `
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span class="card-tag">${p.num_paginas || 1} Páginas</span>
-          <span style="font-size:11px;color:var(--text-muted);">${p.unidad || 'Unidad 1'}</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span class="card-tag"><i data-lucide="file-text" class="lucide-icon lucide-sm"></i> ${p.num_paginas || 1} Páginas</span>
+          <span style="font-size:12px;color:var(--text-muted);">${p.unidad || 'Unidad 1'}</span>
         </div>
-        <div style="font-size:15px;font-weight:800;color:var(--text-cream);margin-bottom:6px;">${p.nombre_archivo}</div>
-        <div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:12px;">
+        <div style="font-size:16px;font-weight:800;color:var(--text-main);margin-bottom:8px;">${p.nombre_archivo}</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:14px;">
           ${(p.texto_extraido || 'Sin texto extraído').slice(0, 120)}...
         </div>
         <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:auto;">
-          <button class="btn-sm emerald" onclick="viewExtractedText('${p.id}')">👁️ Ver Texto</button>
+          <button class="btn-sm emerald" onclick="viewExtractedText('${p.id}')">
+            <i data-lucide="eye" class="lucide-icon lucide-sm"></i> Ver Documento
+          </button>
         </div>
       </div>
     `;
@@ -688,7 +717,7 @@ function renderPDFRecents() {
   if (STATE.pdfs.length === 0) {
     grid.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📑</div>
+        <div class="empty-icon"><i data-lucide="file-up" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Ningún PDF cargado aún</div>
         <div class="empty-sub">Arrastra un archivo PDF en el panel superior para procesarlo.</div>
       </div>
@@ -699,14 +728,16 @@ function renderPDFRecents() {
   grid.innerHTML = STATE.pdfs.slice(0, 6).map(p => {
     return `
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span class="card-tag emerald">${p.materia || 'General'}</span>
-          <span style="font-size:11px;color:var(--text-muted);">${p.num_paginas || 0} págs</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span class="card-tag emerald"><i data-lucide="book" class="lucide-icon lucide-sm"></i> ${p.materia || 'General'}</span>
+          <span style="font-size:12px;color:var(--text-muted);">${p.num_paginas || 0} págs</span>
         </div>
-        <div style="font-size:15px;font-weight:700;color:var(--text-cream);margin-bottom:4px;">${p.nombre_archivo}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">${(p.texto_extraido || '').slice(0, 100)}...</div>
+        <div style="font-size:16px;font-weight:800;color:var(--text-main);margin-bottom:6px;">${p.nombre_archivo}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;">${(p.texto_extraido || '').slice(0, 100)}...</div>
         <div style="margin-top:auto;display:flex;justify-content:flex-end;">
-          <button class="btn-sm emerald" onclick="viewExtractedText('${p.id}')">Ver Documento</button>
+          <button class="btn-sm emerald" onclick="viewExtractedText('${p.id}')">
+            <i data-lucide="file-search" class="lucide-icon lucide-sm"></i> Ver Documento
+          </button>
         </div>
       </div>
     `;
@@ -732,7 +763,6 @@ async function handlePDFSelect(event) {
       STATE.totalPDFPages = pdf.numPages;
       STATE.currentPDFPage = 1;
 
-      // Extract first pages text
       let fullText = '';
       const maxPagesToExtract = Math.min(pdf.numPages, 5);
       for (let i = 1; i <= maxPagesToExtract; i++) {
@@ -742,11 +772,10 @@ async function handlePDFSelect(event) {
       }
 
       $('pdfFileName').textContent = file.name;
-      $('pdfPageCount').textContent = `${pdf.numPages} págs`;
+      $('pdfPageCount').innerHTML = `<i data-lucide="file" class="lucide-icon lucide-sm"></i> ${pdf.numPages} págs`;
       $('ingTitulo').value = file.name.replace(/\.pdf$/i, '').replace(/_/g, ' ');
       $('ingExtracted').value = fullText.slice(0, 1200);
 
-      // Guess Materia match
       const matchedMateria = STATE.materias.find(m => file.name.toLowerCase().includes(m.nombre.toLowerCase()) || file.name.toLowerCase().includes((m.abreviatura || '').toLowerCase()));
       if (matchedMateria) {
         $('ingMateriaSelect').value = matchedMateria.id;
@@ -754,6 +783,7 @@ async function handlePDFSelect(event) {
 
       $('pdfMatchBox').style.display = 'block';
       showToast('PDF analizado correctamente', '✅');
+      refreshIcons();
     } catch (err) {
       console.error('PDF Parse error:', err);
       showToast('Error procesando PDF', '❌');
@@ -781,7 +811,6 @@ async function confirmIngestion(e) {
     created_at: new Date().toISOString()
   };
 
-  // Add to Biblio also
   const newBiblio = {
     id: crypto.randomUUID ? crypto.randomUUID() : 'bib_' + Date.now(),
     materia_id: matId || null,
@@ -830,10 +859,10 @@ function viewExtractedText(id) {
 
   const wrap = $('pdfCanvasWrap');
   wrap.innerHTML = `
-    <div style="max-width:700px;width:100%;background:var(--bg-card-solid);padding:24px;border-radius:16px;color:var(--text-cream);line-height:1.7;font-size:14px;white-space:pre-wrap;">
-      <h3 style="margin-bottom:12px;color:var(--emerald-500);">${p.nombre_archivo}</h3>
-      <p><strong>Materia:</strong> ${p.materia} • <strong>Unidad:</strong> ${p.unidad}</p>
-      <hr style="border:none;border-top:1px solid var(--border-subtle);margin:14px 0;">
+    <div style="max-width:760px;width:100%;background:var(--bg-card);border:1.5px solid var(--border-medium);padding:28px;border-radius:20px;color:var(--text-main);line-height:1.7;font-size:14.5px;white-space:pre-wrap;box-shadow:var(--shadow-fluffy);">
+      <h3 style="margin-bottom:12px;color:var(--emerald-600);font-size:20px;">${p.nombre_archivo}</h3>
+      <p style="color:var(--text-muted);"><strong>Materia:</strong> ${p.materia} • <strong>Unidad:</strong> ${p.unidad}</p>
+      <hr style="border:none;border-top:1px solid var(--border-subtle);margin:16px 0;">
       <div>${p.texto_extraido || 'Sin contenido de texto extraído.'}</div>
     </div>
   `;
@@ -843,7 +872,7 @@ function closePDFViewer() {
   $('pdfViewerModal').classList.remove('active');
 }
 
-// ── 11. EXÁMENES SUB-SYSTEM ──
+// ── 12. EXÁMENES SUB-SYSTEM ──
 function renderExamenesContent(materiaId) {
   const div = $('examenesContent');
   if (!div) return;
@@ -855,7 +884,7 @@ function renderExamenesContent(materiaId) {
   if (list.length === 0) {
     div.innerHTML = `
       <div class="empty">
-        <div class="empty-icon">📅</div>
+        <div class="empty-icon"><i data-lucide="calendar" class="lucide-icon lucide-xl"></i></div>
         <div class="empty-title">Sin exámenes programados</div>
         <div class="empty-sub">Registra fechas de parciales y finales para tener el countdown activo.</div>
       </div>
@@ -865,23 +894,23 @@ function renderExamenesContent(materiaId) {
 
   div.innerHTML = list.map(ex => {
     return `
-      <div class="card" style="margin-bottom:12px;">
+      <div class="card" style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
-            <div style="font-size:16px;font-weight:800;color:var(--text-cream);">${ex.nombre}</div>
-            <div style="font-size:13px;color:var(--text-muted);margin-top:2px;">
-              📅 ${formatDate(ex.fecha)} • Modalidad: ${ex.modalidad || 'Presencial'}
+            <div style="font-size:17px;font-weight:800;color:var(--text-main);">${ex.nombre}</div>
+            <div style="font-size:13.5px;color:var(--text-muted);margin-top:3px;display:flex;align-items:center;gap:6px;">
+              <i data-lucide="calendar" class="lucide-icon lucide-sm"></i> ${formatDate(ex.fecha)} • Modalidad: ${ex.modalidad || 'Presencial'}
             </div>
           </div>
-          <button class="btn-sm ruby" onclick="deleteExamen('${ex.id}')">🗑️</button>
+          <button class="btn-sm ruby" onclick="deleteExamen('${ex.id}')"><i data-lucide="trash" class="lucide-icon lucide-sm"></i></button>
         </div>
-        ${ex.temas ? `<div style="font-size:12.5px;color:var(--text-cream);background:rgba(255,255,255,0.03);padding:10px;border-radius:8px;margin-top:10px;line-height:1.5;">${ex.temas}</div>` : ''}
+        ${ex.temas ? `<div style="font-size:13px;color:var(--text-main);background:var(--bg-surface);border:1px solid var(--border-subtle);padding:12px;border-radius:10px;margin-top:12px;line-height:1.6;">${ex.temas}</div>` : ''}
       </div>
     `;
   }).join('');
 }
 
-// ── 12. PERFIL & STATS ──
+// ── 13. PERFIL & STATS ──
 function renderProfileStats() {
   if ($('profStatMaterias')) $('profStatMaterias').textContent = STATE.materias.length;
   if ($('profStatTextos')) $('profStatTextos').textContent = STATE.biblio.length;
@@ -894,19 +923,19 @@ function renderProfileMaterias() {
   if (!container) return;
 
   if (STATE.materias.length === 0) {
-    container.innerHTML = `<span style="font-size:13px;color:var(--text-muted);">Sin materias cargadas.</span>`;
+    container.innerHTML = `<span style="font-size:13.5px;color:var(--text-muted);">Sin materias cargadas.</span>`;
     return;
   }
 
   container.innerHTML = STATE.materias.map(m => `
-    <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid var(--border-subtle);padding:12px 16px;border-radius:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg-surface);border:1.5px solid var(--border-medium);padding:14px 18px;border-radius:14px;box-shadow:var(--shadow-sm);">
       <div>
-        <div style="font-size:14.5px;font-weight:800;color:var(--text-cream);">${m.nombre}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${m.docente || 'Docente a cargo'} • ${m.cuatrimestre === 0 ? 'Anual' : m.cuatrimestre + '° Cuatrimestre'}</div>
+        <div style="font-size:15px;font-weight:800;color:var(--text-main);">${m.nombre}</div>
+        <div style="font-size:12.5px;color:var(--text-muted);">${m.docente || 'Docente a cargo'} • ${m.cuatrimestre === 0 ? 'Anual' : m.cuatrimestre + '° Cuatrimestre'}</div>
       </div>
-      <div style="display:flex;gap:6px;">
-        <button class="btn-sm" onclick="openSheetMateria('${m.id}')">Editar</button>
-        <button class="btn-sm ruby" onclick="deleteMateria('${m.id}')">Eliminar</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-sm" onclick="openSheetMateria('${m.id}')"><i data-lucide="edit-2" class="lucide-icon lucide-sm"></i> Editar</button>
+        <button class="btn-sm ruby" onclick="deleteMateria('${m.id}')"><i data-lucide="trash" class="lucide-icon lucide-sm"></i></button>
       </div>
     </div>
   `).join('');
@@ -921,7 +950,7 @@ function populateMateriaSelects() {
   `).join('');
 }
 
-// ── 13. CRUD OPERATIONS ──
+// ── 14. CRUD OPERATIONS ──
 
 // Materias
 function openSheetMateria(id = null) {
@@ -964,6 +993,7 @@ function openSheetMateria(id = null) {
   }
 
   $('sheetMateria').classList.add('active');
+  refreshIcons();
 }
 
 async function saveMateria(e) {
@@ -1067,6 +1097,7 @@ function openSheetBiblio(id = null) {
   }
 
   $('sheetBiblio').classList.add('active');
+  refreshIcons();
 }
 
 async function saveBiblio(e) {
@@ -1150,6 +1181,7 @@ function openSheetClase(id = null) {
   $('cGrab').value = '';
   $('cDoc').value = '';
   $('sheetClase').classList.add('active');
+  refreshIcons();
 }
 
 async function saveClase(e) {
@@ -1231,6 +1263,7 @@ function openSheetApunte(id = null) {
   }
 
   $('sheetApunte').classList.add('active');
+  refreshIcons();
 }
 
 async function saveApunte(e) {
@@ -1306,6 +1339,7 @@ function openSheetExamen() {
   $('exTemas').value = '';
   $('exNota').value = '';
   $('sheetExamen').classList.add('active');
+  refreshIcons();
 }
 
 async function saveExamen(e) {
@@ -1364,7 +1398,7 @@ async function deleteExamen(id) {
   }
 }
 
-// ── 14. MODAL CLOSE & FAB ──
+// ── 15. MODAL CLOSE & FAB ──
 function closeSheet(id) {
   $(id).classList.remove('active');
 }
@@ -1386,7 +1420,7 @@ function fabAction() {
   }
 }
 
-// ── 15. UTILITIES ──
+// ── 16. UTILITIES ──
 function formatDate(dStr) {
   if (!dStr) return '';
   const parts = dStr.split('T')[0].split('-');
@@ -1448,7 +1482,7 @@ async function triggerPing() {
       console.warn('Ping error:', e);
     }
   }
-  showToast('Ping enviado localmente', '🟢');
+  showToast('Ping Keep-Alive registrado', '🟢');
 }
 
 async function testConnection() {
@@ -1464,17 +1498,16 @@ async function testConnection() {
   try {
     const { data, error } = await STATE.supabase.from('supabase_keep_alive').select('*').limit(1);
     if (error) {
-      if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--amber-500);">⚠️ Conectado al endpoint pero requiere verificar políticas RLS: ${error.message}</span>`;
+      if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--amber-600);">⚠️ Conectado al endpoint pero requiere verificar políticas RLS: ${error.message}</span>`;
     } else {
-      if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--emerald-500);font-weight:700;">✅ Conexión exitosa a Supabase (Respuesta de keep_alive recibida).</span>`;
+      if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--emerald-600);font-weight:700;">✅ Conexión exitosa a Supabase (Respuesta de keep_alive recibida).</span>`;
       showToast('Conexión con Supabase verificada', '🟢');
     }
   } catch (err) {
-    if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--ruby-500);">❌ Error: ${err.message}</span>`;
+    if (statusDiv) statusDiv.innerHTML = `<span style="color:var(--ruby-600);">❌ Error: ${err.message}</span>`;
   }
 }
 
-// Seed default initial mock if completely empty
 function seedDefaultMaterias() {
   localStorage.setItem('psi_first_run', 'done');
   const defaults = [
@@ -1511,7 +1544,7 @@ function seedDefaultMaterias() {
   renderAll();
 }
 
-// ── 16. NAVIGATION TABS ──
+// ── 17. NAVIGATION TABS ──
 document.querySelectorAll('#mainNavTabs .nav-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('#mainNavTabs .nav-tab').forEach(t => t.classList.remove('active'));
@@ -1524,11 +1557,13 @@ document.querySelectorAll('#mainNavTabs .nav-tab').forEach(tab => {
     if (tab.dataset.tab === 'materias') {
       backToMaterias();
     }
+    refreshIcons();
   });
 });
 
-// ── 17. INITIALIZATION ──
+// ── 18. INITIALIZATION ──
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
   initSupabase();
   updateStatusIndicator();
   renderAll();
