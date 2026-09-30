@@ -2,10 +2,10 @@
   "name": "PsiEstudio",
   "short_name": "PsiEstudio",
   "description": "Plataforma de gestión académica, protocolo de clases, ingestión de PDFs y sincronización offline con Supabase.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#007AFF",
+  "background_color": "#FBF8F3",
+  "theme_color": "#10B981",
   "orientation": "portrait",
   "icons": [
     {
