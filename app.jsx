@@ -1090,7 +1090,7 @@ function App() {
           </div>
 
           {/* Navigation Pill Tabs (Always visible on all screen sizes with horizontal swipe) */}
-          <div className="overflow-x-auto no-scrollbar flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-lg">
+          <div className="overflow-x-auto no-scrollbar hidden md:flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-lg">
             {[
               { id: 'materias', label: 'Aulas', icon: 'layers', badge: materias.length },
               { id: 'biblio', label: 'Biblioteca', icon: 'book-open', badge: biblio.length },
@@ -1170,7 +1170,7 @@ function App() {
       </nav>
 
       {/* ══ MAIN VIEW CONTAINER ══ */}
-      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-28 md:pb-16">
+      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-24 md:pb-8">
 
         {/* ── TAB: MATERIAS (AULAS Y CARPETAS) ── */}
         {activeTab === 'materias' && !selectedMateriaId && (
@@ -2490,18 +2490,21 @@ function App() {
               </button>
             </div>
 
-            <div className="bg-gradient-to-br from-app-surface to-app-card border border-app-border p-4 md:p-5 rounded-xl shadow-fluffy flex flex-wrap items-center gap-4">
-              <div className="relative w-20 h-20 rounded-xl flex items-center justify-center shadow-emerald border-2 border-app-emerald/20 overflow-hidden group bg-app-surface cursor-pointer">
+            <div className="bg-gradient-to-br from-app-surface to-app-card border-2 border-app-border/70 p-4 md:p-5 rounded-2xl shadow-fluffy flex flex-wrap items-center gap-5 transition-transform hover:-translate-y-1 duration-300">
+              <div className="relative w-24 h-24 rounded-full flex items-center justify-center shadow-emerald border-4 border-app-surface overflow-visible group bg-app-card cursor-pointer">
                 <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" title="Cambiar foto de perfil" />
-                {profileImage ? (
-                  <img src={profileImage} alt="Perfil" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-emerald-600 to-teal-900 flex items-center justify-center text-white">
-                    <span className="text-2xl font-black">FL</span>
-                  </div>
-                )}
-                <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center pointer-events-none transition-all">
-                  <Icon name="camera" className="w-6 h-6 text-white" />
+                <div className="w-full h-full rounded-full overflow-hidden">
+                  {profileImage ? (
+                    <img src={profileImage} alt="Perfil" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-emerald-600 to-teal-900 flex items-center justify-center text-white">
+                      <span className="text-3xl font-black tracking-tighter">FL</span>
+                    </div>
+                  )}
+                </div>
+                {/* Camera Badge Overlapping */}
+                <div className="absolute -bottom-1 -right-1 bg-app-emerald text-white p-2 rounded-full shadow-card border-2 border-app-surface z-20 group-hover:scale-110 transition-transform">
+                  <Icon name="camera" className="w-4 h-4" />
                 </div>
               </div>
               <div className="flex-1 min-w-[220px]">
@@ -2522,7 +2525,7 @@ function App() {
                 { lbl: 'Lecturas Completadas', val: biblio.filter(b => b.estado === 'Leído' || b.estado === 'Salteado').length, icon: 'check-circle-2' },
                 { lbl: 'Apuntes Generados', val: apuntes.length, icon: 'feather' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex items-center gap-4">
+                <div key={idx} className="bg-app-card border-2 border-app-border/70 p-5 rounded-xl shadow-card flex items-center gap-4 transition-transform hover:scale-[1.02] duration-300">
                   <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center">
                     <Icon name={s.icon} className="w-6 h-6" />
                   </div>
