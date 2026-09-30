@@ -1,7 +1,7 @@
 {
-  "version": "2.6.0",
-  "buildDate": "2026-09-30T11:06:00.000Z",
+  "version": "2.7.0",
+  "buildDate": "2026-09-30T11:20:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Módulo multimedia de Clases completo con múltiples grabaciones, subida de fotos de pizarra y diapositivas."
+  "notes": "Sistema de apuntes de alta densidad con prompt académico universitario, auto-extracción de título desde #, vista de hoja doble imprimible y exportador PDF."
 }

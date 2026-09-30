@@ -1321,3 +1321,64 @@ body {
   .brand-info h1 { font-size: 19px; }
   .stats-banner { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── ACADEMIC DOUBLE-COLUMN & PRINT STYLES (NEUROSCAN COMPATIBLE) ── */
+.academic-double-column {
+  column-count: 1;
+}
+
+@media (min-width: 768px) {
+  .academic-double-column {
+    column-count: 2;
+    column-gap: 2.5rem;
+    column-rule: 1px solid var(--border-medium);
+  }
+}
+
+.academic-double-column h1,
+.academic-double-column h2,
+.academic-double-column h3 {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.academic-double-column .break-inside-avoid {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+  }
+  
+  /* Hide all app chrome, sidebars, headers during print */
+  body * {
+    visibility: hidden;
+  }
+  
+  #academic-pdf-print-area,
+  #academic-pdf-print-area * {
+    visibility: visible;
+  }
+  
+  #academic-pdf-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 1.5cm 2cm;
+    background: #FFFFFF !important;
+    color: #0F172A !important;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+  
+  .print-double-column {
+    column-count: 2 !important;
+    column-gap: 2.5rem !important;
+    column-rule: 1px solid #CBD5E1 !important;
+  }
+}

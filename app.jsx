@@ -65,6 +65,54 @@ const triggerHaptic = (type = 'light') => {
 };
 
 // ── 3. ENRICHED MARKDOWN PARSER (WITH KATEX MATH & MERMAID) ──
+// ── 3. ENRICHED MARKDOWN PARSER (WITH KATEX, BULLETS & ACADEMIC HIERARCHY) ──
+function extractAcademicTitle(text) {
+  if (!text) return '';
+  const match = text.match(/^#\s+([^\n\r]+)/m);
+  if (match && match[1]) {
+    return match[1].replace(/[*_#]/g, '').trim();
+  }
+  return '';
+}
+
+function generateAcademicPrompt(materiaNombre = '', textoTitulo = '', extraContent = '') {
+  return `# INSTRUCCIONES PARA PROCESAMIENTO DE TEXTO ACADÉMICO
+Actúa como un experto en transcripción y análisis de textos universitarios. Tu objetivo es transformar el material proporcionado (PDF, Word o escaneado) en una guía de estudio de máxima densidad y fidelidad.
+
+## 1. INSTRUCCIONES DE CONTENIDO
+Empezá con una introducción desarrollada que explique cómo inicia el texto y cuál es la idea central. Cada vez que aparezca un título o subtítulo importante, ponelo igual que en el texto como encabezado. Debajo, escribí un resumen fiel de lo que desarrolla ese apartado, usando palabras textuales o lo más cercanas al original. Respetá el orden temático del texto, de principio a fin. No inventes, no interpretes ni agregues información externa: solo usá lo que esté en el texto. La idea es que el material final sea como una guía de estudio narrativa y ordenada, donde quede claro qué trata cada parte, con definiciones exactas para poder escribirlas en un examen.
+De esta forma, el resumen debe arrancar con:
+- Introducción (extensa, explicando de qué habla el texto en general).
+- Título/Subtítulo (tal cual aparece en el original).
+- Explicación fiel, desarrollada y extensa de cada punto.
+- Siguiente tema/subtema con su desarrollo detallado… y así hasta el final.
+
+## 2. REGLAS DE EXTENSIÓN Y LIMPIEZA
+- **PROHIBICIÓN DE CITAS:** No utilices etiquetas de citas, números de página ni corchetes del tipo. El texto debe ser limpio y fluido.
+- **MÁXIMA DENSIDAD:** Si el texto original es extenso, el resumen debe ser igualmente denso. No resumas conceptos clave en una sola oración; explica los fundamentos y los matices para que la guía sea autosuficiente para el estudio.
+- **FIDELIDAD TEXTUAL:** Mantén las definiciones técnicas y el vocabulario específico del autor.
+
+## 3. FORMATO DE SALIDA (JERARQUÍA MARKDOWN)
+Debes estructurar el contenido utilizando exclusivamente la siguiente jerarquía para asegurar la conversión posterior a PDF:
+- \`#\` → Título principal (Mayúsculas y Negrita).
+- \`##\` → Secciones principales / Introducción (Negrita).
+- \`###\` → Subtítulos (Negrita).
+- \`**Negrita**\` → Para resaltar conceptos clave dentro de los párrafos.
+- \`*Texto en cursiva*\` → Para definiciones exactas o citas textuales del autor.
+- \`•\` → Listas de primer nivel.
+- \`◦\` → Sublistas (manteniendo la sangría).
+
+## 4. RESTRICCIÓN DE ENTREGA
+- **SÓLO CÓDIGO:** Entrega el contenido EXCLUSIVAMENTE dentro de un bloque de código (Markdown/MD/TXT).
+- **SIN CHAT:** No incluyas saludos, introducciones ni comentarios por parte de la IA (prohibido frases como "Aquí tienes tu resumen"). El texto debe comenzar directamente con el primer encabezado.
+
+no me des un pdf, dame el formato que te pido
+${materiaNombre ? `\n---\n**DATOS DE LA CÁTEDRA:**\n- **Materia:** ${materiaNombre}\n` : ''}${textoTitulo ? `- **Texto / Unidad:** ${textoTitulo}\n` : ''}
+Te pasare ahora el contenido. Lo que sí, el contenido que sea en relación a las diapositivas debe ir textualmente, debe ir sí o sí.
+
+Ahora te pasare la transcripción de la clase / texto:${extraContent ? `\n\n\`\`\`text\n${extraContent}\n\`\`\`` : ''}`;
+}
+
 function parseMarkdownToHTML(md) {
   if (!md) return '';
   let html = md;
@@ -93,14 +141,26 @@ function parseMarkdownToHTML(md) {
     return `<code>${formula}</code>`;
   });
 
+  // Marcadores de imágenes [imagen N: descripcion]
+  html = html.replace(/\[imagen\s*(\d+):?\s*([^\]]*)\]/gi, (match, num, desc) => {
+    return `<div class="my-4 p-4 rounded-2xl bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald text-xs font-extrabold border border-app-emerald/20">
+        <i data-lucide="image" class="w-3.5 h-3.5 inline-block"></i> FIGURA ${num}
+      </div>
+      <p class="text-xs text-app-muted mt-2 italic font-serif">${desc.trim() || 'Esquema o fotografía conceptual'}</p>
+    </div>`;
+  });
+
   html = html
-    .replace(/^### (.*$)/gim, '<h3 class="text-sm font-bold text-app-text mt-3 mb-1">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-base font-extrabold text-app-text mt-4 mb-1">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-lg font-black text-app-emerald mt-4 mb-2">$1</h1>')
-    .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-2.5 my-2 rounded-r-lg text-xs italic text-app-text">$1</blockquote>')
-    .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-app-emerald font-bold">$1</strong>')
-    .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold">$1</em>')
-    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed">$1</li>')
+    .replace(/^### (.*$)/gim, '<h3 class="text-sm font-extrabold text-app-text mt-3 mb-1 tracking-tight">$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2 class="text-base font-black text-app-text mt-4 mb-1.5 border-b border-app-border/40 pb-1 tracking-tight">$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1 class="text-xl font-black uppercase text-app-emerald mt-4 mb-2 tracking-tight">$1</h1>')
+    .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-3 my-2.5 rounded-r-xl text-xs italic text-app-text font-serif leading-relaxed">$1</blockquote>')
+    .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-app-emerald font-extrabold">$1</strong>')
+    .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold italic">$1</em>')
+    .replace(/^[ \t]*◦ (.*$)/gim, '<li class="ml-8 list-[circle] text-app-text text-xs leading-relaxed my-0.5 opacity-90">$1</li>')
+    .replace(/^[ \t]*• (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed my-0.5">$1</li>')
+    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed my-0.5">$1</li>')
     .replace(/\n$/gim, '<br />');
 
   return html;
@@ -128,7 +188,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.5.0';
+  const currentVersion = 'v2.7.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1374,6 +1434,19 @@ function App() {
                             {t.va_parcial ? 'Va al Parcial' : 'Lectura regular'}
                           </span>
                           <div className="flex gap-2">
+                            <button
+                              title="Copiar Prompt Académico para IA"
+                              onClick={() => {
+                                const prompt = generateAcademicPrompt(currentMateria?.nombre, `${t.unidad} - ${t.titulo_texto} (${t.autores || 'Autor'})`, t.notas || '');
+                                navigator.clipboard.writeText(prompt);
+                                showToast('📋 Prompt copiado para IA', 'sparkles');
+                                triggerHaptic('success');
+                              }}
+                              className="px-2 py-1 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald flex items-center gap-1 font-bold text-[11px]"
+                            >
+                              <Icon name="sparkles" className="w-3.5 h-3.5" />
+                              <span>Prompt</span>
+                            </button>
                             {t.link_resumen && (
                               <a href={t.link_resumen} target="_blank" className="p-1.5 rounded-lg bg-app-emerald-bg text-app-emerald border border-app-emerald/30 text-xs font-bold flex items-center gap-1">
                                 <Icon name="external-link" className="w-3.5 h-3.5" /> Resumen
@@ -1664,26 +1737,81 @@ function App() {
 
             {/* 5. APUNTES */}
             {innerTab === 'apuntes' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {apuntes.filter(a => a.materia_id === selectedMateriaId || a.materia === currentMateria.nombre).map(a => (
-                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">{a.tipo}</span>
-                        <span className="text-xs text-app-muted">{a.unidad}</span>
-                      </div>
-                      <h4 className="text-lg font-extrabold text-app-text mb-2">{a.titulo}</h4>
-                      <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>]/g, '')}</p>
-                    </div>
-                    <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
-                      <span className="font-bold text-app-amber">{a.va_parcial ? 'Para Parcial' : 'Apunte General'}</span>
-                      <div className="flex gap-2">
-                        <button onClick={() => setModalApunte({ open: true, data: a })} className="px-3 py-1 bg-app-emerald-bg text-app-emerald font-bold rounded-lg border border-app-emerald/30">Editar</button>
-                        <button onClick={() => handleDeleteApunte(a.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg"><Icon name="trash-2" className="w-4 h-4" /></button>
-                      </div>
-                    </div>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2.5 justify-between items-center bg-app-card p-4 rounded-3xl border border-app-border shadow-card">
+                  <div>
+                    <h3 className="text-base font-black text-app-text flex items-center gap-2">
+                      <Icon name="file-text" className="w-5 h-5 text-app-emerald" /> Guías de Estudio & Apuntes
+                    </h3>
+                    <p className="text-xs text-app-muted">Redactados con máxima densidad y formato de doble hoja imprimible.</p>
                   </div>
-                ))}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        const prompt = generateAcademicPrompt(currentMateria?.nombre, currentMateriaUnits[0] || 'Unidad 1', '');
+                        navigator.clipboard.writeText(prompt);
+                        showToast('📋 Prompt Académico copiado', 'sparkles');
+                        triggerHaptic('success');
+                      }}
+                      className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald font-bold text-xs rounded-xl flex items-center gap-1.5"
+                    >
+                      <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA
+                    </button>
+                    <button
+                      onClick={() => { triggerHaptic('light'); setModalApunte({ open: true, data: null }); }}
+                      className="px-4 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5"
+                    >
+                      <Icon name="plus-circle" className="w-4 h-4 text-white" /> Crear Nuevo Apunte
+                    </button>
+                  </div>
+                </div>
+
+                {currentMateriaApuntes.length === 0 ? (
+                  <div className="bg-app-card border border-app-border rounded-3xl p-10 text-center space-y-3 shadow-card">
+                    <div className="w-14 h-14 rounded-2xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
+                      <Icon name="file-text" className="w-7 h-7" size={28} />
+                    </div>
+                    <h4 className="text-base font-extrabold text-app-text">Sin apuntes cargados en esta materia</h4>
+                    <p className="text-xs text-app-muted max-w-sm mx-auto">
+                      Copia el prompt académico, procésalo con tu IA preferida y pega el código aquí. Se auto-extraerá el título y quedará listo para leer o imprimir en hoja doble.
+                    </p>
+                    <button
+                      onClick={() => setModalApunte({ open: true, data: null })}
+                      className="px-5 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald"
+                    >
+                      Crear Primer Apunte
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {currentMateriaApuntes.map(a => (
+                      <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
+                            <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
+                          </div>
+                          <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
+                          <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
+                        </div>
+                        <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
+                          <span className="font-bold text-app-amber text-[11px]">{a.va_parcial ? 'Para Parcial' : 'Estudio'}</span>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setModalApunte({ open: true, data: a })}
+                              className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                            >
+                              <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                            </button>
+                            <button onClick={() => handleDeleteApunte(a.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30">
+                              <Icon name="trash-2" className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1777,7 +1905,22 @@ function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Texto Extraído (OCR)</label>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold uppercase text-app-emerald">Texto Extraído (OCR)</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mat = materias.find(m => m.id === ingestionData.materiaId);
+                        const prompt = generateAcademicPrompt(mat?.nombre || '', `${ingestionData.unidad} - ${ingestionData.titulo}`, ingestionData.extractedText);
+                        navigator.clipboard.writeText(prompt);
+                        showToast('📋 Prompt copiado con el texto OCR completo', 'sparkles');
+                        triggerHaptic('success');
+                      }}
+                      className="px-3 py-1 bg-app-emerald-bg text-app-emerald border border-app-emerald/30 rounded-xl text-xs font-bold hover:brightness-110 flex items-center gap-1.5"
+                    >
+                      <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA con OCR
+                    </button>
+                  </div>
                   <textarea value={ingestionData.extractedText} readOnly className="w-full h-28 p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none" />
                 </div>
 
@@ -2033,6 +2176,9 @@ function App() {
       {modalApunte.open && (
         <ModalApunteSplitView
           initialData={modalApunte.data}
+          materiaNombre={currentMateria?.nombre || ''}
+          availableUnits={currentMateriaUnits}
+          showToast={showToast}
           onClose={() => setModalApunte({ open: false, data: null })}
           onSave={handleSaveApunte}
         />
@@ -2718,11 +2864,45 @@ function ModalClase({ initialData, onClose, onSave }) {
   );
 }
 
-function ModalApunteSplitView({ initialData, onClose, onSave }) {
+function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits = [], onClose, onSave, showToast }) {
   const [form, setForm] = useState(initialData || {
-    titulo: '', tipo: 'Resumen', unidad: 'Unidad 1', va_parcial: false, contenido: ''
+    titulo: '', tipo: 'Resumen', unidad: availableUnits[0] || 'Unidad 1', va_parcial: false, contenido: ''
   });
+  const [viewMode, setViewMode] = useState('split'); // 'split' | 'double_page'
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const textareaRef = useRef(null);
+
+  // Auto-extraer título desde '# Título' si se pega contenido
+  const handleContentChange = (newContent) => {
+    const detectedTitle = extractAcademicTitle(newContent);
+    if (detectedTitle && (!form.titulo || form.titulo.startsWith('Cita:') || form.titulo.startsWith('Resumen:') || form.titulo === '')) {
+      setForm(prev => ({ ...prev, contenido: newContent, titulo: detectedTitle }));
+    } else {
+      setForm(prev => ({ ...prev, contenido: newContent }));
+    }
+  };
+
+  const handlePaste = (e) => {
+    const text = e.clipboardData?.getData('text') || '';
+    const detectedTitle = extractAcademicTitle(text);
+    if (detectedTitle && (!form.titulo || form.titulo.startsWith('Cita:') || form.titulo.startsWith('Resumen:'))) {
+      setForm(prev => ({ ...prev, titulo: detectedTitle }));
+    }
+  };
+
+  const handleCopyPrompt = () => {
+    const prompt = generateAcademicPrompt(materiaNombre, form.titulo || form.unidad, '');
+    navigator.clipboard.writeText(prompt);
+    setCopiedPrompt(true);
+    triggerHaptic('success');
+    if (showToast) showToast('📋 Prompt Académico copiado al portapapeles', 'sparkles');
+    setTimeout(() => setCopiedPrompt(false), 2500);
+  };
+
+  const handlePrintPDF = () => {
+    triggerHaptic('medium');
+    window.print();
+  };
 
   const insertSyntax = (prefix, suffix = '') => {
     const el = textareaRef.current;
@@ -2741,89 +2921,208 @@ function ModalApunteSplitView({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-5xl h-[92vh] flex flex-col rounded-3xl p-6 shadow-fluffy space-y-4 overflow-hidden">
-        <div className="flex justify-between items-center border-b border-app-border pb-3">
+      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-[94vh] flex flex-col rounded-3xl p-5 sm:p-6 shadow-fluffy space-y-3 sm:space-y-4 overflow-hidden">
+        
+        {/* Header Bar */}
+        <div className="flex flex-wrap justify-between items-center gap-2 border-b border-app-border pb-3">
           <div>
-            <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Apunte' : 'Nuevo Apunte Académico'}</h3>
-            <span className="text-xs text-app-muted font-bold">Editor Split-View en Tiempo Real</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                {materiaNombre || 'Cátedra'}
+              </span>
+              <span className="text-xs text-app-muted font-bold">• {form.unidad}</span>
+            </div>
+            <h3 className="text-lg sm:text-xl font-black text-app-text mt-0.5 truncate max-w-lg">
+              {form.titulo || (initialData ? 'Editar Apunte' : 'Nuevo Apunte Académico')}
+            </h3>
           </div>
-          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
-            <Icon name="x" className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* View Mode Toggle */}
+            <div className="flex bg-app-surface p-1 rounded-2xl border border-app-border">
+              <button
+                type="button"
+                onClick={() => { setViewMode('split'); triggerHaptic('light'); }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  viewMode === 'split' ? 'bg-app-card text-app-emerald shadow-card border border-app-border' : 'text-app-muted hover:text-app-text'
+                }`}
+              >
+                <Icon name="columns" className="w-3.5 h-3.5" /> Editor Split
+              </button>
+              <button
+                type="button"
+                onClick={() => { setViewMode('double_page'); triggerHaptic('light'); }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                  viewMode === 'double_page' ? 'bg-app-card text-app-emerald shadow-card border border-app-border' : 'text-app-muted hover:text-app-text'
+                }`}
+              >
+                <Icon name="book-open" className="w-3.5 h-3.5" /> Hoja Doble / PDF
+              </button>
+            </div>
+
+            {/* Prompt Copy Button */}
+            <button
+              type="button"
+              onClick={handleCopyPrompt}
+              className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold border transition-all flex items-center gap-1.5 shadow-sm ${
+                copiedPrompt
+                  ? 'bg-app-emerald text-white border-app-emerald'
+                  : 'bg-app-surface border-app-border text-app-emerald hover:border-app-emerald'
+              }`}
+            >
+              <Icon name={copiedPrompt ? "check" : "sparkles"} className="w-4 h-4" />
+              <span>{copiedPrompt ? "¡Prompt Copiado!" : "Copiar Prompt IA"}</span>
+            </button>
+
+            {viewMode === 'double_page' && (
+              <button
+                type="button"
+                onClick={handlePrintPDF}
+                className="px-3.5 py-2 bg-app-navy text-white rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
+              >
+                <Icon name="printer" className="w-4 h-4" /> Imprimir / PDF
+              </button>
+            )}
+
+            <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
+              <Icon name="x" className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Form Inputs Header */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <input
             value={form.titulo}
             onChange={e => setForm({ ...form, titulo: e.target.value })}
-            placeholder="Título del Apunte"
-            className="p-2.5 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none col-span-1 sm:col-span-2"
+            placeholder="Título del Apunte (o pega el prompt y se detectará automáticamente)"
+            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none sm:col-span-2"
             required
           />
           <select
             value={form.tipo}
             onChange={e => setForm({ ...form, tipo: e.target.value })}
-            className="p-2.5 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
+            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
           >
             <option value="Resumen">Resumen Completo</option>
+            <option value="Guía de Estudio">Guía de Estudio</option>
             <option value="Mapa Conceptual">Mapa Conceptual</option>
             <option value="Fichas">Fichas de Repaso</option>
             <option value="Notas de Clase">Notas de Clase</option>
           </select>
+          <input
+            value={form.unidad}
+            onChange={e => setForm({ ...form, unidad: e.target.value })}
+            placeholder="Unidad (ej: Unidad 1)"
+            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+          />
         </div>
 
-        {/* Toolbar with Markdown, Math & Smart Templates */}
-        <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-xl">
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
-            <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs italic font-bold hover:border-app-emerald">I</button>
-            <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H2</button>
-            <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H3</button>
-            <button type="button" onClick={() => insertSyntax('- ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">• Lista</button>
-            <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">Cita</button>
-            <div className="h-4 w-px bg-app-border mx-1"></div>
-            <button type="button" onClick={() => insertSyntax('$', '$')} title="Fórmula en línea (LaTeX)" className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$f(x)$</button>
-            <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} title="Ecuación en bloque (LaTeX)" className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$$\Sigma$$</button>
+        {/* ── 1. SPLIT VIEW MODE ── */}
+        {viewMode === 'split' && (
+          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
+            {/* Toolbar with Markdown, Math & Smart Templates */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-2xl">
+              <div className="flex flex-wrap gap-1 items-center">
+                <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
+                <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs italic font-bold hover:border-app-emerald">I</button>
+                <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H2</button>
+                <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H3</button>
+                <button type="button" onClick={() => insertSyntax('• ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">• Viñeta</button>
+                <button type="button" onClick={() => insertSyntax('  ◦ ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">◦ Subviñeta</button>
+                <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">Cita</button>
+                <button type="button" onClick={() => insertSyntax('[imagen 1: ', ']')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold text-app-emerald hover:border-app-emerald">Figura</button>
+                <div className="h-4 w-px bg-app-border mx-1"></div>
+                <button type="button" onClick={() => insertSyntax('$', '$')} title="Fórmula en línea (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$f(x)$</button>
+                <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} title="Ecuación en bloque (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$$\Sigma$$</button>
+              </div>
+              
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const template = `# ${form.titulo || 'TÍTULO DEL TEXTO'}\n\n## Introducción\nEl presente texto aborda de manera sistemática...\n\n## Primer Núcleo Temático\nExplicación fiel, desarrollada y extensa de cada punto conceptual...\n\n• Concepto clave de primer nivel.\n  ◦ Subclasificación o matiz teórico específico.\n\n[imagen 1: Esquema de articulación conceptual]\n`;
+                    setForm({ ...form, contenido: (form.contenido || '') + template });
+                    triggerHaptic('light');
+                  }}
+                  className="px-3 py-1 rounded-xl bg-app-emerald-bg border border-app-emerald/30 text-xs font-extrabold text-app-emerald hover:brightness-110 flex items-center gap-1"
+                >
+                  <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Universitaria
+                </button>
+              </div>
+            </div>
+
+            {/* Split View Editor & Live Preview */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
+              <textarea
+                ref={textareaRef}
+                value={form.contenido}
+                onPaste={handlePaste}
+                onChange={e => handleContentChange(e.target.value)}
+                placeholder="Pega aquí el código Markdown generado por la IA (el título se extraerá automáticamente desde #)..."
+                className="w-full h-full p-4 rounded-2xl bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none overflow-y-auto leading-relaxed"
+              />
+
+              <div
+                className="w-full h-full p-5 rounded-2xl bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en vivo aparecerá aquí...</span>' }}
+              />
+            </div>
           </div>
-          
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                const template = `\n## 📌 Tesis / Hipótesis Central\n> \n\n## 🔑 Conceptos Clave\n- **Término 1:** Definición sintética.\n- **Término 2:** Definición sintética.\n\n## 💡 Articulación & Conclusiones\n- \n`;
-                setForm({ ...form, contenido: (form.contenido || '') + template });
-                triggerHaptic('light');
-              }}
-              className="px-2.5 py-1 rounded-lg bg-app-emerald-bg border border-app-emerald/30 text-xs font-bold text-app-emerald hover:brightness-110 flex items-center gap-1"
+        )}
+
+        {/* ── 2. HOJA DOBLE / NEUROSCAN PDF PRINT PREVIEW MODE ── */}
+        {viewMode === 'double_page' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-app-surface rounded-3xl border border-app-border">
+            <div
+              id="academic-pdf-print-area"
+              className="max-w-4xl mx-auto bg-white text-slate-900 p-8 sm:p-12 rounded-3xl shadow-fluffy border border-slate-200"
             >
-              <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Académica
-            </button>
+              {/* Document Header */}
+              <div className="border-b-2 border-emerald-600 pb-4 mb-6 flex justify-between items-end">
+                <div>
+                  <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 block">
+                    PSIESTUDIO • GUÍA ACADÉMICA DE ESTUDIO
+                  </span>
+                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 uppercase tracking-tight">
+                    {form.titulo || 'RESUMEN ACADÉMICO'}
+                  </h1>
+                  <p className="text-xs font-bold text-slate-600 mt-0.5">
+                    {materiaNombre || 'Cátedra'} • {form.unidad} • {form.tipo}
+                  </p>
+                </div>
+                <div className="text-right text-[10px] text-slate-400 font-mono">
+                  {new Date().toLocaleDateString('es-AR')}
+                </div>
+              </div>
+
+              {/* High Density Double-Column Content */}
+              <div
+                className="academic-double-column print-double-column text-[11.5px] leading-relaxed text-slate-800 space-y-2 text-justify"
+                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="italic text-slate-400">Sin contenido cargado.</p>' }}
+              />
+            </div>
           </div>
+        )}
+
+        {/* Footer Actions */}
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="py-3 px-5 bg-app-surface border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
+          >
+            Cerrar
+          </button>
+          <button
+            type="button"
+            onClick={() => { triggerHaptic('success'); onSave(form); }}
+            className="flex-1 py-3 bg-app-emerald text-white font-extrabold text-sm rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
+          >
+            <Icon name="check-circle" className="w-4 h-4 text-white" />
+            Guardar Apunte en Supabase & Local
+          </button>
         </div>
-
-        {/* Split View Editor & Live Preview */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
-          <textarea
-            ref={textareaRef}
-            value={form.contenido}
-            onChange={e => setForm({ ...form, contenido: e.target.value })}
-            placeholder="Escribe tu apunte con Markdown y fórmulas LaTeX ($...$)..."
-            className="w-full h-full p-4 rounded-2xl bg-app-surface border border-app-border text-sm text-app-text outline-none font-mono resize-none overflow-y-auto"
-          />
-
-          <div
-            className="w-full h-full p-5 rounded-2xl bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-sm leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en vivo aparecerá aquí...</span>' }}
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={() => { triggerHaptic('success'); onSave(form); }}
-          className="w-full py-3 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110"
-        >
-          Guardar Apunte en Supabase
-        </button>
       </div>
     </div>
   );
