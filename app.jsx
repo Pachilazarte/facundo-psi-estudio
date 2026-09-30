@@ -143,8 +143,8 @@ function parseMarkdownToHTML(md) {
 
   // Marcadores de imágenes [imagen N: descripcion]
   html = html.replace(/\[imagen\s*(\d+):?\s*([^\]]*)\]/gi, (match, num, desc) => {
-    return `<div class="my-4 p-4 rounded-2xl bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
-      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald text-xs font-extrabold border border-app-emerald/20">
+    return `<div class="my-4 p-4 rounded-lg bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald text-xs font-extrabold border border-app-emerald/20">
         <i data-lucide="image" class="w-3.5 h-3.5 inline-block"></i> FIGURA ${num}
       </div>
       <p class="text-xs text-app-muted mt-2 italic font-serif">${desc.trim() || 'Esquema o fotografía conceptual'}</p>
@@ -188,7 +188,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.8.0';
+  const currentVersion = 'v2.8.5';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -204,6 +204,20 @@ function App() {
   const [globalMateriaFilter, setGlobalMateriaFilter] = useState('todas');
 
   const [ingestionData, setIngestionData] = useState(null);
+  const [profileImage, setProfileImage] = useState(localStorage.getItem('psi_profile_image') || null);
+
+  const handleProfileImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setProfileImage(reader.result);
+        localStorage.setItem('psi_profile_image', reader.result);
+        showToast('Foto de perfil actualizada', 'check');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Apply Theme
   useEffect(() => {
@@ -1027,7 +1041,7 @@ function App() {
               className="flex items-center gap-2.5 cursor-pointer"
               onClick={() => { setActiveTab('materias'); setSelectedMateriaId(null); }}
             >
-              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
                 <Icon name="graduation-cap" className="w-5 h-5 text-white" size={20} />
               </div>
               <div>
@@ -1067,15 +1081,15 @@ function App() {
                 <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-3.5 h-3.5 text-app-text" />
               </button>
 
-              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-app-emerald shadow-[0_0_6px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
+              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-extrabold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
+                <span className={`w-1.5 h-1.5 rounded-md ${isOnline ? 'bg-app-emerald shadow-[0_0_6px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
                 <span className="hidden sm:inline">{isOnline ? 'Cloud' : 'Offline'}</span>
               </div>
             </div>
           </div>
 
           {/* Navigation Pill Tabs (Always visible on all screen sizes with horizontal swipe) */}
-          <div className="overflow-x-auto no-scrollbar flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-2xl">
+          <div className="overflow-x-auto no-scrollbar flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-lg">
             {[
               { id: 'materias', label: 'Aulas', icon: 'layers', badge: materias.length },
               { id: 'biblio', label: 'Biblioteca', icon: 'book-open', badge: biblio.length },
@@ -1100,7 +1114,7 @@ function App() {
                   <Icon name={tab.icon} className={`w-3.5 h-3.5 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
                   <span>{tab.label}</span>
                   {tab.badge !== null && tab.badge > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-black ${
                       isActive ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-muted'
                     }`}>
                       {tab.badge}
@@ -1155,7 +1169,7 @@ function App() {
       </nav>
 
       {/* ══ MAIN VIEW CONTAINER ══ */}
-      <main className="max-w-7xl mx-auto p-3.5 md:p-8 pb-28 md:pb-16">
+      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-28 md:pb-16">
 
         {/* ── TAB: MATERIAS (AULAS Y CARPETAS) ── */}
         {activeTab === 'materias' && !selectedMateriaId && (
@@ -1176,7 +1190,7 @@ function App() {
                   const m = materias.find(x => x.nombre.toLowerCase() === nextExam.materia.toLowerCase());
                   if (m) setSelectedMateriaId(m.id);
                 }}
-                className="bg-gradient-to-r from-app-surface to-app-card border border-app-border hover:border-app-emerald p-4 sm:p-5 rounded-2xl shadow-fluffy flex items-center gap-3.5 cursor-pointer transition-all hover:-translate-y-0.5"
+                className="bg-gradient-to-r from-app-surface to-app-card border border-app-border hover:border-app-emerald p-4 sm:p-5 rounded-lg shadow-fluffy flex items-center gap-3.5 cursor-pointer transition-all hover:-translate-y-0.5"
               >
                 <div className="w-12 sm:w-14 text-center">
                   <div className="text-2xl sm:text-3xl font-black text-app-emerald leading-none">
@@ -1191,7 +1205,7 @@ function App() {
                   <div className="text-base sm:text-lg font-extrabold text-app-text truncate">{nextExam.nombre}</div>
                   <div className="text-xs text-app-muted mt-0.5 truncate">{nextExam.materia} • {nextExam.fecha}</div>
                 </div>
-                <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
+                <span className="hidden sm:inline-flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/30">
                   Ver Aula <Icon name="chevron-right" className="w-3.5 h-3.5" />
                 </span>
               </div>
@@ -1210,11 +1224,11 @@ function App() {
                   <div
                     key={m.id}
                     onClick={() => setSelectedMateriaId(m.id)}
-                    className="bg-app-card border border-app-border hover:border-app-emerald p-5 sm:p-6 rounded-3xl shadow-card hover:shadow-fluffy transition-all duration-300 cursor-pointer flex flex-col justify-between hover:-translate-y-1"
+                    className="bg-app-card border border-app-border hover:border-app-emerald p-5 sm:p-4 rounded-xl shadow-card hover:shadow-fluffy transition-all duration-300 cursor-pointer flex flex-col justify-between hover:-translate-y-1"
                   >
                     <div>
                       <div className="flex justify-between items-start mb-3">
-                        <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
+                        <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
                           {m.abreviatura || 'MAT'}
                         </span>
                         <span className="text-xs font-semibold text-app-muted">
@@ -1232,19 +1246,19 @@ function App() {
                           <span className="text-app-emerald">{pct}%</span>
                         </div>
                         <div className="w-full h-2 bg-app-surface rounded-full overflow-hidden border border-app-border">
-                          <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                          <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-md transition-all duration-500" style={{ width: `${pct}%` }}></div>
                         </div>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2 pt-3 border-t border-app-border text-xs text-app-muted font-bold">
-                      <span className="px-2.5 py-1 rounded-full bg-app-surface border border-app-border flex items-center gap-1">
+                      <span className="px-2.5 py-1 rounded-md bg-app-surface border border-app-border flex items-center gap-1">
                         <Icon name="book-open" className="w-3.5 h-3.5" /> {textsInMat.length} textos
                       </span>
-                      <span className="px-2.5 py-1 rounded-full bg-app-surface border border-app-border flex items-center gap-1">
+                      <span className="px-2.5 py-1 rounded-md bg-app-surface border border-app-border flex items-center gap-1">
                         <Icon name="presentation" className="w-3.5 h-3.5" /> {clasesCount} clases
                       </span>
-                      <span className="px-2.5 py-1 rounded-full bg-app-surface border border-app-border flex items-center gap-1">
+                      <span className="px-2.5 py-1 rounded-md bg-app-surface border border-app-border flex items-center gap-1">
                         <Icon name="file-edit" className="w-3.5 h-3.5" /> {apuntesCount} apuntes
                       </span>
                     </div>
@@ -1260,7 +1274,7 @@ function App() {
           <div className="space-y-5 animate-fade-in">
             
             {/* Aula Header & Materia Switcher Card */}
-            <div className="bg-app-card border border-app-border p-4 sm:p-6 rounded-3xl shadow-card space-y-4">
+            <div className="bg-app-card border border-app-border p-4 sm:p-4 rounded-xl shadow-card space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <button
@@ -1282,7 +1296,7 @@ function App() {
                   </select>
                 </div>
 
-                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
+                <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
                   {currentMateria.abreviatura || 'MAT'}
                 </span>
               </div>
@@ -1324,7 +1338,7 @@ function App() {
 
             {/* ══ SUB-BARRA STICKY DE SECCIONES DEL AULA ══ */}
             <div className="sticky top-[58px] z-30 bg-app-base/95 backdrop-blur-md pb-2 pt-1">
-              <div className="overflow-x-auto no-scrollbar flex items-center gap-2 p-1.5 bg-app-surface border border-app-border rounded-2xl">
+              <div className="overflow-x-auto no-scrollbar flex items-center gap-2 p-1.5 bg-app-surface border border-app-border rounded-lg">
                 {[
                   { id: 'params', label: 'Cátedra & Temario', count: null, icon: 'clipboard-list' },
                   { id: 'biblio', label: 'Bibliografía', count: currentMateriaTexts.length, icon: 'book-marked' },
@@ -1347,7 +1361,7 @@ function App() {
                       <Icon name={sec.icon} className={`w-4 h-4 ${isSelected ? 'text-app-emerald' : 'text-app-muted'}`} />
                       <span>{sec.label}</span>
                       {sec.count !== null && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-black ${
                           isSelected ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-text'
                         }`}>
                           {sec.count}
@@ -1363,18 +1377,18 @@ function App() {
             {innerTab === 'params' && (
               <div className="space-y-5">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
+                  <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Docente / Cátedra</div>
                     <div className="text-lg font-extrabold text-app-text">{currentMateria.docente || 'Sin docente asignado'}</div>
                     <div className="text-xs text-app-muted mt-2">Año: {currentMateria.año_cursado || 2026} • Cuatrimestre: {currentMateria.cuatrimestre || '2'}</div>
                   </div>
-                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
+                  <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Fechas de Parciales</div>
                     <div className="text-sm font-extrabold text-app-text">1° Parcial: {currentMateria.fecha_parcial1 || 'A definir'}</div>
                     <div className="text-sm font-extrabold text-app-text mt-1">2° Parcial: {currentMateria.fecha_parcial2 || 'A definir'}</div>
                     <div className="text-xs text-app-muted mt-2">Modalidad: {currentMateria.modalidad_parcial || 'Presencial'}</div>
                   </div>
-                  <div className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card">
+                  <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Examen Final & Enlaces</div>
                     <div className="text-sm font-extrabold text-app-text">Final: {currentMateria.fecha_final || 'A definir'}</div>
                     <div className="flex flex-wrap gap-2 mt-3">
@@ -1384,13 +1398,13 @@ function App() {
                   </div>
                 </div>
 
-                <div className="bg-app-card border border-app-border p-5 sm:p-6 rounded-3xl shadow-card space-y-3">
+                <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
                   <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
                     <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 1° Parcial
                   </h4>
                   <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial1 || 'No hay temario cargado para el 1° parcial.'}</p>
                 </div>
-                <div className="bg-app-card border border-app-border p-5 sm:p-6 rounded-3xl shadow-card space-y-3">
+                <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
                   <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
                     <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 2° Parcial
                   </h4>
@@ -1416,7 +1430,7 @@ function App() {
                       <button
                         key={f.id}
                         onClick={() => setBiblioFilter(f.id)}
-                        className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                        className={`px-3 py-1 rounded-md text-xs font-bold border transition-all ${
                           biblioFilter === f.id
                             ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                             : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -1441,20 +1455,20 @@ function App() {
                       return b.estado === biblioFilter;
                     })
                     .map(t => (
-                      <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                      <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                         <div>
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex gap-1.5 items-center">
-                              <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-surface border border-app-border text-app-muted">
+                              <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-surface border border-app-border text-app-muted">
                                 {t.unidad || 'Unidad 1'}
                               </span>
-                              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${t.caracter === 'Optativo' ? 'bg-app-surface text-app-muted border-app-border' : 'bg-app-emerald-bg text-app-emerald border-app-emerald/30'}`}>
+                              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md border ${t.caracter === 'Optativo' ? 'bg-app-surface text-app-muted border-app-border' : 'bg-app-emerald-bg text-app-emerald border-app-emerald/30'}`}>
                                 {t.caracter || 'Obligatorio'}
                               </span>
                             </div>
                             <button
                               onClick={() => handleToggleBiblioEstado(t.id)}
-                              className={`text-xs font-bold px-3 py-1 rounded-full border transition-all ${
+                              className={`text-xs font-bold px-3 py-1 rounded-md border transition-all ${
                                 t.estado === 'Leído' ? 'bg-app-emerald-bg text-app-emerald border-app-emerald/40' :
                                 t.estado === 'Resumiendo' ? 'bg-app-navy-bg text-app-navy border-app-navy/40' :
                                 'bg-app-amber-bg text-app-amber border-app-amber/40'
@@ -1517,7 +1531,7 @@ function App() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {examenes.filter(e => e.materia_id === selectedMateriaId || e.materia === currentMateria.nombre).map(ex => {
                     const includedUnits = ex.unidades_incluidas || [];
                     const linkedIds = ex.textos_vinculados || ex.textos_ids || [];
@@ -1540,10 +1554,10 @@ function App() {
                     });
 
                     return (
-                      <div key={ex.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+                      <div key={ex.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
                         <div className="flex justify-between items-start">
                           <div>
-                            <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
+                            <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/30">
                               {ex.tipo}
                             </span>
                             <h4 className="text-xl font-extrabold text-app-text mt-1">{ex.nombre}</h4>
@@ -1588,7 +1602,7 @@ function App() {
                             <span className="text-app-emerald">{readCount}/{relevantTexts.length} ({pct}%)</span>
                           </div>
                           <div className="w-full h-2.5 bg-app-surface rounded-full overflow-hidden border border-app-border">
-                            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-md transition-all duration-500" style={{ width: `${pct}%` }}></div>
                           </div>
                         </div>
 
@@ -1602,7 +1616,7 @@ function App() {
                               <Icon name="alert-circle" className="w-3.5 h-3.5" /> Pendientes de Lectura ({pendingTexts.length})
                             </div>
                             {Object.entries(pendingByUnit).map(([unidad, txs]) => (
-                              <div key={unidad} className="bg-app-surface p-3.5 rounded-2xl border border-app-border space-y-2">
+                              <div key={unidad} className="bg-app-surface p-3.5 rounded-lg border border-app-border space-y-2">
                                 <div className="text-xs font-extrabold text-app-emerald">{unidad}</div>
                                 {txs.map(t => (
                                   <div key={t.id} className="flex items-center justify-between gap-2 text-xs py-1 border-b border-app-border/40 last:border-0">
@@ -1629,7 +1643,7 @@ function App() {
             {/* 4. CLASES EN EL AULA */}
             {innerTab === 'clases' && (
               <div className="space-y-6">
-                <div className="flex flex-wrap gap-3 justify-between items-center bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+                <div className="flex flex-wrap gap-3 justify-between items-center bg-app-card p-5 rounded-xl border border-app-border shadow-card">
                   <div>
                     <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                       <Icon name="monitor" className="w-5 h-5 text-app-emerald" /> Protocolos de Clase
@@ -1645,8 +1659,8 @@ function App() {
                 </div>
 
                 {currentMateriaClases.length === 0 ? (
-                  <div className="bg-app-card border border-app-border rounded-3xl p-10 text-center space-y-4 shadow-card">
-                    <div className="w-16 h-16 rounded-3xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto shadow-emerald border border-app-emerald/20">
+                  <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-4 shadow-card">
+                    <div className="w-16 h-16 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto shadow-emerald border border-app-emerald/20">
                       <Icon name="monitor" className="w-8 h-8" size={32} />
                     </div>
                     <div className="max-w-md mx-auto">
@@ -1669,10 +1683,10 @@ function App() {
                       const imagenesList = c.imagenes || [];
 
                       return (
-                        <div key={c.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
+                        <div key={c.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
-                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
+                              <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
                                 Clase #{c.nro_clase} • {c.tipo || 'Teórica'}
                               </span>
                               <span className="text-xs text-app-muted font-bold flex items-center gap-1">
@@ -1683,7 +1697,7 @@ function App() {
                             <h4 className="text-lg font-black text-app-text leading-snug">{c.titulo_clase}</h4>
 
                             {c.aclaraciones && (
-                              <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-2xl text-xs text-app-text space-y-1">
+                              <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-lg text-xs text-app-text space-y-1">
                                 <div className="font-extrabold text-app-emerald flex items-center gap-1">
                                   <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis del Docente / Examen:
                                 </div>
@@ -1692,7 +1706,7 @@ function App() {
                             )}
 
                             {c.contenido_ppt && (
-                              <div className="p-3 bg-app-surface border border-app-border rounded-2xl text-xs text-app-muted space-y-1">
+                              <div className="p-3 bg-app-surface border border-app-border rounded-lg text-xs text-app-muted space-y-1">
                                 <div className="font-bold text-app-text flex items-center gap-1">
                                   <Icon name="presentation" className="w-3.5 h-3.5 text-app-navy" /> Contenido de Diapositivas:
                                 </div>
@@ -1772,7 +1786,7 @@ function App() {
             {/* 5. APUNTES EN EL AULA */}
             {innerTab === 'apuntes' && (
               <div className="space-y-4">
-                <div className="flex flex-wrap gap-2.5 justify-between items-center bg-app-card p-4 rounded-3xl border border-app-border shadow-card">
+                <div className="flex flex-wrap gap-2.5 justify-between items-center bg-app-card p-4 rounded-xl border border-app-border shadow-card">
                   <div>
                     <h3 className="text-base font-black text-app-text flex items-center gap-2">
                       <Icon name="file-text" className="w-5 h-5 text-app-emerald" /> Guías de Estudio & Apuntes
@@ -1801,8 +1815,8 @@ function App() {
                 </div>
 
                 {currentMateriaApuntes.length === 0 ? (
-                  <div className="bg-app-card border border-app-border rounded-3xl p-10 text-center space-y-3 shadow-card">
-                    <div className="w-14 h-14 rounded-2xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
+                  <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-3 shadow-card">
+                    <div className="w-14 h-14 rounded-lg bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
                       <Icon name="file-text" className="w-7 h-7" size={28} />
                     </div>
                     <h4 className="text-base font-extrabold text-app-text">Sin apuntes cargados en esta materia</h4>
@@ -1819,10 +1833,10 @@ function App() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {currentMateriaApuntes.map(a => (
-                      <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                      <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                         <div>
                           <div className="flex justify-between items-center mb-2">
-                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
+                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
                             <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                           </div>
                           <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
@@ -1853,7 +1867,7 @@ function App() {
             {innerTab === 'pdfs' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pdfs.filter(p => p.materia_id === selectedMateriaId || p.materia === currentMateria.nombre).map(p => (
-                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between">
+                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex flex-col justify-between">
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-xs font-bold text-app-emerald">{p.num_paginas} Páginas</span>
@@ -1875,7 +1889,7 @@ function App() {
         {/* ── TAB GLOBAL: BIBLIOTECA GENERAL ── */}
         {activeTab === 'biblio' && (
           <div className="space-y-5 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-xl border border-app-border shadow-card">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
                   <Icon name="book-open" className="w-6 h-6 text-app-emerald" size={24} /> Biblioteca General de Lecturas
@@ -1897,7 +1911,7 @@ function App() {
               <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
                 <button
                   onClick={() => setGlobalMateriaFilter('todas')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                     globalMateriaFilter === 'todas'
                       ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                       : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -1911,7 +1925,7 @@ function App() {
                     <button
                       key={m.id}
                       onClick={() => setGlobalMateriaFilter(m.id)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                         globalMateriaFilter === m.id
                           ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                           : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -1958,18 +1972,18 @@ function App() {
                   return b.estado === biblioFilter;
                 })
                 .map(t => (
-                  <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                  <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex flex-wrap gap-1.5 items-center">
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                             {t.materia || 'Materia'}
                           </span>
                           <span className="text-[10px] font-bold text-app-muted">{t.unidad}</span>
                         </div>
                         <button
                           onClick={() => handleToggleBiblioEstado(t.id)}
-                          className={`text-xs font-bold px-3 py-0.5 rounded-full border transition-all ${
+                          className={`text-xs font-bold px-3 py-0.5 rounded-md border transition-all ${
                             t.estado === 'Leído' ? 'bg-app-emerald-bg text-app-emerald border-app-emerald/40' :
                             t.estado === 'Resumiendo' ? 'bg-app-navy-bg text-app-navy border-app-navy/40' :
                             'bg-app-amber-bg text-app-amber border-app-amber/40'
@@ -2023,7 +2037,7 @@ function App() {
         {/* ── TAB GLOBAL: CLASES & AUDIOS ── */}
         {activeTab === 'clases' && (
           <div className="space-y-5 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-xl border border-app-border shadow-card">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
                   <Icon name="presentation" className="w-6 h-6 text-app-emerald" size={24} /> Protocolos de Clase & Grabaciones
@@ -2042,7 +2056,7 @@ function App() {
             <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
               <button
                 onClick={() => setGlobalMateriaFilter('todas')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                   globalMateriaFilter === 'todas'
                     ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                     : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -2056,7 +2070,7 @@ function App() {
                   <button
                     key={m.id}
                     onClick={() => setGlobalMateriaFilter(m.id)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                       globalMateriaFilter === m.id
                         ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                         : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -2076,10 +2090,10 @@ function App() {
                   const imagenesList = c.imagenes || [];
 
                   return (
-                    <div key={c.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
+                    <div key={c.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
-                          <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
+                          <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
                             {c.materia || 'Materia'} • Clase #{c.nro_clase}
                           </span>
                           <span className="text-xs text-app-muted font-bold flex items-center gap-1">
@@ -2090,7 +2104,7 @@ function App() {
                         <h4 className="text-lg font-black text-app-text leading-snug">{c.titulo_clase}</h4>
 
                         {c.aclaraciones && (
-                          <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-2xl text-xs text-app-text space-y-1">
+                          <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-lg text-xs text-app-text space-y-1">
                             <div className="font-extrabold text-app-emerald flex items-center gap-1">
                               <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis Docente / Examen:
                             </div>
@@ -2169,7 +2183,7 @@ function App() {
         {/* ── TAB GLOBAL: GUÍAS & APUNTES ── */}
         {activeTab === 'apuntes' && (
           <div className="space-y-5 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-xl border border-app-border shadow-card">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
                   <Icon name="file-text" className="w-6 h-6 text-app-emerald" size={24} /> Guías de Estudio & Apuntes Académicos
@@ -2201,7 +2215,7 @@ function App() {
             <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
               <button
                 onClick={() => setGlobalMateriaFilter('todas')}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                   globalMateriaFilter === 'todas'
                     ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                     : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -2215,7 +2229,7 @@ function App() {
                   <button
                     key={m.id}
                     onClick={() => setGlobalMateriaFilter(m.id)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold border whitespace-nowrap transition-all ${
                       globalMateriaFilter === m.id
                         ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
                         : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
@@ -2231,10 +2245,10 @@ function App() {
               {apuntes
                 .filter(a => globalMateriaFilter === 'todas' || a.materia_id === globalMateriaFilter || a.materia === materias.find(m => m.id === globalMateriaFilter)?.nombre)
                 .map(a => (
-                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
+                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
                         <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                       </div>
                       <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
@@ -2263,7 +2277,7 @@ function App() {
         {/* ── TAB GLOBAL: EXÁMENES & SIMULACIONES ── */}
         {activeTab === 'examenes' && (
           <div className="space-y-6 animate-fade-in">
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-xl border border-app-border shadow-card">
               <div>
                 <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
                   <Icon name="calendar-check" className="w-6 h-6 text-app-emerald" size={24} /> Exámenes, Parciales & Simulador
@@ -2275,7 +2289,7 @@ function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {examenes.map(ex => {
                 const mat = materias.find(m => m.id === ex.materia_id || m.nombre === ex.materia);
                 const matTexts = biblio.filter(b => b.materia_id === ex.materia_id || b.materia === ex.materia);
@@ -2292,14 +2306,14 @@ function App() {
                 const pct = relevantTexts.length > 0 ? Math.round((readCount / relevantTexts.length) * 100) : 100;
 
                 return (
-                  <div key={ex.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+                  <div key={ex.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
                     <div className="flex justify-between items-start">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                          <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                             {ex.materia || mat?.nombre || 'Materia'}
                           </span>
-                          <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
+                          <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/30">
                             {ex.tipo}
                           </span>
                         </div>
@@ -2336,7 +2350,7 @@ function App() {
                         <span className="text-app-emerald">{readCount}/{relevantTexts.length} ({pct}%)</span>
                       </div>
                       <div className="w-full h-2.5 bg-app-surface rounded-full overflow-hidden border border-app-border">
-                        <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                        <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-md transition-all duration-500" style={{ width: `${pct}%` }}></div>
                       </div>
                     </div>
                   </div>
@@ -2353,8 +2367,8 @@ function App() {
               <Icon name="file-up" className="w-6 h-6 text-app-emerald" size={24} /> Ingestión Inteligente de PDFs
             </h2>
 
-            <label className="block border-2 border-dashed border-app-emerald/60 hover:border-app-emerald bg-app-card/60 p-10 rounded-3xl text-center cursor-pointer shadow-fluffy transition-all hover:bg-app-emerald-bg/10">
-              <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-2xl mx-auto flex items-center justify-center mb-3">
+            <label className="block border-2 border-dashed border-app-emerald/60 hover:border-app-emerald bg-app-card/60 p-10 rounded-xl text-center cursor-pointer shadow-fluffy transition-all hover:bg-app-emerald-bg/10">
+              <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-lg mx-auto flex items-center justify-center mb-3">
                 <Icon name="upload-cloud" className="w-7 h-7" size={28} />
               </div>
               <div className="text-lg font-extrabold text-app-text">Arrastra tu PDF o Haz Clic para Cargar</div>
@@ -2363,10 +2377,10 @@ function App() {
             </label>
 
             {ingestionData && (
-              <form onSubmit={handleConfirmIngestion} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-fluffy space-y-4">
+              <form onSubmit={handleConfirmIngestion} className="bg-app-card border border-app-border p-4 rounded-xl shadow-fluffy space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-extrabold text-app-text">{ingestionData.fileName}</h3>
-                  <span className="text-xs font-bold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald">{ingestionData.numPages} páginas</span>
+                  <span className="text-xs font-bold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald">{ingestionData.numPages} páginas</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2444,7 +2458,7 @@ function App() {
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pdfs.slice(0, 6).map(p => (
-                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex flex-col justify-between">
+                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex flex-col justify-between">
                     <div>
                       <span className="text-xs font-bold text-app-emerald">{p.materia}</span>
                       <h4 className="text-base font-extrabold text-app-text mt-1 truncate">{p.nombre_archivo}</h4>
@@ -2475,17 +2489,27 @@ function App() {
               </button>
             </div>
 
-            <div className="bg-gradient-to-br from-app-surface to-app-card border border-app-border p-6 md:p-8 rounded-3xl shadow-fluffy flex flex-wrap items-center gap-6">
-              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-600 to-teal-900 text-white flex items-center justify-center shadow-emerald border-2 border-white/20">
-                <Icon name="user" className="w-10 h-10 text-white" size={40} />
+            <div className="bg-gradient-to-br from-app-surface to-app-card border border-app-border p-4 md:p-5 rounded-xl shadow-fluffy flex flex-wrap items-center gap-4">
+              <div className="relative w-20 h-20 rounded-xl flex items-center justify-center shadow-emerald border-2 border-app-emerald/20 overflow-hidden group bg-app-surface cursor-pointer">
+                <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" title="Cambiar foto de perfil" />
+                {profileImage ? (
+                  <img src={profileImage} alt="Perfil" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-emerald-600 to-teal-900 flex items-center justify-center text-white">
+                    <span className="text-2xl font-black">FL</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center pointer-events-none transition-all">
+                  <Icon name="camera" className="w-6 h-6 text-white" />
+                </div>
               </div>
               <div className="flex-1 min-w-[220px]">
                 <h3 className="text-2xl font-extrabold text-app-text">Facundo Lazarte</h3>
                 <p className="text-sm font-semibold text-app-emerald mt-0.5">Licenciatura en Psicología — Cursado Académico 2026</p>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  <span className="text-xs px-3 py-1 rounded-full bg-app-card border border-app-border text-app-muted font-bold">React + Tailwind Engine</span>
-                  <span className="text-xs px-3 py-1 rounded-full bg-app-card border border-app-border text-app-muted font-bold">Supabase Cloud Sync</span>
-                  <span className="text-xs px-3 py-1 rounded-full bg-app-card border border-app-border text-app-muted font-bold">Dual Theme Active</span>
+                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">React + Tailwind Engine</span>
+                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">Supabase Cloud Sync</span>
+                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">Dual Theme Active</span>
                 </div>
               </div>
             </div>
@@ -2497,7 +2521,7 @@ function App() {
                 { lbl: 'Lecturas Completadas', val: biblio.filter(b => b.estado === 'Leído' || b.estado === 'Salteado').length, icon: 'check-circle-2' },
                 { lbl: 'Apuntes Generados', val: apuntes.length, icon: 'feather' }
               ].map((s, idx) => (
-                <div key={idx} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card flex items-center gap-4">
+                <div key={idx} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex items-center gap-4">
                   <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center">
                     <Icon name={s.icon} className="w-6 h-6" />
                   </div>
@@ -2510,7 +2534,7 @@ function App() {
             </div>
 
             {/* Administrador de Materias */}
-            <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
@@ -2544,7 +2568,7 @@ function App() {
             </div>
 
             {/* ── CARD: ACTUALIZACIONES DE LA APP ── */}
-            <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
               <div className="flex justify-between items-center">
                 <div>
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Canal Oficial de Producción</div>
@@ -2553,7 +2577,7 @@ function App() {
                   </h3>
                   <p className="text-xs text-app-muted">Versión instalada: <strong className="text-app-text">{currentVersion}</strong></p>
                 </div>
-                <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                <span className={`text-xs font-bold px-3 py-1 rounded-md border ${
                   updateAvailable
                     ? 'bg-app-emerald-bg text-app-emerald border-app-emerald animate-pulse'
                     : 'bg-app-surface text-app-muted border-app-border'
@@ -2563,7 +2587,7 @@ function App() {
               </div>
 
               {updateAvailable ? (
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border-2 border-app-emerald space-y-3">
+                <div className="p-4 rounded-lg bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border-2 border-app-emerald space-y-3">
                   <div className="flex items-center gap-2 text-sm font-extrabold text-app-text">
                     <Icon name="arrow-up-circle" className="w-5 h-5 text-app-emerald animate-bounce" />
                     ¡Hay una nueva actualización disponible en GitHub (main)!
@@ -2592,7 +2616,7 @@ function App() {
               )}
             </div>
 
-            <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                 <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Mantenimiento
               </h3>
@@ -2618,7 +2642,7 @@ function App() {
               <Icon name="database" className="w-6 h-6 text-app-emerald" size={24} /> Sistema & Conexión Supabase
             </h2>
 
-            <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
               <h3 className="text-base font-extrabold text-app-text">Credenciales de Base de Datos</h3>
               <div>
                 <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Project URL</label>
@@ -2767,7 +2791,7 @@ function App() {
 
       {/* ══ TOAST NOTIFICATION ══ */}
       <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 pointer-events-none ${toast.show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        <div className="bg-app-card border border-app-emerald text-app-text px-6 py-3 rounded-full shadow-fluffy flex items-center gap-2.5 text-sm font-bold">
+        <div className="bg-app-card border border-app-emerald text-app-text px-6 py-3 rounded-md shadow-fluffy flex items-center gap-2.5 text-sm font-bold">
           <Icon name={toast.iconName} className="w-4 h-4 text-app-emerald" />
           <span>{toast.msg}</span>
         </div>
@@ -2827,7 +2851,7 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-3xl p-5 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div className="flex items-center gap-2">
             <Icon name="grid" className="w-5 h-5 text-app-emerald" />
@@ -2843,7 +2867,7 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
             <div
               key={opt.id}
               onClick={opt.action}
-              className="bg-app-surface border border-app-border hover:border-app-emerald p-3.5 rounded-2xl flex items-start gap-3 cursor-pointer transition-all hover:bg-app-card"
+              className="bg-app-surface border border-app-border hover:border-app-emerald p-3.5 rounded-lg flex items-start gap-3 cursor-pointer transition-all hover:bg-app-card"
             >
               <div className="p-2 rounded-xl bg-app-card border border-app-border text-app-emerald mt-0.5">
                 <Icon name={opt.icon} className="w-4 h-4" />
@@ -2852,7 +2876,7 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
                 <div className="flex items-center justify-between gap-1">
                   <h4 className="text-xs font-extrabold text-app-text truncate">{opt.title}</h4>
                   {opt.badge && (
-                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                       {opt.badge}
                     </span>
                   )}
@@ -2878,7 +2902,7 @@ function ModalMateria({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Materia' : 'Nueva Materia'}</h3>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -2957,7 +2981,7 @@ function ModalBiblio({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Texto' : 'Nuevo Texto'}</h3>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -3059,7 +3083,7 @@ Unidad 2 | 4 | El Orden del Discurso | Foucault, M. | Optativo`);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl rounded-3xl p-6 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <div>
             <h3 className="text-xl font-extrabold text-app-text">Carga Rápida de Programa / Bibliografía</h3>
@@ -3073,7 +3097,7 @@ Unidad 2 | 4 | El Orden del Discurso | Foucault, M. | Optativo`);
         <textarea
           value={rawText}
           onChange={e => setRawText(e.target.value)}
-          className="w-full h-60 p-4 rounded-2xl bg-app-surface border border-app-border text-xs font-mono text-app-text outline-none leading-relaxed"
+          className="w-full h-60 p-4 rounded-lg bg-app-surface border border-app-border text-xs font-mono text-app-text outline-none leading-relaxed"
           placeholder="Unidad 1 | 1 | Título del Texto | Autor | Obligatorio"
         />
 
@@ -3122,7 +3146,7 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl p-6 shadow-fluffy space-y-4 overflow-hidden">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-xl p-4 shadow-fluffy space-y-4 overflow-hidden">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
             <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Examen' : 'Crear Examen & Vincular Textos'}</h3>
@@ -3195,7 +3219,7 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
             <label className="block text-xs font-bold uppercase text-app-emerald mb-2">
               Textos Vinculados ({ (form.textos_vinculados || []).length } seleccionados)
             </label>
-            <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-app-surface rounded-2xl border border-app-border">
+            <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-app-surface rounded-lg border border-app-border">
               {availableTexts.map(t => {
                 const isChecked = (form.textos_vinculados || []).includes(t.id);
                 return (
@@ -3306,7 +3330,7 @@ function ModalClase({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl p-6 shadow-fluffy space-y-4 overflow-hidden">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-xl p-4 shadow-fluffy space-y-4 overflow-hidden">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
             <h3 className="text-xl font-extrabold text-app-text">
@@ -3365,7 +3389,7 @@ function ModalClase({ initialData, onClose, onSave }) {
           </div>
 
           {/* Subir Grabaciones de Audio */}
-          <div className="bg-app-surface p-4 rounded-2xl border border-app-border space-y-3">
+          <div className="bg-app-surface p-4 rounded-lg border border-app-border space-y-3">
             <div className="flex justify-between items-center">
               <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
                 <Icon name="mic" className="w-4 h-4 text-app-navy" /> Grabaciones de Audio de la Clase ({(form.grabaciones || []).length})
@@ -3413,7 +3437,7 @@ function ModalClase({ initialData, onClose, onSave }) {
           </div>
 
           {/* Fotos de Pizarrón e Imágenes */}
-          <div className="bg-app-surface p-4 rounded-2xl border border-app-border space-y-3">
+          <div className="bg-app-surface p-4 rounded-lg border border-app-border space-y-3">
             <div className="flex justify-between items-center">
               <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
                 <Icon name="camera" className="w-4 h-4 text-app-emerald" /> Fotos de Pizarra / Diapositivas ({(form.imagenes || []).length})
@@ -3544,13 +3568,13 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-[94vh] flex flex-col rounded-3xl p-5 sm:p-6 shadow-fluffy space-y-3 sm:space-y-4 overflow-hidden">
+      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-[94vh] flex flex-col rounded-xl p-5 sm:p-4 shadow-fluffy space-y-3 sm:space-y-4 overflow-hidden">
         
         {/* Header Bar */}
         <div className="flex flex-wrap justify-between items-center gap-2 border-b border-app-border pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                 {materiaNombre || 'Cátedra'}
               </span>
               <span className="text-xs text-app-muted font-bold">• {form.unidad}</span>
@@ -3562,7 +3586,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
 
           <div className="flex items-center gap-2">
             {/* View Mode Toggle */}
-            <div className="flex bg-app-surface p-1 rounded-2xl border border-app-border">
+            <div className="flex bg-app-surface p-1 rounded-lg border border-app-border">
               <button
                 type="button"
                 onClick={() => { setViewMode('split'); triggerHaptic('light'); }}
@@ -3587,7 +3611,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             <button
               type="button"
               onClick={handleCopyPrompt}
-              className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold border transition-all flex items-center gap-1.5 shadow-sm ${
+              className={`px-3.5 py-2 rounded-lg text-xs font-extrabold border transition-all flex items-center gap-1.5 shadow-sm ${
                 copiedPrompt
                   ? 'bg-app-emerald text-white border-app-emerald'
                   : 'bg-app-surface border-app-border text-app-emerald hover:border-app-emerald'
@@ -3601,7 +3625,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
               <button
                 type="button"
                 onClick={handlePrintPDF}
-                className="px-3.5 py-2 bg-app-navy text-white rounded-2xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
+                className="px-3.5 py-2 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
               >
                 <Icon name="printer" className="w-4 h-4" /> Imprimir / PDF
               </button>
@@ -3619,13 +3643,13 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             value={form.titulo}
             onChange={e => setForm({ ...form, titulo: e.target.value })}
             placeholder="Título del Apunte (o pega el prompt y se detectará automáticamente)"
-            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none sm:col-span-2"
+            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none sm:col-span-2"
             required
           />
           <select
             value={form.tipo}
             onChange={e => setForm({ ...form, tipo: e.target.value })}
-            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
           >
             <option value="Resumen">Resumen Completo</option>
             <option value="Guía de Estudio">Guía de Estudio</option>
@@ -3637,7 +3661,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             value={form.unidad}
             onChange={e => setForm({ ...form, unidad: e.target.value })}
             placeholder="Unidad (ej: Unidad 1)"
-            className="p-2.5 rounded-2xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
           />
         </div>
 
@@ -3645,7 +3669,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         {viewMode === 'split' && (
           <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
             {/* Toolbar with Markdown, Math & Smart Templates */}
-            <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-2xl">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-lg">
               <div className="flex flex-wrap gap-1 items-center">
                 <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
                 <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs italic font-bold hover:border-app-emerald">I</button>
@@ -3683,11 +3707,11 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
                 onPaste={handlePaste}
                 onChange={e => handleContentChange(e.target.value)}
                 placeholder="Pega aquí el código Markdown generado por la IA (el título se extraerá automáticamente desde #)..."
-                className="w-full h-full p-4 rounded-2xl bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none overflow-y-auto leading-relaxed"
+                className="w-full h-full p-4 rounded-lg bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none overflow-y-auto leading-relaxed"
               />
 
               <div
-                className="w-full h-full p-5 rounded-2xl bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
+                className="w-full h-full p-5 rounded-lg bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en vivo aparecerá aquí...</span>' }}
               />
             </div>
@@ -3696,10 +3720,10 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
 
         {/* ── 2. HOJA DOBLE / NEUROSCAN PDF PRINT PREVIEW MODE ── */}
         {viewMode === 'double_page' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-app-surface rounded-3xl border border-app-border">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-app-surface rounded-xl border border-app-border">
             <div
               id="academic-pdf-print-area"
-              className="max-w-4xl mx-auto bg-white text-slate-900 p-8 sm:p-12 rounded-3xl shadow-fluffy border border-slate-200"
+              className="max-w-4xl mx-auto bg-white text-slate-900 p-5 sm:p-12 rounded-xl shadow-fluffy border border-slate-200"
             >
               {/* Document Header */}
               <div className="border-b-2 border-emerald-600 pb-4 mb-6 flex justify-between items-end">
@@ -3764,7 +3788,7 @@ function ModalPDFViewer({ data, onClose, onCreateApunte }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-card border border-app-border w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl shadow-fluffy overflow-hidden">
+      <div className="bg-app-card border border-app-border w-full max-w-4xl max-h-[92vh] flex flex-col rounded-xl shadow-fluffy overflow-hidden">
         <div className="flex justify-between items-center p-5 border-b border-app-border bg-app-surface">
           <div>
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Visor Académico de Documento</span>
@@ -3794,7 +3818,7 @@ function ModalPDFViewer({ data, onClose, onCreateApunte }) {
             <button onClick={onClose} className="px-3 py-1.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 hover:brightness-110">Cerrar</button>
           </div>
         </div>
-        <div onMouseUp={handleTextSelection} onKeyUp={handleTextSelection} className="p-6 overflow-y-auto text-sm text-app-text leading-relaxed whitespace-pre-wrap select-text font-sans">
+        <div onMouseUp={handleTextSelection} onKeyUp={handleTextSelection} className="p-4 overflow-y-auto text-sm text-app-text leading-relaxed whitespace-pre-wrap select-text font-sans">
           {data.texto_extraido || 'Sin texto extraído en este documento.'}
         </div>
       </div>
@@ -3851,7 +3875,7 @@ function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onS
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center p-3 pt-12 sm:pt-20">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl rounded-3xl p-5 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl rounded-xl p-5 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div className="flex items-center gap-2 flex-1 mr-4">
             <Icon name="search" className="w-5 h-5 text-app-emerald" />
@@ -3885,10 +3909,10 @@ function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onS
                 if (matId) onSelectMateria(matId);
                 onClose();
               }}
-              className="p-3 rounded-2xl bg-app-card border border-app-border/70 hover:border-app-emerald cursor-pointer transition-all flex items-center justify-between group"
+              className="p-3 rounded-lg bg-app-card border border-app-border/70 hover:border-app-emerald cursor-pointer transition-all flex items-center justify-between group"
             >
               <div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                   {item.type}
                 </span>
                 <h4 className="text-sm font-extrabold text-app-text mt-1 group-hover:text-app-emerald transition-colors">{item.title}</h4>
@@ -3959,7 +3983,7 @@ function ModalPomodoro({ onClose, showToast }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-md rounded-3xl p-6 shadow-fluffy text-center space-y-5">
+      <div className="bg-app-modal border border-app-border w-full max-w-md rounded-xl p-4 shadow-fluffy text-center space-y-5">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div className="flex items-center gap-2">
             <Icon name="timer" className="w-5 h-5 text-app-amber" />
@@ -3985,13 +4009,13 @@ function ModalPomodoro({ onClose, showToast }) {
           </button>
         </div>
 
-        <div className="relative py-6 bg-app-surface rounded-2xl border border-app-border">
+        <div className="relative py-6 bg-app-surface rounded-lg border border-app-border">
           <div className="text-5xl font-black font-mono tracking-wider text-app-text">{formatTime(timeLeft)}</div>
           <div className="text-xs font-bold text-app-muted mt-2">
             {mode === 'work' ? 'Enfócate en tu bibliografía' : 'Tómate un respiro'}
           </div>
 
-          <div className="w-4/5 mx-auto h-2 bg-app-border rounded-full mt-4 overflow-hidden">
+          <div className="w-4/5 mx-auto h-2 bg-app-border rounded-md mt-4 overflow-hidden">
             <div className="h-full bg-app-emerald transition-all duration-300" style={{ width: `${progressPct}%` }}></div>
           </div>
         </div>
@@ -4031,7 +4055,7 @@ function ModalFlashcards({ title, items, onClose }) {
   if (!items || items.length === 0) {
     return (
       <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-        <div className="bg-app-modal border border-app-border w-full max-w-md rounded-3xl p-6 text-center space-y-4">
+        <div className="bg-app-modal border border-app-border w-full max-w-md rounded-xl p-4 text-center space-y-4">
           <h3 className="text-lg font-extrabold text-app-text">Sin elementos para repasar</h3>
           <p className="text-xs text-app-muted">No hay textos o apuntes suficientes para generar fichas en esta vista.</p>
           <button onClick={onClose} className="py-2.5 px-6 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald">Cerrar</button>
@@ -4061,7 +4085,7 @@ function ModalFlashcards({ title, items, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-xl rounded-3xl p-6 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-xl rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
             <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Modo Repaso Activo</span>
@@ -4082,12 +4106,12 @@ function ModalFlashcards({ title, items, onClose }) {
 
         <div
           onClick={() => setIsFlipped(!isFlipped)}
-          className={`relative min-h-[240px] p-6 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between shadow-card ${
+          className={`relative min-h-[240px] p-4 rounded-lg border-2 transition-all cursor-pointer flex flex-col justify-between shadow-card ${
             isFlipped ? 'bg-app-surface border-app-emerald' : 'bg-app-card border-app-border hover:border-app-emerald/60'
           }`}
         >
           <div className="flex justify-between items-start">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald bg-app-emerald-bg px-2.5 py-1 rounded-full border border-app-emerald/20">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald bg-app-emerald-bg px-2.5 py-1 rounded-md border border-app-emerald/20">
               {isFlipped ? 'REVERSO — CONCEPTO / NOTAS' : 'FRENTE — TÍTULO / AUTOR'}
             </span>
             {isMastered && (
