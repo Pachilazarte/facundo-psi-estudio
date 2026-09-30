@@ -1031,6 +1031,7 @@ function App() {
   };
 
   return (
+    <div className="min-h-screen bg-app-base text-app-text transition-colors duration-300">
       {/* ══ HEADER (FULL RESPONSIVE NAVIGATION) ══ */}
       <header className="sticky top-0 z-40 bg-app-base/95 backdrop-blur-xl border-b border-app-border px-3 sm:px-6 py-2.5 transition-colors">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
