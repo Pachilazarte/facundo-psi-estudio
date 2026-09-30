@@ -188,7 +188,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.7.0';
+  const currentVersion = 'v2.8.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -199,7 +199,9 @@ function App() {
   const [modalPDFViewer, setModalPDFViewer] = useState({ open: false, data: null });
   const [modalSearch, setModalSearch] = useState(false);
   const [modalPomodoro, setModalPomodoro] = useState(false);
+  const [modalMoreMenu, setModalMoreMenu] = useState(false);
   const [modalFlashcards, setModalFlashcards] = useState({ open: false, items: [], title: '' });
+  const [globalMateriaFilter, setGlobalMateriaFilter] = useState('todas');
 
   const [ingestionData, setIngestionData] = useState(null);
 
@@ -1015,100 +1017,118 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-app-base text-app-text transition-colors duration-300">
-      
-      {/* ══ HEADER ══ */}
-      <header className="sticky top-0 z-40 bg-app-base/90 backdrop-blur-xl border-b border-app-border px-4 md:px-8 py-3 transition-colors">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('materias'); setSelectedMateriaId(null); }}>
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
-              <Icon name="graduation-cap" className="w-5 h-5 text-white" size={22} />
+      {/* ══ HEADER (FULL RESPONSIVE NAVIGATION) ══ */}
+      <header className="sticky top-0 z-40 bg-app-base/95 backdrop-blur-xl border-b border-app-border px-3 sm:px-6 py-2.5 transition-colors">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+          
+          {/* Top Bar: Brand, Search & Tools */}
+          <div className="flex items-center justify-between gap-2">
+            <div
+              className="flex items-center gap-2.5 cursor-pointer"
+              onClick={() => { setActiveTab('materias'); setSelectedMateriaId(null); }}
+            >
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
+                <Icon name="graduation-cap" className="w-5 h-5 text-white" size={20} />
+              </div>
+              <div>
+                <h1 className="text-lg font-black tracking-tight leading-none text-app-text">
+                  PsiEstudio
+                </h1>
+                <span className="text-[9px] font-extrabold uppercase tracking-wider text-app-emerald">
+                  Academic Suite
+                </span>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight leading-none text-app-text">
-                PsiEstudio
-              </h1>
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">
-                Academic Management Suite
-              </span>
-            </div>
-          </div>
 
-          {/* Desktop Navigation Tabs */}
-          <div className="hidden md:flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-2xl">
-            {[
-              { id: 'materias', label: 'Aulas & Materias', icon: 'book-open' },
-              { id: 'pdf', label: 'Ingestión PDF', icon: 'file-text' },
-              { id: 'perfil', label: 'Mi Perfil', icon: 'user' },
-              { id: 'system', label: 'Sistema', icon: 'cpu' },
-            ].map(tab => (
+            {/* Header Action Tools */}
+            <div className="flex items-center gap-1.5">
               <button
-                key={tab.id}
-                onClick={() => { setActiveTab(tab.id); setSelectedMateriaId(null); }}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-app-card text-app-emerald shadow-card border border-app-border'
-                    : 'text-app-muted hover:text-app-text'
-                }`}
+                onClick={() => setModalSearch(true)}
+                className="px-2.5 py-1.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text hover:border-app-emerald transition-all shadow-card flex items-center gap-1.5"
+                title="Buscar en todas las materias y textos"
               >
-                <Icon name={tab.icon} className="w-3.5 h-3.5" />
-                {tab.label}
+                <Icon name="search" className="w-3.5 h-3.5 text-app-emerald" />
+                <span className="hidden sm:inline text-[11px]">Buscar</span>
               </button>
-            ))}
-          </div>
 
-          <div className="flex items-center gap-2">
-            {/* Global Search Button */}
-            <button
-              onClick={() => setModalSearch(true)}
-              className="px-3 py-1.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text hover:border-app-emerald transition-all shadow-card flex items-center gap-1.5"
-              title="Buscar en todas las materias y textos"
-            >
-              <Icon name="search" className="w-3.5 h-3.5 text-app-emerald" />
-              <span className="hidden sm:inline">Buscar...</span>
-            </button>
+              <button
+                onClick={() => setModalPomodoro(true)}
+                className="w-8 h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-amber transition-all shadow-card"
+                title="Temporizador Pomodoro"
+              >
+                <Icon name="timer" className="w-3.5 h-3.5 text-app-amber" />
+              </button>
 
-            {/* Pomodoro Timer Button */}
-            <button
-              onClick={() => setModalPomodoro(true)}
-              className="w-9 h-9 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-amber transition-all shadow-card hover:scale-105"
-              title="Temporizador Pomodoro de Estudio"
-            >
-              <Icon name="timer" className="w-4 h-4 text-app-amber" />
-            </button>
+              <button
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                className="w-8 h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card"
+                title="Modo Crema / Oscuro"
+              >
+                <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-3.5 h-3.5 text-app-text" />
+              </button>
 
-            {/* Theme Toggle */}
-            <button
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="w-9 h-9 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card hover:scale-105"
-              title="Alternar Modo Crema / Oscuro"
-            >
-              <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-4 h-4 text-app-text" />
-            </button>
-
-            {/* Supabase Status */}
-            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-app-emerald shadow-[0_0_8px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
-              <span className="hidden sm:inline">{isOnline ? 'Cloud Activo' : 'Offline'}</span>
+              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-extrabold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-app-emerald shadow-[0_0_6px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
+                <span className="hidden sm:inline">{isOnline ? 'Cloud' : 'Offline'}</span>
+              </div>
             </div>
           </div>
+
+          {/* Navigation Pill Tabs (Always visible on all screen sizes with horizontal swipe) */}
+          <div className="overflow-x-auto no-scrollbar flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-2xl">
+            {[
+              { id: 'materias', label: 'Aulas', icon: 'layers', badge: materias.length },
+              { id: 'biblio', label: 'Biblioteca', icon: 'book-open', badge: biblio.length },
+              { id: 'clases', label: 'Clases', icon: 'presentation', badge: clases.length },
+              { id: 'apuntes', label: 'Apuntes', icon: 'file-text', badge: apuntes.length },
+              { id: 'examenes', label: 'Exámenes', icon: 'calendar-check', badge: examenes.length },
+              { id: 'pdf', label: 'PDF OCR', icon: 'file-up', badge: pdfs.length },
+              { id: 'perfil', label: 'Mi Perfil', icon: 'user', badge: null },
+              { id: 'system', label: 'Sistema', icon: 'cpu', badge: null },
+            ].map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex-shrink-0 ${
+                    isActive
+                      ? 'bg-app-card text-app-emerald shadow-card border border-app-border ring-1 ring-app-emerald/30'
+                      : 'text-app-muted hover:text-app-text hover:bg-app-card/40'
+                  }`}
+                >
+                  <Icon name={tab.icon} className={`w-3.5 h-3.5 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
+                  <span>{tab.label}</span>
+                  {tab.badge !== null && tab.badge > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                      isActive ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-muted'
+                    }`}>
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
         </div>
       </header>
 
       {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-3 pt-2 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
         {[
-          { id: 'materias', label: 'Aulas', icon: 'book-open' },
-          { id: 'pdf', label: 'PDF OCR', icon: 'file-text' },
-          { id: 'perfil', label: 'Mi Perfil', icon: 'user' },
-          { id: 'system', label: 'Sistema', icon: 'cpu' },
+          { id: 'materias', label: 'Aulas', icon: 'layers' },
+          { id: 'biblio', label: 'Lecturas', icon: 'book-open' },
+          { id: 'apuntes', label: 'Apuntes', icon: 'file-text' },
+          { id: 'clases', label: 'Clases', icon: 'presentation' },
+          { id: 'examenes', label: 'Exámenes', icon: 'calendar-check' },
         ].map(tab => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id); if (tab.id !== 'materias') setSelectedMateriaId(null); }}
-              className={`flex flex-col items-center justify-center py-1 px-3 rounded-xl transition-all ${
+              onClick={() => { setActiveTab(tab.id); }}
+              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all flex-1 ${
                 isActive ? 'text-app-emerald font-extrabold scale-105' : 'text-app-muted hover:text-app-text font-medium'
               }`}
             >
@@ -1119,6 +1139,19 @@ function App() {
             </button>
           );
         })}
+        
+        {/* Más Menu Button */}
+        <button
+          onClick={() => setModalMoreMenu(true)}
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all flex-1 ${
+            activeTab === 'pdf' || activeTab === 'perfil' || activeTab === 'system' ? 'text-app-emerald font-extrabold' : 'text-app-muted hover:text-app-text'
+          }`}
+        >
+          <div className="p-1.5 rounded-xl">
+            <Icon name="more-horizontal" className="w-4 h-4 text-app-muted" />
+          </div>
+          <span className="text-[10px] tracking-tight mt-0.5">Más</span>
+        </button>
       </nav>
 
       {/* ══ MAIN VIEW CONTAINER ══ */}
@@ -1222,19 +1255,33 @@ function App() {
           </div>
         )}
 
-        {/* ── TAB: AULA / MATERIA DETALLE ── */}
+        {/* ── TAB: AULA / MATERIA DETALLE (CON SELECTOR RÁPIDO & SUB-BARRA STICKY) ── */}
         {activeTab === 'materias' && selectedMateriaId && currentMateria && (
           <div className="space-y-5 animate-fade-in">
             
-            {/* Aula Header & Quick Actions Card */}
+            {/* Aula Header & Materia Switcher Card */}
             <div className="bg-app-card border border-app-border p-4 sm:p-6 rounded-3xl shadow-card space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  onClick={() => setSelectedMateriaId(null)}
-                  className="px-3.5 py-1.5 rounded-xl bg-app-surface border border-app-border hover:border-app-emerald text-xs font-bold text-app-text flex items-center gap-1.5 shadow-card transition-all"
-                >
-                  <Icon name="arrow-left" className="w-3.5 h-3.5" /> Volver a Aulas
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedMateriaId(null)}
+                    className="px-3.5 py-1.5 rounded-xl bg-app-surface border border-app-border hover:border-app-emerald text-xs font-bold text-app-text flex items-center gap-1.5 shadow-card transition-all"
+                  >
+                    <Icon name="arrow-left" className="w-3.5 h-3.5" /> Volver a Aulas
+                  </button>
+                  
+                  {/* Selector rápido de materia */}
+                  <select
+                    value={selectedMateriaId}
+                    onChange={e => setSelectedMateriaId(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-app-surface border border-app-border text-xs font-extrabold text-app-emerald outline-none"
+                  >
+                    {materias.map(m => (
+                      <option key={m.id} value={m.id}>{m.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30 uppercase tracking-wider">
                   {currentMateria.abreviatura || 'MAT'}
                 </span>
@@ -1247,10 +1294,10 @@ function App() {
                 </p>
               </div>
 
-              {/* Acciones Rápidas en Grid Móvil */}
+              {/* Acciones Rápidas */}
               <div className="pt-3 border-t border-app-border">
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald mb-2 flex items-center gap-1">
-                  <Icon name="zap" className="w-3.5 h-3.5 text-app-emerald" /> Acciones Rápidas
+                  <Icon name="zap" className="w-3.5 h-3.5 text-app-emerald" /> Acciones Rápidas en esta Materia
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                   <button onClick={() => setModalExamen({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-emerald text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-emerald hover:brightness-110">
@@ -1275,12 +1322,9 @@ function App() {
               </div>
             </div>
 
-            {/* ══ SECCIONES DEL AULA EN GRID RESPONSIVO (NO SLIDE / 100% VISIBLE) ══ */}
-            <div className="space-y-2">
-              <div className="text-[11px] font-extrabold uppercase tracking-wider text-app-muted flex items-center gap-1.5">
-                <Icon name="layout-grid" className="w-3.5 h-3.5 text-app-emerald" /> Secciones del Aula
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {/* ══ SUB-BARRA STICKY DE SECCIONES DEL AULA ══ */}
+            <div className="sticky top-[58px] z-30 bg-app-base/95 backdrop-blur-md pb-2 pt-1">
+              <div className="overflow-x-auto no-scrollbar flex items-center gap-2 p-1.5 bg-app-surface border border-app-border rounded-2xl">
                 {[
                   { id: 'params', label: 'Cátedra & Temario', count: null, icon: 'clipboard-list' },
                   { id: 'biblio', label: 'Bibliografía', count: currentMateriaTexts.length, icon: 'book-marked' },
@@ -1294,25 +1338,21 @@ function App() {
                     <button
                       key={sec.id}
                       onClick={() => setInnerTab(sec.id)}
-                      className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between ${
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold whitespace-nowrap transition-all flex items-center gap-2 flex-shrink-0 ${
                         isSelected
-                          ? 'bg-app-card border-app-emerald shadow-card ring-1 ring-app-emerald scale-[1.02]'
-                          : 'bg-app-surface border-app-border text-app-muted hover:border-app-emerald/50'
+                          ? 'bg-app-card text-app-emerald shadow-card border border-app-border ring-1 ring-app-emerald'
+                          : 'text-app-muted hover:text-app-text hover:bg-app-card/40'
                       }`}
                     >
-                      <div className="flex justify-between items-center mb-2">
-                        <Icon name={sec.icon} className={`w-4 h-4 ${isSelected ? 'text-app-emerald' : 'text-app-muted'}`} />
-                        {sec.count !== null && (
-                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                            isSelected ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-text'
-                          }`}>
-                            {sec.count}
-                          </span>
-                        )}
-                      </div>
-                      <div className={`text-xs font-extrabold leading-tight ${isSelected ? 'text-app-text' : 'text-app-muted'}`}>
-                        {sec.label}
-                      </div>
+                      <Icon name={sec.icon} className={`w-4 h-4 ${isSelected ? 'text-app-emerald' : 'text-app-muted'}`} />
+                      <span>{sec.label}</span>
+                      {sec.count !== null && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                          isSelected ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-text'
+                        }`}>
+                          {sec.count}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -1359,11 +1399,10 @@ function App() {
               </div>
             )}
 
-            {/* 2. BIBLIOGRAFÍA & FORMATO ESTABLECIDO (NO HORIZONTAL SLIDER) */}
+            {/* 2. BIBLIOGRAFÍA EN EL AULA */}
             {innerTab === 'biblio' && (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  {/* Filter Chips wrapping cleanly */}
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       { id: 'todos', label: 'Todos' },
@@ -1466,7 +1505,7 @@ function App() {
               </div>
             )}
 
-            {/* 3. EXÁMENES & VINCULACIÓN DE UNIDADES Y TEXTOS */}
+            {/* 3. EXÁMENES EN EL AULA */}
             {innerTab === 'examenes' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -1480,7 +1519,6 @@ function App() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {examenes.filter(e => e.materia_id === selectedMateriaId || e.materia === currentMateria.nombre).map(ex => {
-                    // Match texts linked explicitly or by included units
                     const includedUnits = ex.unidades_incluidas || [];
                     const linkedIds = ex.textos_vinculados || ex.textos_ids || [];
 
@@ -1544,7 +1582,6 @@ function App() {
                           </div>
                         </div>
 
-                        {/* Progress Bar */}
                         <div>
                           <div className="flex justify-between text-xs font-bold mb-1">
                             <span className="text-app-muted">Textos Evaluados Leídos</span>
@@ -1555,7 +1592,6 @@ function App() {
                           </div>
                         </div>
 
-                        {/* Breakdown */}
                         {pendingTexts.length === 0 ? (
                           <div className="p-3 bg-app-emerald-bg border border-app-emerald/20 rounded-xl text-xs font-bold text-app-emerald flex items-center gap-2">
                             <Icon name="check-circle" className="w-4 h-4" /> Todos los textos de este examen están leídos.
@@ -1590,7 +1626,7 @@ function App() {
               </div>
             )}
 
-            {/* 4. CLASES */}
+            {/* 4. CLASES EN EL AULA */}
             {innerTab === 'clases' && (
               <div className="space-y-6">
                 <div className="flex flex-wrap gap-3 justify-between items-center bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
@@ -1609,14 +1645,14 @@ function App() {
                 </div>
 
                 {currentMateriaClases.length === 0 ? (
-                  <div className="bg-app-card border border-app-border rounded-3xl p-10 sm:p-14 text-center space-y-4 shadow-card">
+                  <div className="bg-app-card border border-app-border rounded-3xl p-10 text-center space-y-4 shadow-card">
                     <div className="w-16 h-16 rounded-3xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto shadow-emerald border border-app-emerald/20">
                       <Icon name="monitor" className="w-8 h-8" size={32} />
                     </div>
                     <div className="max-w-md mx-auto">
                       <h4 className="text-lg font-extrabold text-app-text">Sin clases registradas en esta materia</h4>
                       <p className="text-xs text-app-muted mt-1 leading-relaxed">
-                        Crea protocolos de tus clases teóricas, prácticas o talleres. Puedes adjuntar múltiples grabaciones de audio, fotos de la pizarra, contenido de diapositivas y los énfasis para el examen.
+                        Crea protocolos de tus clases teóricas, prácticas o talleres. Puedes adjuntar múltiples grabaciones de audio, fotos de la pizarra y los énfasis para el examen.
                       </p>
                     </div>
                     <button
@@ -1664,7 +1700,6 @@ function App() {
                               </div>
                             )}
 
-                            {/* Grabaciones de audio */}
                             {grabacionesList.length > 0 && (
                               <div className="space-y-1.5 pt-1">
                                 <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
@@ -1686,7 +1721,6 @@ function App() {
                               </div>
                             )}
 
-                            {/* Galería de imágenes / pizarra */}
                             {imagenesList.length > 0 && (
                               <div className="space-y-1.5 pt-1">
                                 <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
@@ -1735,7 +1769,7 @@ function App() {
               </div>
             )}
 
-            {/* 5. APUNTES */}
+            {/* 5. APUNTES EN EL AULA */}
             {innerTab === 'apuntes' && (
               <div className="space-y-4">
                 <div className="flex flex-wrap gap-2.5 justify-between items-center bg-app-card p-4 rounded-3xl border border-app-border shadow-card">
@@ -1815,7 +1849,7 @@ function App() {
               </div>
             )}
 
-            {/* 6. PDFs */}
+            {/* 6. PDFs EN EL AULA */}
             {innerTab === 'pdfs' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pdfs.filter(p => p.materia_id === selectedMateriaId || p.materia === currentMateria.nombre).map(p => (
@@ -1835,6 +1869,480 @@ function App() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── TAB GLOBAL: BIBLIOTECA GENERAL ── */}
+        {activeTab === 'biblio' && (
+          <div className="space-y-5 animate-fade-in">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
+                  <Icon name="book-open" className="w-6 h-6 text-app-emerald" size={24} /> Biblioteca General de Lecturas
+                </h2>
+                <p className="text-xs text-app-muted">Todos los textos del programa clasificados por cátedra y estado de lectura.</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setModalBiblioBatch(true)} className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm">
+                  <Icon name="file-spreadsheet" className="w-3.5 h-3.5 text-app-emerald" /> Carga Rápida
+                </button>
+                <button onClick={() => setModalBiblio({ open: true, data: null })} className="px-4 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5">
+                  <Icon name="plus" className="w-3.5 h-3.5 text-white" /> Agregar Texto
+                </button>
+              </div>
+            </div>
+
+            {/* Materia Filter Chips & State Filter */}
+            <div className="space-y-2">
+              <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
+                <button
+                  onClick={() => setGlobalMateriaFilter('todas')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                    globalMateriaFilter === 'todas'
+                      ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                      : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                  }`}
+                >
+                  Todas las Materias ({biblio.length})
+                </button>
+                {materias.map(m => {
+                  const count = biblio.filter(b => b.materia_id === m.id || b.materia === m.nombre).length;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setGlobalMateriaFilter(m.id)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                        globalMateriaFilter === m.id
+                          ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                          : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                      }`}
+                    >
+                      {m.nombre} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { id: 'todos', label: 'Todos los estados' },
+                  { id: 'Obligatorio', label: 'Obligatorios' },
+                  { id: 'Optativo', label: 'Optativos' },
+                  { id: 'parcial', label: 'Van a Parcial' },
+                  { id: 'Pendiente', label: 'Pendientes' },
+                  { id: 'Resumiendo', label: 'Resumiendo' },
+                  { id: 'Leído', label: 'Leídos' },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setBiblioFilter(f.id)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold border transition-all ${
+                      biblioFilter === f.id
+                        ? 'bg-app-card text-app-emerald border-app-emerald shadow-sm'
+                        : 'bg-app-surface border-app-border text-app-muted'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {biblio
+                .filter(b => globalMateriaFilter === 'todas' || b.materia_id === globalMateriaFilter || b.materia === materias.find(m => m.id === globalMateriaFilter)?.nombre)
+                .filter(b => {
+                  if (biblioFilter === 'todos') return true;
+                  if (biblioFilter === 'parcial') return b.va_parcial;
+                  if (biblioFilter === 'Obligatorio' || biblioFilter === 'Optativo') return (b.caracter || 'Obligatorio') === biblioFilter;
+                  return b.estado === biblioFilter;
+                })
+                .map(t => (
+                  <div key={t.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex flex-wrap gap-1.5 items-center">
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                            {t.materia || 'Materia'}
+                          </span>
+                          <span className="text-[10px] font-bold text-app-muted">{t.unidad}</span>
+                        </div>
+                        <button
+                          onClick={() => handleToggleBiblioEstado(t.id)}
+                          className={`text-xs font-bold px-3 py-0.5 rounded-full border transition-all ${
+                            t.estado === 'Leído' ? 'bg-app-emerald-bg text-app-emerald border-app-emerald/40' :
+                            t.estado === 'Resumiendo' ? 'bg-app-navy-bg text-app-navy border-app-navy/40' :
+                            'bg-app-amber-bg text-app-amber border-app-amber/40'
+                          }`}
+                        >
+                          {t.estado || 'Pendiente'}
+                        </button>
+                      </div>
+                      <h4 className="text-base font-extrabold text-app-text mb-1 leading-snug">{t.titulo_texto}</h4>
+                      <p className="text-xs text-app-muted mb-3 italic">Autor: {t.autores || 'No especificado'}</p>
+                      {t.notas && <p className="text-xs text-app-muted bg-app-surface p-2.5 rounded-xl border border-app-border mb-3">{t.notas}</p>}
+                    </div>
+
+                    <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
+                      <span className={`font-bold ${t.va_parcial ? 'text-app-amber' : 'text-app-muted'}`}>
+                        {t.va_parcial ? 'Va al Parcial' : 'Lectura regular'}
+                      </span>
+                      <div className="flex gap-1.5">
+                        <button
+                          title="Copiar Prompt Académico para IA"
+                          onClick={() => {
+                            const prompt = generateAcademicPrompt(t.materia, `${t.unidad} - ${t.titulo_texto} (${t.autores || 'Autor'})`, t.notas || '');
+                            navigator.clipboard.writeText(prompt);
+                            showToast('📋 Prompt copiado para IA', 'sparkles');
+                            triggerHaptic('success');
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald flex items-center gap-1 font-bold text-[11px]"
+                        >
+                          <Icon name="sparkles" className="w-3.5 h-3.5" />
+                          <span>Prompt</span>
+                        </button>
+                        {t.link_resumen && (
+                          <a href={t.link_resumen} target="_blank" className="p-1.5 rounded-lg bg-app-emerald-bg text-app-emerald border border-app-emerald/30 text-xs font-bold flex items-center gap-1">
+                            <Icon name="external-link" className="w-3.5 h-3.5" /> Resumen
+                          </a>
+                        )}
+                        <button onClick={() => setModalBiblio({ open: true, data: t })} className="p-1.5 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald">
+                          <Icon name="edit-2" className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => handleDeleteBiblio(t.id)} className="p-1.5 rounded-lg bg-app-ruby-bg text-app-ruby border border-app-ruby/30">
+                          <Icon name="trash-2" className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB GLOBAL: CLASES & AUDIOS ── */}
+        {activeTab === 'clases' && (
+          <div className="space-y-5 animate-fade-in">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
+                  <Icon name="presentation" className="w-6 h-6 text-app-emerald" size={24} /> Protocolos de Clase & Grabaciones
+                </h2>
+                <p className="text-xs text-app-muted">Audios, pizarras, diapositivas y temas clave dados en cátedra.</p>
+              </div>
+              <button
+                onClick={() => { triggerHaptic('light'); setModalClase({ open: true, data: null }); }}
+                className="px-4 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5"
+              >
+                <Icon name="plus-circle" className="w-4 h-4 text-white" /> Registrar Nueva Clase
+              </button>
+            </div>
+
+            {/* Materia Filter Chips */}
+            <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
+              <button
+                onClick={() => setGlobalMateriaFilter('todas')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                  globalMateriaFilter === 'todas'
+                    ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                    : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                }`}
+              >
+                Todas las Materias ({clases.length})
+              </button>
+              {materias.map(m => {
+                const count = clases.filter(c => c.materia_id === m.id || c.materia === m.nombre).length;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setGlobalMateriaFilter(m.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                      globalMateriaFilter === m.id
+                        ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                        : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                    }`}
+                  >
+                    {m.nombre} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {clases
+                .filter(c => globalMateriaFilter === 'todas' || c.materia_id === globalMateriaFilter || c.materia === materias.find(m => m.id === globalMateriaFilter)?.nombre)
+                .map(c => {
+                  const grabacionesList = c.grabaciones || (c.link_grabacion ? [{ id: 1, url: c.link_grabacion, title: 'Audio de Clase' }] : []);
+                  const imagenesList = c.imagenes || [];
+
+                  return (
+                    <div key={c.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
+                            {c.materia || 'Materia'} • Clase #{c.nro_clase}
+                          </span>
+                          <span className="text-xs text-app-muted font-bold flex items-center gap-1">
+                            <Icon name="calendar" className="w-3.5 h-3.5" /> {c.fecha}
+                          </span>
+                        </div>
+
+                        <h4 className="text-lg font-black text-app-text leading-snug">{c.titulo_clase}</h4>
+
+                        {c.aclaraciones && (
+                          <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-2xl text-xs text-app-text space-y-1">
+                            <div className="font-extrabold text-app-emerald flex items-center gap-1">
+                              <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis Docente / Examen:
+                            </div>
+                            <div className="leading-relaxed whitespace-pre-wrap">{c.aclaraciones}</div>
+                          </div>
+                        )}
+
+                        {grabacionesList.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
+                              <Icon name="mic" className="w-3.5 h-3.5 text-app-navy" /> Grabaciones ({grabacionesList.length}):
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {grabacionesList.map((g, idx) => (
+                                <a
+                                  key={g.id || idx}
+                                  href={g.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-2.5 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 flex items-center gap-1.5 hover:brightness-110"
+                                >
+                                  <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {imagenesList.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
+                              <Icon name="image" className="w-3.5 h-3.5 text-app-emerald" /> Pizarras & Fotos ({imagenesList.length}):
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {imagenesList.map((img, idx) => (
+                                <a key={img.id || idx} href={img.url} target="_blank" rel="noreferrer" className="block relative rounded-xl overflow-hidden border border-app-border group">
+                                  <img src={img.url} alt={img.caption || 'Foto clase'} className="w-full h-20 object-cover group-hover:scale-105 transition-transform" />
+                                  {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] p-1 truncate text-center">{img.caption}</span>}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
+                        {c.link_doc_resumen ? (
+                          <a href={c.link_doc_resumen} target="_blank" rel="noreferrer" className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border flex items-center gap-1 hover:border-app-emerald">
+                            <Icon name="file-text" className="w-3.5 h-3.5 text-app-emerald" /> Documento
+                          </a>
+                        ) : (
+                          <span></span>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { triggerHaptic('light'); setModalClase({ open: true, data: c }); }}
+                            className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                          >
+                            <Icon name="edit-2" className="w-3.5 h-3.5" /> Editar
+                          </button>
+                          <button
+                            onClick={() => { triggerHaptic('warning'); handleDeleteClase(c.id); }}
+                            className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                          >
+                            <Icon name="trash-2" className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB GLOBAL: GUÍAS & APUNTES ── */}
+        {activeTab === 'apuntes' && (
+          <div className="space-y-5 animate-fade-in">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
+                  <Icon name="file-text" className="w-6 h-6 text-app-emerald" size={24} /> Guías de Estudio & Apuntes Académicos
+                </h2>
+                <p className="text-xs text-app-muted">Redacción de máxima densidad con soporte para fórmulas LaTeX y vista en hoja doble imprimible.</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const prompt = generateAcademicPrompt('', 'Unidad 1', '');
+                    navigator.clipboard.writeText(prompt);
+                    showToast('📋 Prompt Académico copiado', 'sparkles');
+                    triggerHaptic('success');
+                  }}
+                  className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald font-bold text-xs rounded-xl flex items-center gap-1.5"
+                >
+                  <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA
+                </button>
+                <button
+                  onClick={() => { triggerHaptic('light'); setModalApunte({ open: true, data: null }); }}
+                  className="px-4 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5"
+                >
+                  <Icon name="plus-circle" className="w-4 h-4 text-white" /> Crear Nuevo Apunte
+                </button>
+              </div>
+            </div>
+
+            {/* Materia Filter Chips */}
+            <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
+              <button
+                onClick={() => setGlobalMateriaFilter('todas')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                  globalMateriaFilter === 'todas'
+                    ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                    : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                }`}
+              >
+                Todas las Materias ({apuntes.length})
+              </button>
+              {materias.map(m => {
+                const count = apuntes.filter(a => a.materia_id === m.id || a.materia === m.nombre).length;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setGlobalMateriaFilter(m.id)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border whitespace-nowrap transition-all ${
+                      globalMateriaFilter === m.id
+                        ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                        : 'bg-app-surface border-app-border text-app-muted hover:text-app-text'
+                    }`}
+                  >
+                    {m.nombre} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {apuntes
+                .filter(a => globalMateriaFilter === 'todas' || a.materia_id === globalMateriaFilter || a.materia === materias.find(m => m.id === globalMateriaFilter)?.nombre)
+                .map(a => (
+                  <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-3xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                    <div>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
+                        <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
+                      </div>
+                      <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
+                      <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
+                    </div>
+                    <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
+                      <span className="font-bold text-app-amber text-[11px]">{a.va_parcial ? 'Para Parcial' : 'Estudio'}</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => setModalApunte({ open: true, data: a })}
+                          className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                        >
+                          <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                        </button>
+                        <button onClick={() => handleDeleteApunte(a.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30">
+                          <Icon name="trash-2" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB GLOBAL: EXÁMENES & SIMULACIONES ── */}
+        {activeTab === 'examenes' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2">
+                  <Icon name="calendar-check" className="w-6 h-6 text-app-emerald" size={24} /> Exámenes, Parciales & Simulador
+                </h2>
+                <p className="text-xs text-app-muted">Cronograma completo de evaluaciones, vinculación de textos y simulación de preguntas.</p>
+              </div>
+              <button onClick={() => setModalExamen({ open: true, data: null })} className="bg-app-emerald text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-emerald hover:brightness-110">
+                <Icon name="plus" className="w-4 h-4" /> Crear Examen
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {examenes.map(ex => {
+                const mat = materias.find(m => m.id === ex.materia_id || m.nombre === ex.materia);
+                const matTexts = biblio.filter(b => b.materia_id === ex.materia_id || b.materia === ex.materia);
+                const includedUnits = ex.unidades_incluidas || [];
+                const linkedIds = ex.textos_vinculados || ex.textos_ids || [];
+
+                const relevantTexts = matTexts.filter(b => {
+                  if (linkedIds.length > 0) return linkedIds.includes(b.id);
+                  if (includedUnits.length > 0) return includedUnits.includes(b.unidad);
+                  return b.va_parcial;
+                });
+
+                const readCount = relevantTexts.filter(t => t.estado === 'Leído' || t.estado === 'Salteado').length;
+                const pct = relevantTexts.length > 0 ? Math.round((readCount / relevantTexts.length) * 100) : 100;
+
+                return (
+                  <div key={ex.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                            {ex.materia || mat?.nombre || 'Materia'}
+                          </span>
+                          <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-app-amber-bg text-app-amber border border-app-amber/30">
+                            {ex.tipo}
+                          </span>
+                        </div>
+                        <h4 className="text-xl font-extrabold text-app-text mt-1.5">{ex.nombre}</h4>
+                        <p className="text-xs text-app-muted mt-0.5">Fecha: <strong>{ex.fecha}</strong> • Modalidad: {ex.modalidad}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => {
+                            triggerHaptic('medium');
+                            setModalFlashcards({
+                              open: true,
+                              title: `Simulación: ${ex.nombre}`,
+                              items: relevantTexts.map(t => ({
+                                id: t.id,
+                                titulo_texto: `¿Qué tesis y conceptos clave plantea "${t.titulo_texto}"?`,
+                                autores: `${t.autores || 'Autor'} • ${t.unidad}`,
+                                notas: t.notas || 'Repasa las nociones centrales de este autor, sus definiciones axiomáticas y su articulación con el programa de la materia.'
+                              }))
+                            });
+                          }}
+                          className="px-3 py-1 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30 flex items-center gap-1.5 hover:brightness-110"
+                        >
+                          <Icon name="brain" className="w-3.5 h-3.5" /> Simular
+                        </button>
+                        <button onClick={() => setModalExamen({ open: true, data: ex })} className="text-app-muted hover:text-app-emerald p-1.5"><Icon name="edit-2" className="w-4 h-4" /></button>
+                        <button onClick={() => handleDeleteExamen(ex.id)} className="text-app-ruby p-1.5"><Icon name="trash-2" className="w-4 h-4" /></button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between text-xs font-bold mb-1">
+                        <span className="text-app-muted">Textos Evaluados Leídos</span>
+                        <span className="text-app-emerald">{readCount}/{relevantTexts.length} ({pct}%)</span>
+                      </div>
+                      <div className="w-full h-2.5 bg-app-surface rounded-full overflow-hidden border border-app-border">
+                        <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }}></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -2231,6 +2739,32 @@ function App() {
         />
       )}
 
+      {modalMoreMenu && (
+        <ModalMoreMenu
+          onClose={() => setModalMoreMenu(false)}
+          onNavigate={(tab) => {
+            setActiveTab(tab);
+            setModalMoreMenu(false);
+          }}
+          onOpenPomodoro={() => {
+            setModalMoreMenu(false);
+            setModalPomodoro(true);
+          }}
+          onOpenSearch={() => {
+            setModalMoreMenu(false);
+            setModalSearch(true);
+          }}
+          onOpenFlashcards={() => {
+            setModalMoreMenu(false);
+            setModalFlashcards({
+              open: true,
+              items: [...biblio, ...apuntes],
+              title: 'Repaso Rápido de Todo el Cursado'
+            });
+          }}
+        />
+      )}
+
       {/* ══ TOAST NOTIFICATION ══ */}
       <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 pointer-events-none ${toast.show ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <div className="bg-app-card border border-app-emerald text-app-text px-6 py-3 rounded-full shadow-fluffy flex items-center gap-2.5 text-sm font-bold">
@@ -2243,6 +2777,95 @@ function App() {
 }
 
 // ── 5. DETAILED MODAL COMPONENTS ──
+
+function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards }) {
+  const options = [
+    {
+      id: 'pdf',
+      title: 'Ingestión PDF & OCR',
+      desc: 'Escanea textos, procesa documentos y genera prompts',
+      icon: 'file-search',
+      action: () => onNavigate('pdf'),
+      badge: 'OCR IA'
+    },
+    {
+      id: 'perfil',
+      title: 'Mi Perfil & Materias',
+      desc: 'Administración de cátedras, configuración y datos',
+      icon: 'user-check',
+      action: () => onNavigate('perfil')
+    },
+    {
+      id: 'system',
+      title: 'Sistema & Sincronización',
+      desc: 'Estado de conexión, IndexedDB, Supabase y caché',
+      icon: 'database',
+      action: () => onNavigate('system')
+    },
+    {
+      id: 'pomodoro',
+      title: 'Temporizador Pomodoro',
+      desc: 'Sesiones de estudio enfocadas de 25 minutos',
+      icon: 'timer',
+      action: onOpenPomodoro
+    },
+    {
+      id: 'search',
+      title: 'Búsqueda Global',
+      desc: 'Encuentra cualquier lectura, apunte o clase al instante',
+      icon: 'search',
+      action: onOpenSearch
+    },
+    {
+      id: 'flashcards',
+      title: 'Fichas de Repaso',
+      desc: 'Modo examen interactivo con todos los conceptos',
+      icon: 'sparkles',
+      action: onOpenFlashcards
+    }
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-3xl p-5 shadow-fluffy space-y-4">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div className="flex items-center gap-2">
+            <Icon name="grid" className="w-5 h-5 text-app-emerald" />
+            <h3 className="text-base font-extrabold text-app-text">Módulos & Herramientas Adicionales</h3>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-app-muted hover:text-app-text rounded-xl bg-app-surface border border-app-border">
+            <Icon name="x" className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[70vh] overflow-y-auto">
+          {options.map(opt => (
+            <div
+              key={opt.id}
+              onClick={opt.action}
+              className="bg-app-surface border border-app-border hover:border-app-emerald p-3.5 rounded-2xl flex items-start gap-3 cursor-pointer transition-all hover:bg-app-card"
+            >
+              <div className="p-2 rounded-xl bg-app-card border border-app-border text-app-emerald mt-0.5">
+                <Icon name={opt.icon} className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-1">
+                  <h4 className="text-xs font-extrabold text-app-text truncate">{opt.title}</h4>
+                  {opt.badge && (
+                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                      {opt.badge}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-app-muted line-clamp-2 mt-0.5 leading-snug">{opt.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ModalMateria({ initialData, onClose, onSave }) {
   const [form, setForm] = useState(initialData || {

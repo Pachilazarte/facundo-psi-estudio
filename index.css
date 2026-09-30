@@ -133,6 +133,9 @@ body {
 }
 
 /* ── Lucide Icon Integration Helpers ── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
 .lucide-icon {
   width: 18px;
   height: 18px;

@@ -1,7 +1,7 @@
 {
-  "version": "2.7.0",
-  "buildDate": "2026-09-30T11:20:00.000Z",
+  "version": "2.8.0",
+  "buildDate": "2026-09-30T12:00:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Sistema de apuntes de alta densidad con prompt académico universitario, auto-extracción de título desde #, vista de hoja doble imprimible y exportador PDF."
+  "notes": "Redisposición responsive completa: navegación swipeable superior con todas las pestañas siempre visibles en desktop y mobile, dock inferior táctil con menú Más, vistas globales unificadas de Biblioteca, Clases, Apuntes y Exámenes, y selector rápido de materia."
 }
