@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
-  <title>PsiEstudio Ultra — React & Tailwind Academic Suite</title>
+  <title>PsiEstudio — React & Tailwind Academic Suite</title>
   <meta name="description" content="Plataforma académica integral en React y Tailwind: materias, bibliografía, clases, apuntes, PDFs y Supabase.">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#FBF8F3">
@@ -60,13 +60,19 @@
     }
   </script>
 
-  <!-- React 18 + ReactDOM + Babel Standalone + Lucide Icons + Supabase + PDF.js -->
+  <!-- KaTeX & Mermaid for rich academic notes -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+  <!-- React 18 + ReactDOM + Babel Standalone + Lucide Icons + Supabase + PDF.js + Dexie -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
 </head>
 <body class="bg-app-base text-app-text min-h-screen antialiased transition-colors duration-300">
   <div id="root"></div>

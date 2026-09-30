@@ -1,5 +1,5 @@
 /* ======================================================
-   PSIESTUDIO ULTRA — PROFESSIONAL REACT SUITE
+   PSIESTUDIO — PROFESSIONAL REACT SUITE
    Zero-Emoji, 100% Lucide Icons, Structured Academic Ingestion,
    Materia-Centric Exam Linking & Profile Administration
    ====================================================== */
@@ -21,6 +21,25 @@ try {
   console.warn('Supabase init fallback:', e);
 }
 
+// ── 1.5 INDEXEDDB PERSISTENCE LAYER (DEXIE) ──
+let psiDB = null;
+try {
+  if (window.Dexie) {
+    psiDB = new window.Dexie('PsiEstudioDB');
+    psiDB.version(1).stores({
+      materias: 'id, nombre',
+      bibliografia: 'id, materia_id, unidad, estado',
+      clases: 'id, materia_id, nro_clase',
+      apuntes: 'id, materia_id, unidad, created_at',
+      documentos_pdf: 'id, materia_id, created_at',
+      examenes: 'id, materia_id, fecha',
+      syncQueue: '++id, action, table, timestamp'
+    });
+  }
+} catch (e) {
+  console.warn('Dexie DB init warning:', e);
+}
+
 // ── 2. LUCIDE SVG ICON WRAPPER (ZERO EMOJIS) ──
 const Icon = ({ name, className = "w-4 h-4", size = 18 }) => {
   const iconRef = useRef(null);
@@ -34,10 +53,47 @@ const Icon = ({ name, className = "w-4 h-4", size = 18 }) => {
   return <i ref={iconRef} data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block' }}></i>;
 };
 
-// ── 3. MARKDOWN PARSER ──
+// ── 2.5 HAPTIC FEEDBACK UTILITY ──
+const triggerHaptic = (type = 'light') => {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      if (type === 'light') navigator.vibrate(15);
+      else if (type === 'medium') navigator.vibrate(35);
+      else if (type === 'success') navigator.vibrate([20, 60, 20]);
+    } catch (e) {}
+  }
+};
+
+// ── 3. ENRICHED MARKDOWN PARSER (WITH KATEX MATH & MERMAID) ──
 function parseMarkdownToHTML(md) {
   if (!md) return '';
-  let html = md
+  let html = md;
+
+  // KaTeX Display Math $$...$$
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
+    if (window.katex) {
+      try {
+        return `<div class="my-3 text-center p-2 rounded-xl bg-app-surface border border-app-border overflow-x-auto">${window.katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>`;
+      } catch (e) {
+        return `<pre class="text-xs font-mono p-2 bg-app-surface rounded-lg">${formula}</pre>`;
+      }
+    }
+    return `<pre class="text-xs font-mono p-2 bg-app-surface rounded-lg">${formula}</pre>`;
+  });
+
+  // KaTeX Inline Math $...$
+  html = html.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    if (window.katex) {
+      try {
+        return window.katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
+      } catch (e) {
+        return `<code>${formula}</code>`;
+      }
+    }
+    return `<code>${formula}</code>`;
+  });
+
+  html = html
     .replace(/^### (.*$)/gim, '<h3 class="text-sm font-bold text-app-text mt-3 mb-1">$1</h3>')
     .replace(/^## (.*$)/gim, '<h2 class="text-base font-extrabold text-app-text mt-4 mb-1">$1</h2>')
     .replace(/^# (.*$)/gim, '<h1 class="text-lg font-black text-app-emerald mt-4 mb-2">$1</h1>')
@@ -46,6 +102,7 @@ function parseMarkdownToHTML(md) {
     .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold">$1</em>')
     .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed">$1</li>')
     .replace(/\n$/gim, '<br />');
+
   return html;
 }
 
@@ -69,6 +126,9 @@ function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncQueue, setSyncQueue] = useState(() => JSON.parse(localStorage.getItem('psi_sync_queue') || '[]'));
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const currentVersion = 'v2.5.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -77,6 +137,9 @@ function App() {
   const [modalApunte, setModalApunte] = useState({ open: false, data: null });
   const [modalExamen, setModalExamen] = useState({ open: false, data: null });
   const [modalPDFViewer, setModalPDFViewer] = useState({ open: false, data: null });
+  const [modalSearch, setModalSearch] = useState(false);
+  const [modalPomodoro, setModalPomodoro] = useState(false);
+  const [modalFlashcards, setModalFlashcards] = useState({ open: false, items: [], title: '' });
 
   const [ingestionData, setIngestionData] = useState(null);
 
@@ -85,6 +148,80 @@ function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('psi_theme', theme);
   }, [theme]);
+
+  // ServiceWorker Registration & Automated Updates
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                setUpdateAvailable(true);
+                showToast('🚀 Nueva versión de PsiEstudio disponible', 'sparkles');
+              }
+            });
+          }
+        });
+      }).catch(err => console.warn('[SW] Error registro:', err));
+    }
+  }, []);
+
+  const checkForUpdates = async (manual = true) => {
+    setCheckingUpdate(true);
+    triggerHaptic('light');
+    if (manual) showToast('Buscando actualizaciones en la nube...', 'refresh-cw');
+    try {
+      // 1. Fetch version.json bypassing browser cache
+      const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const info = await res.json();
+        if (info.version && `v${info.version}` !== currentVersion) {
+          setUpdateAvailable(true);
+          showToast(`¡Nueva versión v${info.version} encontrada!`, 'sparkles');
+          setCheckingUpdate(false);
+          return;
+        }
+      }
+      // 2. Trigger SW update
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) {
+          await reg.update();
+          if (reg.waiting || reg.installing) {
+            setUpdateAvailable(true);
+            showToast('¡Nueva versión lista para instalar!', 'sparkles');
+            setCheckingUpdate(false);
+            return;
+          }
+        }
+      }
+      if (manual) showToast(`PsiEstudio está al día (${currentVersion})`, 'check-circle-2');
+    } catch (e) {
+      if (manual) showToast('No se pudo verificar la actualización', 'alert-circle');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const applyUpdate = async () => {
+    showToast('Actualizando PsiEstudio...', 'refresh-cw');
+    triggerHaptic('success');
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && reg.waiting) {
+          reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map(k => caches.delete(k)));
+      } catch (e) {}
+    }
+    setTimeout(() => {
+      window.location.reload(true);
+    }, 500);
+  };
 
   // Initial Fetch & Offline Handling
   useEffect(() => {
@@ -219,7 +356,67 @@ function App() {
     localStorage.setItem('psi_materias_cache', JSON.stringify(initialMats));
     localStorage.setItem('psi_biblio_cache', JSON.stringify(initialBib));
     localStorage.setItem('psi_examenes_cache', JSON.stringify(initialExams));
+    saveToIndexedDB('materias', initialMats);
+    saveToIndexedDB('bibliografia', initialBib);
+    saveToIndexedDB('examenes', initialExams);
   };
+
+  const saveToIndexedDB = async (tableName, items) => {
+    if (psiDB && psiDB[tableName] && Array.isArray(items)) {
+      try {
+        await psiDB[tableName].clear();
+        await psiDB[tableName].bulkPut(items);
+      } catch (e) {
+        console.warn(`IndexedDB save error (${tableName}):`, e);
+      }
+    }
+  };
+
+  // IndexedDB Initial Load & Supabase Realtime Subscription
+  useEffect(() => {
+    const loadFromIndexedDB = async () => {
+      if (!psiDB) return;
+      try {
+        const [mats, bibs, clas, apus, pdfsList, exas, queue] = await Promise.all([
+          psiDB.materias.toArray(),
+          psiDB.bibliografia.toArray(),
+          psiDB.clases.toArray(),
+          psiDB.apuntes.toArray(),
+          psiDB.documentos_pdf.toArray(),
+          psiDB.examenes.toArray(),
+          psiDB.syncQueue.toArray()
+        ]);
+        if (mats.length > 0) setMaterias(mats);
+        if (bibs.length > 0) setBiblio(bibs);
+        if (clas.length > 0) setClases(clas);
+        if (apus.length > 0) setApuntes(apus);
+        if (pdfsList.length > 0) setPdfs(pdfsList);
+        if (exas.length > 0) setExamenes(exas);
+        if (queue.length > 0) setSyncQueue(queue);
+      } catch (e) {
+        console.warn('Error loading from IndexedDB:', e);
+      }
+    };
+    loadFromIndexedDB();
+
+    if (!supabaseClient) return;
+
+    const channel = supabaseClient
+      .channel('psi_realtime_db')
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+        console.log('[Supabase Realtime] Cambio detectado:', payload);
+        fetchAllData();
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Supabase Realtime] Canales activos');
+        }
+      });
+
+    return () => {
+      supabaseClient.removeChannel(channel);
+    };
+  }, [supabaseClient]);
 
   const fetchAllData = async () => {
     if (!supabaseClient || !navigator.onLine) return;
@@ -236,36 +433,50 @@ function App() {
       if (matsRes.status === 'fulfilled' && matsRes.value.data?.length) {
         setMaterias(matsRes.value.data);
         localStorage.setItem('psi_materias_cache', JSON.stringify(matsRes.value.data));
+        saveToIndexedDB('materias', matsRes.value.data);
       }
       if (bibRes.status === 'fulfilled' && bibRes.value.data) {
         setBiblio(bibRes.value.data);
         localStorage.setItem('psi_biblio_cache', JSON.stringify(bibRes.value.data));
+        saveToIndexedDB('bibliografia', bibRes.value.data);
       }
       if (claRes.status === 'fulfilled' && claRes.value.data) {
         setClases(claRes.value.data);
         localStorage.setItem('psi_clases_cache', JSON.stringify(claRes.value.data));
+        saveToIndexedDB('clases', claRes.value.data);
       }
       if (apuRes.status === 'fulfilled' && apuRes.value.data) {
         setApuntes(apuRes.value.data);
         localStorage.setItem('psi_apuntes_cache', JSON.stringify(apuRes.value.data));
+        saveToIndexedDB('apuntes', apuRes.value.data);
       }
       if (pdfRes.status === 'fulfilled' && pdfRes.value.data) {
         setPdfs(pdfRes.value.data);
         localStorage.setItem('psi_pdfs_cache', JSON.stringify(pdfRes.value.data));
+        saveToIndexedDB('documentos_pdf', pdfRes.value.data);
       }
       if (exRes.status === 'fulfilled' && exRes.value.data) {
         setExamenes(exRes.value.data);
         localStorage.setItem('psi_examenes_cache', JSON.stringify(exRes.value.data));
+        saveToIndexedDB('examenes', exRes.value.data);
       }
     } catch (err) {
       console.warn('Sync error:', err);
     }
   };
 
-  const enqueueAction = (action, table, payload) => {
-    const newQueue = [...syncQueue, { id: Date.now(), action, table, payload }];
+  const enqueueAction = async (action, table, payload) => {
+    const item = { id: Date.now(), action, table, payload, timestamp: new Date().toISOString() };
+    const newQueue = [...syncQueue, item];
     setSyncQueue(newQueue);
     localStorage.setItem('psi_sync_queue', JSON.stringify(newQueue));
+    if (psiDB && psiDB.syncQueue) {
+      try {
+        await psiDB.syncQueue.add(item);
+      } catch (e) {
+        console.warn('IndexedDB enqueue error:', e);
+      }
+    }
   };
 
   const processSyncQueue = async () => {
@@ -283,6 +494,13 @@ function App() {
     }
     setSyncQueue([]);
     localStorage.setItem('psi_sync_queue', '[]');
+    if (psiDB && psiDB.syncQueue) {
+      try {
+        await psiDB.syncQueue.clear();
+      } catch (e) {
+        console.warn('IndexedDB syncQueue clear error:', e);
+      }
+    }
     showToast('Cola sincronizada con Supabase', 'cloud-check');
   };
 
@@ -546,11 +764,15 @@ function App() {
 
   const handleSaveExamen = async (formData) => {
     const isEdit = Boolean(formData.id);
+    const linkedTexts = formData.textos_vinculados || formData.textos_ids || [];
     const payload = {
       ...formData,
-      id: formData.id || 'ex_' + Date.now(),
+      id: formData.id || (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : 'ex_' + Date.now()),
       materia_id: selectedMateriaId,
       materia: currentMateria ? currentMateria.nombre : 'General',
+      textos_vinculados: linkedTexts,
+      textos_ids: linkedTexts,
+      unidades_incluidas: formData.unidades_incluidas || [],
       finalizado: formData.finalizado || false,
       created_at: formData.created_at || new Date().toISOString()
     };
@@ -738,7 +960,7 @@ function App() {
             </div>
             <div>
               <h1 className="text-xl font-black tracking-tight leading-none text-app-text">
-                PsiEstudio <span className="text-app-emerald font-serif italic">Ultra</span>
+                PsiEstudio
               </h1>
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">
                 Academic Management Suite
@@ -769,7 +991,26 @@ function App() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            {/* Global Search Button */}
+            <button
+              onClick={() => setModalSearch(true)}
+              className="px-3 py-1.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text hover:border-app-emerald transition-all shadow-card flex items-center gap-1.5"
+              title="Buscar en todas las materias y textos"
+            >
+              <Icon name="search" className="w-3.5 h-3.5 text-app-emerald" />
+              <span className="hidden sm:inline">Buscar...</span>
+            </button>
+
+            {/* Pomodoro Timer Button */}
+            <button
+              onClick={() => setModalPomodoro(true)}
+              className="w-9 h-9 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-amber transition-all shadow-card hover:scale-105"
+              title="Temporizador Pomodoro de Estudio"
+            >
+              <Icon name="timer" className="w-4 h-4 text-app-amber" />
+            </button>
+
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
@@ -789,7 +1030,7 @@ function App() {
       </header>
 
       {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-3 py-2 flex justify-around items-center shadow-fluffy">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-3 pt-2 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
         {[
           { id: 'materias', label: 'Aulas', icon: 'book-open' },
           { id: 'pdf', label: 'PDF OCR', icon: 'file-text' },
@@ -945,15 +1186,18 @@ function App() {
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald mb-2 flex items-center gap-1">
                   <Icon name="zap" className="w-3.5 h-3.5 text-app-emerald" /> Acciones Rápidas
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                   <button onClick={() => setModalExamen({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-emerald text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-emerald hover:brightness-110">
                     <Icon name="calendar-plus" className="w-3.5 h-3.5 text-white" /> Crear Examen
                   </button>
                   <button onClick={() => setModalBiblio({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center justify-center gap-1.5 hover:border-app-emerald text-app-text">
                     <Icon name="plus" className="w-3.5 h-3.5 text-app-emerald" /> Agregar Texto
                   </button>
-                  <button onClick={() => setModalBiblioBatch(true)} className="p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center justify-center gap-1.5 hover:border-app-emerald text-app-text col-span-2 sm:col-span-1">
+                  <button onClick={() => setModalBiblioBatch(true)} className="p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold flex items-center justify-center gap-1.5 hover:border-app-emerald text-app-text">
                     <Icon name="file-spreadsheet" className="w-3.5 h-3.5 text-app-emerald" /> Carga Rápida
+                  </button>
+                  <button onClick={() => setModalFlashcards({ open: true, items: currentMateriaTexts, title: `Fichas: ${currentMateria ? currentMateria.nombre : ''}` })} className="p-2.5 rounded-xl bg-app-emerald-bg text-app-emerald border border-app-emerald/30 text-xs font-bold flex items-center justify-center gap-1.5 hover:brightness-110">
+                    <Icon name="layers" className="w-3.5 h-3.5" /> Repasar Fichas
                   </button>
                   <button onClick={() => setModalClase({ open: true, data: null })} className="p-2.5 rounded-xl bg-app-navy-bg text-app-navy border border-app-navy/30 text-xs font-bold flex items-center justify-center gap-1.5 hover:brightness-110">
                     <Icon name="presentation" className="w-3.5 h-3.5" /> Protocolo Clase
@@ -1159,7 +1403,7 @@ function App() {
                   {examenes.filter(e => e.materia_id === selectedMateriaId || e.materia === currentMateria.nombre).map(ex => {
                     // Match texts linked explicitly or by included units
                     const includedUnits = ex.unidades_incluidas || [];
-                    const linkedIds = ex.textos_vinculados || [];
+                    const linkedIds = ex.textos_vinculados || ex.textos_ids || [];
 
                     const relevantTexts = currentMateriaTexts.filter(b => {
                       if (linkedIds.length > 0) return linkedIds.includes(b.id);
@@ -1197,7 +1441,25 @@ function App() {
                               </div>
                             )}
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                triggerHaptic('medium');
+                                setModalFlashcards({
+                                  open: true,
+                                  title: `Simulación: ${ex.nombre}`,
+                                  items: relevantTexts.map(t => ({
+                                    id: t.id,
+                                    titulo_texto: `¿Qué tesis y conceptos clave plantea "${t.titulo_texto}"?`,
+                                    autores: `${t.autores || 'Autor'} • ${t.unidad}`,
+                                    notas: t.notas || 'Repasa las nociones centrales de este autor, sus definiciones axiomáticas y su articulación con el programa de la materia.'
+                                  }))
+                                });
+                              }}
+                              className="px-3 py-1 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30 flex items-center gap-1.5 hover:brightness-110"
+                            >
+                              <Icon name="brain" className="w-3.5 h-3.5" /> Simular Parcial
+                            </button>
                             <button onClick={() => setModalExamen({ open: true, data: ex })} className="text-app-muted hover:text-app-emerald p-1.5"><Icon name="edit-2" className="w-4 h-4" /></button>
                             <button onClick={() => handleDeleteExamen(ex.id)} className="text-app-ruby p-1.5"><Icon name="trash-2" className="w-4 h-4" /></button>
                           </div>
@@ -1510,6 +1772,55 @@ function App() {
               </div>
             </div>
 
+            {/* ── CARD: ACTUALIZACIONES DE LA APP ── */}
+            <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Canal Oficial de Producción</div>
+                  <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
+                    <Icon name="sparkles" className="w-5 h-5 text-app-emerald" /> Actualizaciones del Sistema
+                  </h3>
+                  <p className="text-xs text-app-muted">Versión instalada: <strong className="text-app-text">{currentVersion}</strong></p>
+                </div>
+                <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                  updateAvailable
+                    ? 'bg-app-emerald-bg text-app-emerald border-app-emerald animate-pulse'
+                    : 'bg-app-surface text-app-muted border-app-border'
+                }`}>
+                  {updateAvailable ? 'Nueva Versión Lista' : 'Al Día'}
+                </span>
+              </div>
+
+              {updateAvailable ? (
+                <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border-2 border-app-emerald space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-extrabold text-app-text">
+                    <Icon name="arrow-up-circle" className="w-5 h-5 text-app-emerald animate-bounce" />
+                    ¡Hay una nueva actualización disponible en GitHub (main)!
+                  </div>
+                  <p className="text-xs text-app-muted">
+                    Se detectaron cambios en el repositorio. Haz clic abajo para actualizar el caché local sin perder tus notas ni materias.
+                  </p>
+                  <button
+                    onClick={applyUpdate}
+                    className="w-full py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110 animate-pulse"
+                  >
+                    <Icon name="download-cloud" className="w-4 h-4" /> Instalar Actualización Ahora
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-3 items-center">
+                  <button
+                    onClick={() => checkForUpdates(true)}
+                    disabled={checkingUpdate}
+                    className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2 transition-all"
+                  >
+                    <Icon name="refresh-cw" className={`w-4 h-4 text-app-emerald ${checkingUpdate ? 'animate-spin' : ''}`} />
+                    {checkingUpdate ? 'Verificando en la nube...' : 'Buscar Actualizaciones'}
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
                 <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Mantenimiento
@@ -1546,12 +1857,20 @@ function App() {
                 <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Anon Public Key</label>
                 <input value={SUPABASE_CONFIG.key} readOnly type="password" className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none" />
               </div>
-              <div className="flex gap-3 pt-2">
+              <div className="flex flex-wrap gap-3 pt-2">
                 <button onClick={triggerPing} className="px-4 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-2">
                   <Icon name="activity" className="w-4 h-4" /> Ping de Prueba
                 </button>
                 <button onClick={processSyncQueue} className="px-4 py-2.5 bg-app-surface border border-app-border font-bold text-xs rounded-xl flex items-center gap-2 text-app-text">
                   <Icon name="refresh-cw" className="w-4 h-4" /> Sincronizar Cola ({syncQueue.length})
+                </button>
+                <button
+                  onClick={() => checkForUpdates(true)}
+                  disabled={checkingUpdate}
+                  className="px-4 py-2.5 bg-app-card border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl flex items-center gap-2"
+                >
+                  <Icon name="sparkles" className={`w-4 h-4 text-app-emerald ${checkingUpdate ? 'animate-spin' : ''}`} />
+                  Buscar Actualizaciones
                 </button>
               </div>
             </div>
@@ -1613,6 +1932,36 @@ function App() {
         <ModalPDFViewer
           data={modalPDFViewer.data}
           onClose={() => setModalPDFViewer({ open: false, data: null })}
+          onCreateApunte={(apunteData) => {
+            setModalApunte({ open: true, data: apunteData });
+          }}
+        />
+      )}
+
+      {modalSearch && (
+        <ModalSearch
+          materias={materias}
+          biblio={biblio}
+          clases={clases}
+          apuntes={apuntes}
+          examenes={examenes}
+          onClose={() => setModalSearch(false)}
+          onSelectMateria={(id) => { setSelectedMateriaId(id); setActiveTab('materias'); setModalSearch(false); }}
+        />
+      )}
+
+      {modalPomodoro && (
+        <ModalPomodoro
+          onClose={() => setModalPomodoro(false)}
+          showToast={showToast}
+        />
+      )}
+
+      {modalFlashcards.open && (
+        <ModalFlashcards
+          title={modalFlashcards.title}
+          items={modalFlashcards.items}
+          onClose={() => setModalFlashcards({ open: false, items: [], title: '' })}
         />
       )}
 
@@ -2094,14 +2443,33 @@ function ModalApunteSplitView({ initialData, onClose, onSave }) {
           </select>
         </div>
 
-        {/* Toolbar */}
-        <div className="flex flex-wrap gap-1.5 p-2 bg-app-surface border border-app-border rounded-xl">
-          <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">B</button>
-          <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs italic font-bold">I</button>
-          <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">H2</button>
-          <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">H3</button>
-          <button type="button" onClick={() => insertSyntax('- ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">• Lista</button>
-          <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold">Cita</button>
+        {/* Toolbar with Markdown, Math & Smart Templates */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-xl">
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
+            <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs italic font-bold hover:border-app-emerald">I</button>
+            <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H2</button>
+            <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H3</button>
+            <button type="button" onClick={() => insertSyntax('- ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">• Lista</button>
+            <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">Cita</button>
+            <div className="h-4 w-px bg-app-border mx-1"></div>
+            <button type="button" onClick={() => insertSyntax('$', '$')} title="Fórmula en línea (LaTeX)" className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$f(x)$</button>
+            <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} title="Ecuación en bloque (LaTeX)" className="px-2.5 py-1 rounded bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$$\Sigma$$</button>
+          </div>
+          
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const template = `\n## 📌 Tesis / Hipótesis Central\n> \n\n## 🔑 Conceptos Clave\n- **Término 1:** Definición sintética.\n- **Término 2:** Definición sintética.\n\n## 💡 Articulación & Conclusiones\n- \n`;
+                setForm({ ...form, contenido: (form.contenido || '') + template });
+                triggerHaptic('light');
+              }}
+              className="px-2.5 py-1 rounded-lg bg-app-emerald-bg border border-app-emerald/30 text-xs font-bold text-app-emerald hover:brightness-110 flex items-center gap-1"
+            >
+              <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Académica
+            </button>
+          </div>
         </div>
 
         {/* Split View Editor & Live Preview */}
@@ -2110,7 +2478,7 @@ function ModalApunteSplitView({ initialData, onClose, onSave }) {
             ref={textareaRef}
             value={form.contenido}
             onChange={e => setForm({ ...form, contenido: e.target.value })}
-            placeholder="Escribe tu apunte con Markdown..."
+            placeholder="Escribe tu apunte con Markdown y fórmulas LaTeX ($...$)..."
             className="w-full h-full p-4 rounded-2xl bg-app-surface border border-app-border text-sm text-app-text outline-none font-mono resize-none overflow-y-auto"
           />
 
@@ -2122,7 +2490,7 @@ function ModalApunteSplitView({ initialData, onClose, onSave }) {
 
         <button
           type="button"
-          onClick={() => onSave(form)}
+          onClick={() => { triggerHaptic('success'); onSave(form); }}
           className="w-full py-3 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110"
         >
           Guardar Apunte en Supabase
@@ -2132,20 +2500,395 @@ function ModalApunteSplitView({ initialData, onClose, onSave }) {
   );
 }
 
-function ModalPDFViewer({ data, onClose }) {
+function ModalPDFViewer({ data, onClose, onCreateApunte }) {
   if (!data) return null;
+  const [selectedText, setSelectedText] = useState('');
+
+  const handleTextSelection = () => {
+    const sel = window.getSelection()?.toString();
+    if (sel && sel.trim().length > 0) {
+      setSelectedText(sel.trim());
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-app-card border border-app-border w-full max-w-3xl max-h-[90vh] flex flex-col rounded-3xl shadow-fluffy overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-app-card border border-app-border w-full max-w-4xl max-h-[92vh] flex flex-col rounded-3xl shadow-fluffy overflow-hidden">
         <div className="flex justify-between items-center p-5 border-b border-app-border bg-app-surface">
           <div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Visor Académico de Documento</span>
             <h3 className="text-lg font-extrabold text-app-text truncate max-w-md">{data.nombre_archivo}</h3>
             <p className="text-xs text-app-muted">{data.materia} • {data.unidad}</p>
           </div>
-          <button onClick={onClose} className="px-3 py-1.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30">Cerrar</button>
+          <div className="flex items-center gap-2">
+            {selectedText && (
+              <button
+                onClick={() => {
+                  triggerHaptic('medium');
+                  if (onCreateApunte) {
+                    onCreateApunte({
+                      titulo: `Cita: ${data.nombre_archivo.slice(0, 30)}...`,
+                      tipo: 'Resumen',
+                      unidad: data.unidad || 'Unidad 1',
+                      contenido: `> "${selectedText}"\n\n**Fuente:** ${data.nombre_archivo} (${data.materia} - ${data.unidad})`
+                    });
+                  }
+                  onClose();
+                }}
+                className="px-3 py-1.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-1.5 animate-pulse"
+              >
+                <Icon name="bookmark-plus" className="w-3.5 h-3.5" /> Convertir Selección en Apunte
+              </button>
+            )}
+            <button onClick={onClose} className="px-3 py-1.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 hover:brightness-110">Cerrar</button>
+          </div>
         </div>
-        <div className="p-6 overflow-y-auto text-sm text-app-text leading-relaxed whitespace-pre-wrap">
+        <div onMouseUp={handleTextSelection} onKeyUp={handleTextSelection} className="p-6 overflow-y-auto text-sm text-app-text leading-relaxed whitespace-pre-wrap select-text font-sans">
           {data.texto_extraido || 'Sin texto extraído en este documento.'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── GLOBAL SEARCH MODAL ──
+function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onSelectMateria }) {
+  const [query, setQuery] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.focus();
+  }, []);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    const list = [];
+
+    materias.forEach(m => {
+      if (m.nombre.toLowerCase().includes(q) || (m.descripcion && m.descripcion.toLowerCase().includes(q))) {
+        list.push({ type: 'Materia', title: m.nombre, sub: m.docente || m.descripcion, raw: m });
+      }
+    });
+
+    biblio.forEach(b => {
+      if (b.titulo_texto.toLowerCase().includes(q) || (b.autores && b.autores.toLowerCase().includes(q))) {
+        list.push({ type: 'Bibliografía', title: b.titulo_texto, sub: `${b.materia} • ${b.unidad}`, raw: b });
+      }
+    });
+
+    clases.forEach(c => {
+      if (c.titulo_clase.toLowerCase().includes(q) || (c.aclaraciones && c.aclaraciones.toLowerCase().includes(q))) {
+        list.push({ type: 'Clase', title: c.titulo_clase, sub: `${c.materia} • Clase #${c.nro_clase}`, raw: c });
+      }
+    });
+
+    apuntes.forEach(a => {
+      if (a.titulo.toLowerCase().includes(q) || (a.contenido && a.contenido.toLowerCase().includes(q))) {
+        list.push({ type: 'Apunte', title: a.titulo, sub: `${a.materia} • ${a.tipo}`, raw: a });
+      }
+    });
+
+    examenes.forEach(e => {
+      if (e.nombre.toLowerCase().includes(q) || (e.temas && e.temas.toLowerCase().includes(q))) {
+        list.push({ type: 'Examen', title: e.nombre, sub: `${e.materia} • ${e.tipo}`, raw: e });
+      }
+    });
+
+    return list.slice(0, 15);
+  }, [query, materias, biblio, clases, apuntes, examenes]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center p-3 pt-12 sm:pt-20">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl rounded-3xl p-5 shadow-fluffy space-y-4">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div className="flex items-center gap-2 flex-1 mr-4">
+            <Icon name="search" className="w-5 h-5 text-app-emerald" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar materias, lecturas, apuntes o exámenes..."
+              className="w-full bg-transparent text-base font-bold text-app-text outline-none"
+            />
+          </div>
+          <button onClick={onClose} className="p-1.5 text-app-muted hover:text-app-text">
+            <Icon name="x" className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+          {query.trim() === '' && (
+            <p className="text-xs text-app-muted text-center py-6">Escribe palabras clave para buscar en todo tu sistema académico.</p>
+          )}
+
+          {query.trim() !== '' && results.length === 0 && (
+            <p className="text-xs text-app-muted text-center py-6">No se encontraron coincidencias para "{query}".</p>
+          )}
+
+          {results.map((item, idx) => (
+            <div
+              key={idx}
+              onClick={() => {
+                const matId = item.raw.materia_id || item.raw.id;
+                if (matId) onSelectMateria(matId);
+                onClose();
+              }}
+              className="p-3 rounded-2xl bg-app-card border border-app-border/70 hover:border-app-emerald cursor-pointer transition-all flex items-center justify-between group"
+            >
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                  {item.type}
+                </span>
+                <h4 className="text-sm font-extrabold text-app-text mt-1 group-hover:text-app-emerald transition-colors">{item.title}</h4>
+                <p className="text-xs text-app-muted">{item.sub}</p>
+              </div>
+              <Icon name="chevron-right" className="w-4 h-4 text-app-muted group-hover:text-app-emerald" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── POMODORO STUDY TIMER MODAL ──
+function ModalPomodoro({ onClose, showToast }) {
+  const [mode, setMode] = useState('work');
+  const [timeLeft, setTimeLeft] = useState(25 * 60);
+  const [isRunning, setIsRunning] = useState(false);
+  const [sessionsCompleted, setSessionsCompleted] = useState(0);
+
+  useEffect(() => {
+    let timer = null;
+    if (isRunning && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 587.33;
+        osc.connect(ctx.destination);
+        osc.start();
+        setTimeout(() => { osc.stop(); ctx.close(); }, 600);
+      } catch (e) {}
+
+      if (mode === 'work') {
+        showToast('¡Sesión de estudio finalizada! Hora de un descanso', 'coffee');
+        setSessionsCompleted(prev => prev + 1);
+        setMode('break');
+        setTimeLeft(5 * 60);
+      } else {
+        showToast('¡Descanso terminado! Volvamos al estudio', 'zap');
+        setMode('work');
+        setTimeLeft(25 * 60);
+      }
+      setIsRunning(false);
+    }
+    return () => clearInterval(timer);
+  }, [isRunning, timeLeft, mode]);
+
+  const toggleTimer = () => setIsRunning(!isRunning);
+  const resetTimer = () => {
+    setIsRunning(false);
+    setTimeLeft(mode === 'work' ? 25 * 60 : 5 * 60);
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const totalTime = mode === 'work' ? 25 * 60 : 5 * 60;
+  const progressPct = Math.round(((totalTime - timeLeft) / totalTime) * 100);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-md rounded-3xl p-6 shadow-fluffy text-center space-y-5">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div className="flex items-center gap-2">
+            <Icon name="timer" className="w-5 h-5 text-app-amber" />
+            <h3 className="text-lg font-extrabold text-app-text">Temporizador Pomodoro</h3>
+          </div>
+          <button onClick={onClose} className="p-1 text-app-muted hover:text-app-text">
+            <Icon name="x" className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex justify-center gap-2 p-1 bg-app-surface border border-app-border rounded-xl">
+          <button
+            onClick={() => { setMode('work'); setTimeLeft(25 * 60); setIsRunning(false); }}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'work' ? 'bg-app-emerald text-white shadow-emerald' : 'text-app-muted'}`}
+          >
+            Estudio (25m)
+          </button>
+          <button
+            onClick={() => { setMode('break'); setTimeLeft(5 * 60); setIsRunning(false); }}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'break' ? 'bg-app-navy text-white shadow-card' : 'text-app-muted'}`}
+          >
+            Descanso (5m)
+          </button>
+        </div>
+
+        <div className="relative py-6 bg-app-surface rounded-2xl border border-app-border">
+          <div className="text-5xl font-black font-mono tracking-wider text-app-text">{formatTime(timeLeft)}</div>
+          <div className="text-xs font-bold text-app-muted mt-2">
+            {mode === 'work' ? 'Enfócate en tu bibliografía' : 'Tómate un respiro'}
+          </div>
+
+          <div className="w-4/5 mx-auto h-2 bg-app-border rounded-full mt-4 overflow-hidden">
+            <div className="h-full bg-app-emerald transition-all duration-300" style={{ width: `${progressPct}%` }}></div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-xs font-bold text-app-muted px-2">
+          <span>Sesiones: <strong className="text-app-emerald font-extrabold">{sessionsCompleted}</strong></span>
+          <span>Tiempo estudiado: <strong className="text-app-emerald font-extrabold">{sessionsCompleted * 25} min</strong></span>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={toggleTimer}
+            className={`flex-1 py-3 font-extrabold text-sm rounded-xl shadow-card transition-all ${
+              isRunning ? 'bg-app-ruby text-white' : 'bg-app-emerald text-white shadow-emerald'
+            }`}
+          >
+            {isRunning ? 'Pausar' : 'Iniciar Sesión'}
+          </button>
+          <button
+            onClick={resetTimer}
+            className="px-4 py-3 bg-app-surface border border-app-border text-app-text font-bold text-sm rounded-xl hover:bg-app-card"
+          >
+            Reiniciar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── FLASHCARDS / REPASO MODAL ──
+function ModalFlashcards({ title, items, onClose }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [masteredIds, setMasteredIds] = useState([]);
+
+  if (!items || items.length === 0) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-app-modal border border-app-border w-full max-w-md rounded-3xl p-6 text-center space-y-4">
+          <h3 className="text-lg font-extrabold text-app-text">Sin elementos para repasar</h3>
+          <p className="text-xs text-app-muted">No hay textos o apuntes suficientes para generar fichas en esta vista.</p>
+          <button onClick={onClose} className="py-2.5 px-6 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald">Cerrar</button>
+        </div>
+      </div>
+    );
+  }
+
+  const currentItem = items[currentIndex];
+
+  const handleNext = () => {
+    setIsFlipped(false);
+    setCurrentIndex((prev) => (prev + 1) % items.length);
+  };
+
+  const handlePrev = () => {
+    setIsFlipped(false);
+    setCurrentIndex((prev) => (prev - 1 + items.length) % items.length);
+  };
+
+  const toggleMastered = (id) => {
+    setMasteredIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const isMastered = masteredIds.includes(currentItem.id);
+  const pctMastered = Math.round((masteredIds.length / items.length) * 100);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/65 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-xl rounded-3xl p-6 shadow-fluffy space-y-4">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div>
+            <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Modo Repaso Activo</span>
+            <h3 className="text-lg font-extrabold text-app-text">{title || 'Fichas de Repaso Académico'}</h3>
+          </div>
+          <button onClick={onClose} className="p-1 text-app-muted hover:text-app-text">
+            <Icon name="x" className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between text-xs font-bold text-app-muted">
+          <span>Ficha {currentIndex + 1} de {items.length}</span>
+          <span>Dominadas: <strong className="text-app-emerald">{masteredIds.length}/{items.length} ({pctMastered}%)</strong></span>
+        </div>
+        <div className="w-full h-1.5 bg-app-surface rounded-full overflow-hidden">
+          <div className="h-full bg-app-emerald transition-all duration-300" style={{ width: `${((currentIndex + 1) / items.length) * 100}%` }}></div>
+        </div>
+
+        <div
+          onClick={() => setIsFlipped(!isFlipped)}
+          className={`relative min-h-[240px] p-6 rounded-2xl border-2 transition-all cursor-pointer flex flex-col justify-between shadow-card ${
+            isFlipped ? 'bg-app-surface border-app-emerald' : 'bg-app-card border-app-border hover:border-app-emerald/60'
+          }`}
+        >
+          <div className="flex justify-between items-start">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald bg-app-emerald-bg px-2.5 py-1 rounded-full border border-app-emerald/20">
+              {isFlipped ? 'REVERSO — CONCEPTO / NOTAS' : 'FRENTE — TÍTULO / AUTOR'}
+            </span>
+            {isMastered && (
+              <span className="text-xs font-bold text-app-emerald flex items-center gap-1">
+                <Icon name="check-circle" className="w-4 h-4" /> Dominado
+              </span>
+            )}
+          </div>
+
+          <div className="py-6 text-center">
+            {!isFlipped ? (
+              <div>
+                <h4 className="text-xl font-black text-app-text leading-snug mb-2">{currentItem.titulo_texto || currentItem.titulo}</h4>
+                <p className="text-xs text-app-muted font-bold">{currentItem.autores || currentItem.unidad || currentItem.materia}</p>
+              </div>
+            ) : (
+              <div className="text-left max-h-48 overflow-y-auto">
+                <p className="text-sm text-app-text leading-relaxed whitespace-pre-wrap font-medium">
+                  {currentItem.notas || currentItem.contenido || currentItem.texto_extraido || 'Sin notas de concepto asociadas.'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="text-center">
+            <span className="text-[11px] font-bold text-app-muted italic">Toca la ficha para voltear ↺</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={handlePrev}
+            className="px-4 py-2.5 bg-app-surface border border-app-border rounded-xl font-bold text-xs text-app-text flex items-center gap-1 hover:bg-app-card"
+          >
+            <Icon name="chevron-left" className="w-4 h-4" /> Anterior
+          </button>
+
+          <button
+            onClick={() => toggleMastered(currentItem.id)}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs border transition-all flex items-center gap-1.5 ${
+              isMastered ? 'bg-app-emerald text-white border-app-emerald' : 'bg-app-surface border-app-border text-app-muted hover:text-app-emerald'
+            }`}
+          >
+            <Icon name="check" className="w-4 h-4" /> {isMastered ? 'Dominado' : 'Marcar Dominado'}
+          </button>
+
+          <button
+            onClick={handleNext}
+            className="px-4 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-1 hover:brightness-110"
+          >
+            Siguiente <Icon name="chevron-right" className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 /* ======================================================
-   PSIESTUDIO ULTRA — HIGH-FIDELITY APP ENGINE
+   PSIESTUDIO — HIGH-FIDELITY APP ENGINE
    Dual Theme, Lucide Icons, Supabase Sync & Markdown
    ====================================================== */
 

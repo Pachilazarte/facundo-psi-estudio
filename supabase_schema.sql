@@ -1,12 +1,12 @@
 -- ==========================================
--- PSIESTUDIO ULTRA v2 - SUPABASE SCHEMA DDL
+-- PSIESTUDIO v2 - SUPABASE SCHEMA DDL
 -- Proyecto: facundo-psi-estudio
 -- Ref: eckgwyvbevlpnhjrsaxy.supabase.co
 -- ==========================================
 
 -- 1. MATERIAS (Panel de Parámetros)
 CREATE TABLE IF NOT EXISTS public.materias (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     nombre TEXT NOT NULL UNIQUE,
     abreviatura TEXT,
     color TEXT DEFAULT '#0A84FF',
@@ -30,13 +30,14 @@ CREATE TABLE IF NOT EXISTS public.materias (
 
 -- 2. BIBLIOGRAFÍA (Textos y Lecturas)
 CREATE TABLE IF NOT EXISTS public.bibliografia (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    materia_id UUID REFERENCES public.materias(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    materia_id TEXT REFERENCES public.materias(id) ON DELETE CASCADE,
     materia TEXT NOT NULL,
     unidad TEXT NOT NULL DEFAULT 'Unidad 1',
     nro_texto INT DEFAULT 1,
     titulo_texto TEXT NOT NULL,
     autores TEXT,
+    caracter TEXT DEFAULT 'Obligatorio', -- 'Obligatorio' o 'Optativo'
     estado TEXT NOT NULL DEFAULT 'Pendiente',
     link_resumen TEXT,
     tipo_clase TEXT DEFAULT 'Teórica',
@@ -49,8 +50,8 @@ CREATE TABLE IF NOT EXISTS public.bibliografia (
 
 -- 3. CLASES (Protocolo de Clases)
 CREATE TABLE IF NOT EXISTS public.clases (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    materia_id UUID REFERENCES public.materias(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    materia_id TEXT REFERENCES public.materias(id) ON DELETE CASCADE,
     materia TEXT NOT NULL,
     tipo TEXT DEFAULT 'Teórica',
     nro_clase INT DEFAULT 1,
@@ -63,21 +64,21 @@ CREATE TABLE IF NOT EXISTS public.clases (
     contenido_ppt TEXT,
     aclaraciones TEXT,
     imagenes_diapositivas JSONB DEFAULT '[]'::jsonb,
-    bibliografia_ids UUID[] DEFAULT ARRAY[]::UUID[],
+    bibliografia_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
     fecha_carga TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 4. APUNTES / RESÚMENES (Sistema de Apuntes Completos)
 CREATE TABLE IF NOT EXISTS public.apuntes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    materia_id UUID REFERENCES public.materias(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    materia_id TEXT REFERENCES public.materias(id) ON DELETE CASCADE,
     materia TEXT NOT NULL,
     unidad TEXT,
     titulo TEXT NOT NULL,
     contenido TEXT,                  -- Texto del apunte (markdown)
     tipo TEXT DEFAULT 'Resumen',     -- 'Resumen', 'Mapa Conceptual', 'Fichas', 'Cuestionario', 'Notas de Clase'
-    bibliografia_ids UUID[] DEFAULT ARRAY[]::UUID[],
-    clase_id UUID REFERENCES public.clases(id) ON DELETE SET NULL,
+    bibliografia_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
+    clase_id TEXT REFERENCES public.clases(id) ON DELETE SET NULL,
     va_parcial BOOLEAN DEFAULT FALSE,
     nro_parcial INT DEFAULT 1,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -86,9 +87,9 @@ CREATE TABLE IF NOT EXISTS public.apuntes (
 
 -- 5. PDFs e Ingestión
 CREATE TABLE IF NOT EXISTS public.documentos_pdf (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     nombre_archivo TEXT NOT NULL,
-    materia_id UUID REFERENCES public.materias(id) ON DELETE SET NULL,
+    materia_id TEXT REFERENCES public.materias(id) ON DELETE SET NULL,
     materia TEXT,
     unidad TEXT,
     nro_texto INT,
@@ -98,21 +99,23 @@ CREATE TABLE IF NOT EXISTS public.documentos_pdf (
     va_parcial BOOLEAN DEFAULT FALSE,
     texto_extraido TEXT,
     url_pdf TEXT,
-    bibliografia_id UUID REFERENCES public.bibliografia(id) ON DELETE SET NULL,
+    bibliografia_id TEXT REFERENCES public.bibliografia(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 6. EXÁMENES (Fechas y seguimiento)
 CREATE TABLE IF NOT EXISTS public.examenes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
     nombre TEXT NOT NULL,
-    materia_id UUID REFERENCES public.materias(id) ON DELETE CASCADE,
+    materia_id TEXT REFERENCES public.materias(id) ON DELETE CASCADE,
     materia TEXT NOT NULL,
     tipo TEXT DEFAULT 'Parcial 1', -- 'Parcial 1', 'Parcial 2', 'Final', 'Recuperatorio'
     fecha DATE,
     modalidad TEXT DEFAULT 'Presencial',
     temas TEXT,
-    textos_ids UUID[] DEFAULT ARRAY[]::UUID[],
+    unidades_incluidas TEXT[] DEFAULT ARRAY[]::TEXT[],
+    textos_vinculados TEXT[] DEFAULT ARRAY[]::TEXT[],
+    textos_ids TEXT[] DEFAULT ARRAY[]::TEXT[],
     finalizado BOOLEAN DEFAULT FALSE,
     nota NUMERIC(4,2),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

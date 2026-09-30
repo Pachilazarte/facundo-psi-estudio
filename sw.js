@@ -1,13 +1,20 @@
-const CACHE_NAME = 'psiestudio-ios-v1.2';
+const CACHE_NAME = 'psiestudio-ios-v2.1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './index.css',
+  './colors.css',
+  './app.jsx',
   './app.js',
   './manifest.json',
+  './version.json',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
+  'https://unpkg.com/dexie@latest/dist/dexie.js',
+  'https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css',
+  'https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js',
+  'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js',
   'https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700&display=swap'
 ];
 

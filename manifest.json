@@ -1,5 +1,5 @@
 {
-  "name": "PsiEstudio Ultra Apple Edition",
+  "name": "PsiEstudio",
   "short_name": "PsiEstudio",
   "description": "Plataforma de gestión académica, protocolo de clases, ingestión de PDFs y sincronización offline con Supabase.",
   "start_url": "./index.html",
