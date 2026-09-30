@@ -1,7 +1,7 @@
 {
-  "version": "2.8.5",
-  "buildDate": "2026-09-30T13:00:00.000Z",
+  "version": "2.9.0",
+  "buildDate": "2026-09-30T14:05:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Rediseño Anti-IA: Interfaces más compactas (espaciados y bordes reducidos), sombras premium refinadas y nueva función para subir Foto de Perfil personalizada."
+  "notes": "Rediseño Anti-IA Final: Navbar superior oculta en móvil, espacios muertos removidos, perfil circular con badge de cámara, tarjetas rediseñadas con bordes pronunciados y nuevas microanimaciones."
 }
