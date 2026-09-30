@@ -1,6 +1,7 @@
 {
-  "version": "2.5.0",
-  "buildDate": "2026-09-30T10:30:00.000Z",
+  "version": "2.6.0",
+  "buildDate": "2026-09-30T11:06:00.000Z",
   "name": "PsiEstudio",
-  "channel": "production"
+  "channel": "production",
+  "notes": "Módulo multimedia de Clases completo con múltiples grabaciones, subida de fotos de pizarra y diapositivas."
 }

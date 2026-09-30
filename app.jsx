@@ -682,25 +682,31 @@ function App() {
   };
 
   const handleSaveClase = async (formData) => {
+    const isEdit = Boolean(formData.id);
     const payload = {
       ...formData,
       id: formData.id || 'cla_' + Date.now(),
       materia_id: selectedMateriaId,
       materia: currentMateria ? currentMateria.nombre : 'General',
-      fecha_carga: new Date().toISOString()
+      fecha_carga: formData.fecha_carga || new Date().toISOString()
     };
 
-    const updated = [payload, ...clases];
+    const updated = isEdit ? clases.map(c => c.id === payload.id ? payload : c) : [payload, ...clases];
     setClases(updated);
     localStorage.setItem('psi_clases_cache', JSON.stringify(updated));
+    saveToIndexedDB('clases', updated);
     setModalClase({ open: false, data: null });
-    showToast('Protocolo de clase guardado', 'presentation');
+    showToast(isEdit ? 'Clase actualizada con éxito' : 'Protocolo de clase guardado', 'check-circle-2');
 
     if (supabaseClient && isOnline) {
-      try { await supabaseClient.from('clases').insert([payload]); }
-      catch (e) { enqueueAction('INSERT', 'clases', payload); }
+      try {
+        if (isEdit) await supabaseClient.from('clases').update(payload).eq('id', payload.id);
+        else await supabaseClient.from('clases').insert([payload]);
+      } catch (e) {
+        enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'clases', payload);
+      }
     } else {
-      enqueueAction('INSERT', 'clases', payload);
+      enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'clases', payload);
     }
   };
 
@@ -1513,32 +1519,146 @@ function App() {
 
             {/* 4. CLASES */}
             {innerTab === 'clases' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {clases.filter(c => c.materia_id === selectedMateriaId || c.materia === currentMateria.nombre).map(c => (
-                  <div key={c.id} className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
-                        Clase #{c.nro_clase} • {c.tipo}
-                      </span>
-                      <span className="text-xs text-app-muted font-bold">{c.fecha}</span>
-                    </div>
-                    <h4 className="text-base font-extrabold text-app-text">{c.titulo_clase}</h4>
-                    {c.aclaraciones && (
-                      <div className="p-3 bg-app-emerald-bg border border-app-emerald/20 rounded-xl text-xs text-app-text">
-                        <strong className="text-app-emerald">Énfasis del Docente:</strong><br />{c.aclaraciones}
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center pt-2 border-t border-app-border">
-                      <div className="flex gap-2">
-                        {c.link_grabacion && <a href={c.link_grabacion} target="_blank" className="px-2.5 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-lg border border-app-navy/30">Audio</a>}
-                        {c.link_doc_resumen && <a href={c.link_doc_resumen} target="_blank" className="px-2.5 py-1 bg-app-emerald-bg text-app-emerald text-xs font-bold rounded-lg border border-app-emerald/30">Doc</a>}
-                      </div>
-                      <button onClick={() => handleDeleteClase(c.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg">
-                        <Icon name="trash-2" className="w-4 h-4" />
-                      </button>
-                    </div>
+              <div className="space-y-6">
+                <div className="flex flex-wrap gap-3 justify-between items-center bg-app-card p-5 rounded-3xl border border-app-border shadow-card">
+                  <div>
+                    <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
+                      <Icon name="monitor" className="w-5 h-5 text-app-emerald" /> Protocolos de Clase
+                    </h3>
+                    <p className="text-xs text-app-muted mt-0.5">Audios, diapositivas, fotos de pizarra y aclaraciones de la cátedra.</p>
                   </div>
-                ))}
+                  <button
+                    onClick={() => { triggerHaptic('light'); setModalClase({ open: true, data: null }); }}
+                    className="bg-app-emerald text-white font-extrabold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-emerald hover:brightness-110"
+                  >
+                    <Icon name="plus-circle" className="w-4 h-4 text-white" /> Registrar Nueva Clase
+                  </button>
+                </div>
+
+                {currentMateriaClases.length === 0 ? (
+                  <div className="bg-app-card border border-app-border rounded-3xl p-10 sm:p-14 text-center space-y-4 shadow-card">
+                    <div className="w-16 h-16 rounded-3xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto shadow-emerald border border-app-emerald/20">
+                      <Icon name="monitor" className="w-8 h-8" size={32} />
+                    </div>
+                    <div className="max-w-md mx-auto">
+                      <h4 className="text-lg font-extrabold text-app-text">Sin clases registradas en esta materia</h4>
+                      <p className="text-xs text-app-muted mt-1 leading-relaxed">
+                        Crea protocolos de tus clases teóricas, prácticas o talleres. Puedes adjuntar múltiples grabaciones de audio, fotos de la pizarra, contenido de diapositivas y los énfasis para el examen.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { triggerHaptic('light'); setModalClase({ open: true, data: null }); }}
+                      className="px-6 py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald inline-flex items-center gap-2 hover:brightness-110"
+                    >
+                      <Icon name="plus" className="w-4 h-4 text-white" /> Crear Protocolo de Clase #1
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {currentMateriaClases.map(c => {
+                      const grabacionesList = c.grabaciones || (c.link_grabacion ? [{ id: 1, url: c.link_grabacion, title: 'Audio de Clase' }] : []);
+                      const imagenesList = c.imagenes || [];
+
+                      return (
+                        <div key={c.id} className="bg-app-card border border-app-border p-6 rounded-3xl shadow-card space-y-4 flex flex-col justify-between hover:shadow-fluffy transition-all">
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
+                                Clase #{c.nro_clase} • {c.tipo || 'Teórica'}
+                              </span>
+                              <span className="text-xs text-app-muted font-bold flex items-center gap-1">
+                                <Icon name="calendar" className="w-3.5 h-3.5" /> {c.fecha}
+                              </span>
+                            </div>
+
+                            <h4 className="text-lg font-black text-app-text leading-snug">{c.titulo_clase}</h4>
+
+                            {c.aclaraciones && (
+                              <div className="p-3.5 bg-app-emerald-bg border border-app-emerald/20 rounded-2xl text-xs text-app-text space-y-1">
+                                <div className="font-extrabold text-app-emerald flex items-center gap-1">
+                                  <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis del Docente / Examen:
+                                </div>
+                                <div className="leading-relaxed whitespace-pre-wrap">{c.aclaraciones}</div>
+                              </div>
+                            )}
+
+                            {c.contenido_ppt && (
+                              <div className="p-3 bg-app-surface border border-app-border rounded-2xl text-xs text-app-muted space-y-1">
+                                <div className="font-bold text-app-text flex items-center gap-1">
+                                  <Icon name="presentation" className="w-3.5 h-3.5 text-app-navy" /> Contenido de Diapositivas:
+                                </div>
+                                <div className="line-clamp-4 leading-relaxed whitespace-pre-wrap">{c.contenido_ppt}</div>
+                              </div>
+                            )}
+
+                            {/* Grabaciones de audio */}
+                            {grabacionesList.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
+                                  <Icon name="mic" className="w-3.5 h-3.5 text-app-navy" /> Grabaciones ({grabacionesList.length}):
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {grabacionesList.map((g, idx) => (
+                                    <a
+                                      key={g.id || idx}
+                                      href={g.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="px-2.5 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 flex items-center gap-1.5 hover:brightness-110"
+                                    >
+                                      <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Galería de imágenes / pizarra */}
+                            {imagenesList.length > 0 && (
+                              <div className="space-y-1.5 pt-1">
+                                <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
+                                  <Icon name="image" className="w-3.5 h-3.5 text-app-emerald" /> Fotos de Pizarra / Diapositivas ({imagenesList.length}):
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {imagenesList.map((img, idx) => (
+                                    <a key={img.id || idx} href={img.url} target="_blank" rel="noreferrer" className="block relative rounded-xl overflow-hidden border border-app-border group">
+                                      <img src={img.url} alt={img.caption || 'Foto clase'} className="w-full h-20 object-cover group-hover:scale-105 transition-transform" />
+                                      {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] p-1 truncate text-center">{img.caption}</span>}
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
+                            {c.link_doc_resumen ? (
+                              <a href={c.link_doc_resumen} target="_blank" rel="noreferrer" className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border flex items-center gap-1 hover:border-app-emerald">
+                                <Icon name="file-text" className="w-3.5 h-3.5 text-app-emerald" /> Documento Adjunto
+                              </a>
+                            ) : (
+                              <span></span>
+                            )}
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => { triggerHaptic('light'); setModalClase({ open: true, data: c }); }}
+                                className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                              >
+                                <Icon name="edit-2" className="w-3.5 h-3.5" /> Editar
+                              </button>
+                              <button
+                                onClick={() => { triggerHaptic('warning'); handleDeleteClase(c.id); }}
+                                className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                              >
+                                <Icon name="trash-2" className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2344,44 +2464,253 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
 
 function ModalClase({ initialData, onClose, onSave }) {
   const [form, setForm] = useState(initialData || {
-    fecha: new Date().toISOString().split('T')[0], nro_clase: 1, tipo: 'Teórica',
-    titulo_clase: '', aclaraciones: '', contenido_ppt: '', link_grabacion: '', link_doc_resumen: ''
+    fecha: new Date().toISOString().split('T')[0],
+    nro_clase: 1,
+    tipo: 'Teórica',
+    titulo_clase: '',
+    aclaraciones: '',
+    contenido_ppt: '',
+    grabaciones: [],
+    imagenes: [],
+    link_grabacion: '',
+    link_doc_resumen: ''
   });
 
+  const [audioUrlInput, setAudioUrlInput] = useState('');
+  const [audioTitleInput, setAudioTitleInput] = useState('');
+  const [imageUrlInput, setImageUrlInput] = useState('');
+  const [imageCaptionInput, setImageCaptionInput] = useState('');
+
+  const handleAddAudio = () => {
+    if (!audioUrlInput.trim()) return;
+    const currentList = form.grabaciones || [];
+    const item = {
+      id: Date.now(),
+      url: audioUrlInput.trim(),
+      title: audioTitleInput.trim() || `Audio #${currentList.length + 1}`
+    };
+    setForm({ ...form, grabaciones: [...currentList, item] });
+    setAudioUrlInput('');
+    setAudioTitleInput('');
+    triggerHaptic('light');
+  };
+
+  const handleRemoveAudio = (id) => {
+    setForm({ ...form, grabaciones: (form.grabaciones || []).filter(a => a.id !== id) });
+  };
+
+  const handleAddImageUrl = () => {
+    if (!imageUrlInput.trim()) return;
+    const currentList = form.imagenes || [];
+    const item = {
+      id: Date.now(),
+      url: imageUrlInput.trim(),
+      caption: imageCaptionInput.trim() || `Foto #${currentList.length + 1}`
+    };
+    setForm({ ...form, imagenes: [...currentList, item] });
+    setImageUrlInput('');
+    setImageCaptionInput('');
+    triggerHaptic('light');
+  };
+
+  const handleImageFileUpload = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target.result;
+      const currentList = form.imagenes || [];
+      const item = {
+        id: Date.now(),
+        url: base64,
+        caption: file.name.replace(/\.[^/.]+$/, '')
+      };
+      setForm({ ...form, imagenes: [...currentList, item] });
+      triggerHaptic('light');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = (id) => {
+    setForm({ ...form, imagenes: (form.imagenes || []).filter(img => img.id !== id) });
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-6 shadow-fluffy space-y-4">
-        <div className="flex justify-between items-center">
-          <h3 className="text-xl font-extrabold text-app-text">Protocolo de Clase</h3>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl p-6 shadow-fluffy space-y-4 overflow-hidden">
+        <div className="flex justify-between items-center border-b border-app-border pb-3">
+          <div>
+            <h3 className="text-xl font-extrabold text-app-text">
+              {initialData ? 'Editar Protocolo de Clase' : 'Registrar Protocolo de Clase'}
+            </h3>
+            <p className="text-xs text-app-muted">Audios, diapositivas, fotos del pizarrón y advertencias de examen.</p>
+          </div>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
             <Icon name="x" className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="flex-1 overflow-y-auto space-y-4 pr-1">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Fecha</label>
               <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">N° Clase</label>
-              <input type="number" value={form.nro_clase} onChange={e => setForm({ ...form, nro_clase: parseInt(e.target.value) })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+              <input type="number" value={form.nro_clase} onChange={e => setForm({ ...form, nro_clase: parseInt(e.target.value) || 1 })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tipo de Clase</label>
+              <select value={form.tipo || 'Teórica'} onChange={e => setForm({ ...form, tipo: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none">
+                <option value="Teórica">Teórica</option>
+                <option value="Práctica">Práctica</option>
+                <option value="Teórico-Práctica">Teórico-Práctica</option>
+                <option value="Taller">Taller</option>
+                <option value="Seminario">Seminario</option>
+                <option value="Consulta / Repaso">Consulta / Repaso</option>
+                <option value="Otro">Otro</option>
+              </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tema Principal</label>
-            <input value={form.titulo_clase} onChange={e => setForm({ ...form, titulo_clase: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tema Principal / Título de la Clase</label>
+            <input value={form.titulo_clase} onChange={e => setForm({ ...form, titulo_clase: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="Ej: Introducción a la Semiosis y Modelos Triádicos" />
           </div>
 
+          {/* Énfasis y Aclaraciones del Docente */}
           <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Énfasis y Aclaraciones del Docente</label>
-            <textarea value={form.aclaraciones} onChange={e => setForm({ ...form, aclaraciones: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm text-app-text outline-none h-24" />
+            <label className="block text-xs font-bold uppercase text-app-emerald mb-1 flex items-center gap-1.5">
+              <Icon name="alert-triangle" className="w-3.5 h-3.5 text-app-amber" /> Énfasis y Aclaraciones del Docente (Para el Parcial)
+            </label>
+            <textarea value={form.aclaraciones || ''} onChange={e => setForm({ ...form, aclaraciones: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-24" placeholder="Conceptos en los que el profesor hizo hincapié, preguntas tentativas de parcial, autores no evaluados..." />
           </div>
 
-          <button type="submit" className="w-full py-3.5 bg-app-navy text-white font-bold rounded-xl shadow-card hover:brightness-110">
-            Guardar Protocolo de Clase
+          {/* Diapositivas / Contenido de Pizarra */}
+          <div>
+            <label className="block text-xs font-bold uppercase text-app-emerald mb-1 flex items-center gap-1.5">
+              <Icon name="presentation" className="w-3.5 h-3.5 text-app-navy" /> Contenido de Diapositivas / Notas de Pizarrón
+            </label>
+            <textarea value={form.contenido_ppt || ''} onChange={e => setForm({ ...form, contenido_ppt: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-24 font-mono" placeholder="Esquemas, diapositivas proyectadas o apuntes textuales de clase..." />
+          </div>
+
+          {/* Subir Grabaciones de Audio */}
+          <div className="bg-app-surface p-4 rounded-2xl border border-app-border space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
+                <Icon name="mic" className="w-4 h-4 text-app-navy" /> Grabaciones de Audio de la Clase ({(form.grabaciones || []).length})
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={audioTitleInput}
+                onChange={e => setAudioTitleInput(e.target.value)}
+                placeholder="Título (ej: Audio Parte 1)"
+                className="w-1/3 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
+              />
+              <input
+                value={audioUrlInput}
+                onChange={e => setAudioUrlInput(e.target.value)}
+                placeholder="Enlace URL del Audio / Drive / Grabadora"
+                className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddAudio}
+                className="px-4 py-2.5 bg-app-navy text-white text-xs font-bold rounded-xl shadow-card hover:brightness-110 flex items-center gap-1"
+              >
+                <Icon name="plus" className="w-3.5 h-3.5" /> Agregar
+              </button>
+            </div>
+
+            {(form.grabaciones || []).length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                {(form.grabaciones || []).map(a => (
+                  <div key={a.id} className="flex items-center justify-between p-2 rounded-xl bg-app-card border border-app-border text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <Icon name="music" className="w-4 h-4 text-app-navy shrink-0" />
+                      <span className="font-bold text-app-text">{a.title}</span>
+                      <span className="text-app-muted text-[11px] truncate">({a.url})</span>
+                    </div>
+                    <button type="button" onClick={() => handleRemoveAudio(a.id)} className="p-1 text-app-ruby hover:bg-app-ruby-bg rounded-lg">
+                      <Icon name="trash-2" className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Fotos de Pizarrón e Imágenes */}
+          <div className="bg-app-surface p-4 rounded-2xl border border-app-border space-y-3">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
+                <Icon name="camera" className="w-4 h-4 text-app-emerald" /> Fotos de Pizarra / Diapositivas ({(form.imagenes || []).length})
+              </label>
+              <label className="cursor-pointer px-3 py-1.5 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30 flex items-center gap-1.5 hover:brightness-110">
+                <Icon name="upload" className="w-3.5 h-3.5" /> Subir desde Cámara / Galería
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageFileUpload} />
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={imageCaptionInput}
+                onChange={e => setImageCaptionInput(e.target.value)}
+                placeholder="Descripción (ej: Esquema en pizarra)"
+                className="w-1/3 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
+              />
+              <input
+                value={imageUrlInput}
+                onChange={e => setImageUrlInput(e.target.value)}
+                placeholder="O pega el link URL de la foto"
+                className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleAddImageUrl}
+                className="px-4 py-2.5 bg-app-emerald text-white text-xs font-bold rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1"
+              >
+                <Icon name="plus" className="w-3.5 h-3.5" /> Añadir
+              </button>
+            </div>
+
+            {(form.imagenes || []).length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {(form.imagenes || []).map(img => (
+                  <div key={img.id} className="relative rounded-xl overflow-hidden border border-app-border group">
+                    <img src={img.url} alt={img.caption} className="w-full h-24 object-cover" />
+                    <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[10px] p-1 truncate text-center font-bold">
+                      {img.caption}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(img.id)}
+                      className="absolute top-1 right-1 p-1 bg-black/80 text-white rounded-lg hover:bg-app-ruby transition-colors"
+                    >
+                      <Icon name="x" className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Link Resumen / Documento */}
+          <div>
+            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Enlace a Documento / Apunte de Clase</label>
+            <input
+              value={form.link_doc_resumen || ''}
+              onChange={e => setForm({ ...form, link_doc_resumen: e.target.value })}
+              className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none"
+              placeholder="https://docs.google.com/..."
+            />
+          </div>
+
+          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-extrabold text-sm rounded-xl shadow-emerald hover:brightness-110">
+            {initialData ? 'Actualizar Protocolo de Clase' : 'Guardar Protocolo de Clase'}
           </button>
         </form>
       </div>
