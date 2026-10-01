@@ -166,29 +166,505 @@ function parseMarkdownToHTML(md) {
   return html;
 }
 
+// ── 3.5 LOCAL STORAGE & PERSISTENCE SAFE GUARDS ──
+function safeGetLocalStorage(key, fallback = []) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(fallback)) {
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : fallback;
+    }
+    return parsed !== null && parsed !== undefined ? parsed : fallback;
+  } catch (err) {
+    console.warn(`Error al leer '${key}' de localStorage. Se restablece con fallback seguro.`, err);
+    try { localStorage.removeItem(key); } catch (e) {}
+    return fallback;
+  }
+}
+
+function safeSetLocalStorage(key, data) {
+  try {
+    localStorage.setItem(key, typeof data === 'string' ? data : JSON.stringify(data));
+  } catch (err) {
+    console.warn(`QuotaExceededError o error guardando '${key}' en localStorage:`, err);
+    if (Array.isArray(data)) {
+      try {
+        const trimmed = data.map(item => {
+          if (!item) return item;
+          const clone = { ...item };
+          if (typeof clone.contenido === 'string' && clone.contenido.length > 4000) {
+            clone.contenido = clone.contenido.slice(0, 4000) + '\n\n... [Contenido completo guardado en IndexedDB]';
+          }
+          if (typeof clone.texto_extraido === 'string' && clone.texto_extraido.length > 4000) {
+            clone.texto_extraido = clone.texto_extraido.slice(0, 4000) + '\n\n... [Texto completo guardado en IndexedDB]';
+          }
+          return clone;
+        });
+        localStorage.setItem(key, JSON.stringify(trimmed));
+      } catch (err2) {
+        console.warn(`Fallback de almacenamiento seguro también falló para '${key}':`, err2);
+      }
+    }
+  }
+}
+
+// ── 3.8 NEUROSCAN VECTOR PDF COMPILER (A4 & 2-COLUMN BOOKLET) ──
+function parseInlineSegments(str) {
+  const segments = [];
+  const re = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let last = 0;
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    if (m.index > last) {
+      segments.push({ text: str.slice(last, m.index), bold: false, italic: false });
+    }
+    if (m[1] !== undefined) segments.push({ text: m[1], bold: true, italic: true });
+    else if (m[2] !== undefined) segments.push({ text: m[2], bold: true, italic: false });
+    else if (m[3] !== undefined) segments.push({ text: m[3], bold: false, italic: true });
+    last = m.index + m[0].length;
+  }
+  if (last < str.length) {
+    segments.push({ text: str.slice(last), bold: false, italic: false });
+  }
+  return segments.length ? segments : [{ text: str, bold: false, italic: false }];
+}
+
+function parseMarkdownTokens(text) {
+  const lines = (text || '').split('\n');
+  const tokens = [];
+
+  for (let rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const imgMatch = line.match(/^\s*(\[(?:imagen|FIGURA|IMAGEN|grafico)\s*\d*:?\s*([^\]]+)\]|!\[(.*?)\]\((.*?)\))\s*$/i);
+    if (imgMatch) {
+      const rawKey = imgMatch[1];
+      const label = imgMatch[2] || imgMatch[3] || rawKey;
+      tokens.push({ type: 'image_var', rawKey, label });
+    } else if (/^# /.test(line)) {
+      tokens.push({ type: 'h1', text: line.slice(2).trim() });
+    } else if (/^## /.test(line)) {
+      tokens.push({ type: 'h2', text: line.slice(3).trim() });
+    } else if (/^### /.test(line)) {
+      tokens.push({ type: 'h3', text: line.slice(4).trim() });
+    } else if (/^---+$/.test(line.trim())) {
+      tokens.push({ type: 'hr' });
+    } else if (/^\$\$.*\$\$$/.test(line.trim())) {
+      const formula = line.trim().slice(2, -2).trim();
+      tokens.push({ type: 'formula', text: formula });
+    } else if (/^> /.test(line)) {
+      const q = line.slice(2).trim();
+      tokens.push({ type: 'quote', text: q, segs: parseInlineSegments(q) });
+    } else if (/^\s*◦\s+/.test(line)) {
+      const t2 = line.replace(/^\s*◦\s+/, '').trim();
+      tokens.push({ type: 'li2', text: t2, segs: parseInlineSegments(t2) });
+    } else if (/^\s*[•\-*]\s+/.test(line)) {
+      const t1 = line.replace(/^\s*[•\-*]\s+/, '').trim();
+      tokens.push({ type: 'li1', text: t1, segs: parseInlineSegments(t1) });
+    } else if (!line.trim()) {
+      tokens.push({ type: 'blank' });
+    } else {
+      tokens.push({ type: 'body', text: line, segs: parseInlineSegments(line) });
+    }
+  }
+
+  return tokens;
+}
+
+async function convertPDFToTwoColumns(sourceBlob) {
+  if (!window.PDFLib) return sourceBlob;
+  const PDFLibObj = window.PDFLib;
+  const rawBytes = await sourceBlob.arrayBuffer();
+  const sourceDoc = await PDFLibObj.PDFDocument.load(rawBytes);
+  const destDoc = await PDFLibObj.PDFDocument.create();
+
+  const marginPt = 4 * 2.83465; // 4mm
+  const gapPt = 4 * 2.83465;
+  const sheetW = 841.89; // A4 Horizontal
+  const sheetH = 595.28;
+  const slotW = (sheetW - (marginPt * 2) - gapPt) / 2;
+  const slotH = sheetH - (marginPt * 2);
+
+  const totalPages = sourceDoc.getPageCount();
+  const zoom = 1.05;
+
+  for (let i = 0; i < totalPages; i += 2) {
+    const newPage = destDoc.addPage([sheetW, sheetH]);
+
+    const placePage = async (idx, x0, y0) => {
+      if (idx >= totalPages) return;
+      const srcPage = sourceDoc.getPage(idx);
+      const caja = srcPage.getMediaBox();
+      let L = caja.x, B = caja.y, R = caja.x + caja.width, T = caja.y + caja.height;
+      let w = R - L, h = T - B;
+
+      const arHueco = slotW / slotH;
+      const arPag = w / h;
+      if (arPag > arHueco) {
+        const nw = Math.max(h * arHueco, w * 0.88);
+        L += (w - nw) / 2; R -= (w - nw) / 2; w = nw;
+      } else {
+        const nh = Math.max(w / arHueco, h * 0.88);
+        B += (h - nh) / 2; T -= (h - nh) / 2; h = nh;
+      }
+
+      const nw2 = w / zoom, nh2 = h / zoom;
+      L += (w - nw2) / 2; R -= (w - nw2) / 2;
+      B += (h - nh2) / 2; T -= (h - nh2) / 2;
+
+      const bbox = { left: L, bottom: B, right: R, top: T };
+      const emb = await destDoc.embedPage(srcPage, bbox);
+      const esc = Math.min(slotW / emb.width, slotH / emb.height);
+      const drawW = emb.width * esc;
+      const drawH = emb.height * esc;
+      const posX = x0 + (slotW - drawW) / 2;
+      const posY = y0 + (slotH - drawH) / 2;
+      newPage.drawPage(emb, { x: posX, y: posY, width: drawW, height: drawH });
+    };
+
+    await placePage(i, marginPt, marginPt);
+    await placePage(i + 1, marginPt + slotW + gapPt, marginPt);
+  }
+
+  const outputBytes = await destDoc.save();
+  return new Blob([outputBytes], { type: 'application/pdf' });
+}
+
+async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '', contenido = '', layoutMode = 'standard' }) {
+  const jspdfModule = window.jspdf;
+  if (!jspdfModule || !jspdfModule.jsPDF) {
+    throw new Error('La librería jsPDF no está disponible en este momento.');
+  }
+
+  const doc = new jspdfModule.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const fontSel = 'helvetica';
+
+  const PW = 210, PH = 297;
+  const ML = 15, MR = 15, MT = 20, MB = 18;
+  const TW = PW - ML - MR;
+  let pageNum = 1;
+
+  const C_BLACK = [15, 23, 42];
+  const C_DARK = [30, 41, 59];
+  const C_EMERALD = [16, 185, 129];
+  const C_EMERALD_DARK = [15, 118, 110];
+  const C_NAVY = [37, 99, 235];
+  const C_MUTED = [100, 116, 139];
+  const C_RULE = [226, 232, 240];
+  const C_CARD_BG = [248, 250, 252];
+
+  const FS_H1 = 13;
+  const FS_H2 = 10.5;
+  const FS_H3 = 9.5;
+  const FS_BODY = 8.5;
+  const FS_LI = 8.5;
+  const FS_HDR = 7.5;
+
+  const lh = (fs) => fs * 0.353 * 1.25;
+  let y = MT;
+
+  const setColor = (arr) => doc.setTextColor(arr[0], arr[1], arr[2]);
+  const setDraw = (arr) => doc.setDrawColor(arr[0], arr[1], arr[2]);
+  const setFill = (arr) => doc.setFillColor(arr[0], arr[1], arr[2]);
+
+  const drawPageFooter = (pNum) => {
+    doc.setFontSize(FS_HDR);
+    doc.setFont(fontSel, 'normal');
+    setColor(C_MUTED);
+    doc.text(String(pNum), PW / 2, PH - 8, { align: 'center' });
+
+    doc.setFontSize(FS_HDR - 0.5);
+    doc.setFont(fontSel, 'italic');
+    setColor(C_MUTED);
+    const leftText = (materia ? materia + ' · ' : '') + (unidad || 'Guía de Estudio');
+    doc.text(leftText.slice(0, 45), ML, PH - 8);
+    doc.text((titulo || 'PsiEstudio').slice(0, 40), PW - MR, PH - 8, { align: 'right' });
+  };
+
+  const drawPageHeader = () => {
+    doc.setFontSize(FS_HDR);
+    doc.setFont(fontSel, 'bold');
+    setColor(C_EMERALD_DARK);
+    doc.text('PSIESTUDIO · SUITE ACADÉMICA', ML, MT - 8);
+
+    doc.setFont(fontSel, 'normal');
+    setColor(C_MUTED);
+    const rightHeader = `${materia || 'Cátedra'} · ${unidad || 'Unidad'}`;
+    doc.text(rightHeader.slice(0, 50), PW - MR, MT - 8, { align: 'right' });
+
+    setDraw(C_RULE);
+    doc.setLineWidth(0.2);
+    doc.line(ML, MT - 5, PW - MR, MT - 5);
+  };
+
+  const addPage = () => {
+    drawPageFooter(pageNum);
+    doc.addPage('a4', 'portrait');
+    pageNum++;
+    y = MT;
+    drawPageHeader();
+  };
+
+  const needSpace = (needed) => {
+    if (y + needed > PH - MB) {
+      addPage();
+      return true;
+    }
+    return false;
+  };
+
+  function renderInline(segs, startX, maxW, fs, baseColor, baseBold = false) {
+    const words = [];
+    (segs || []).forEach(seg => {
+      const parts = String(seg.text || '').split(/(\s+)/);
+      parts.forEach(p => {
+        if (p === '') return;
+        const isSpace = /^\s+$/.test(p);
+        words.push({ text: p, bold: seg.bold || baseBold, italic: !!seg.italic, isSpace });
+      });
+    });
+
+    const lineH = lh(fs);
+    const lines = [];
+    let curr = [];
+    let currW = 0;
+
+    words.forEach(w => {
+      const style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
+      doc.setFont(fontSel, style);
+      doc.setFontSize(fs);
+      const ww = doc.getTextWidth(w.text);
+
+      if (!w.isSpace && currW + ww > maxW && curr.length > 0) {
+        if (curr.length && curr[curr.length - 1].isSpace) curr.pop();
+        lines.push(curr);
+        curr = [{ ...w, width: ww }];
+        currW = ww;
+      } else {
+        curr.push({ ...w, width: ww });
+        currW += ww;
+      }
+    });
+
+    if (curr.length) {
+      if (curr[curr.length - 1].isSpace) curr.pop();
+      lines.push(curr);
+    }
+
+    lines.forEach(line => {
+      needSpace(lineH + 0.5);
+      let cx = startX;
+      line.forEach(w => {
+        const style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
+        doc.setFont(fontSel, style);
+        doc.setFontSize(fs);
+        setColor(baseColor);
+        doc.text(w.text, cx, y);
+        cx += w.width;
+      });
+      y += lineH;
+    });
+    y += 0.3;
+  }
+
+  // Página 1 Encabezado
+  drawPageHeader();
+
+  setFill([240, 253, 244]);
+  setDraw(C_EMERALD);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(ML, y, TW, 22, 2, 2, 'FD');
+
+  doc.setFontSize(7.5);
+  doc.setFont(fontSel, 'bold');
+  setColor(C_EMERALD_DARK);
+  doc.text('GUÍA ACADÉMICA DE ESTUDIO · MATERIAL UNIVERSITARIO', ML + 4, y + 5.5);
+
+  doc.setFontSize(11);
+  doc.setFont(fontSel, 'bold');
+  setColor(C_BLACK);
+  const cleanTitle = (titulo || 'RESUMEN ACADÉMICO').toUpperCase();
+  const titleLines = doc.splitTextToSize(cleanTitle, TW - 8);
+  doc.text(titleLines.slice(0, 2), ML + 4, y + 11.5);
+
+  doc.setFontSize(7);
+  doc.setFont(fontSel, 'normal');
+  setColor(C_MUTED);
+  const metaStr = `${materia || 'Cátedra'} • ${unidad || 'Unidad'} • Fecha: ${new Date().toLocaleDateString('es-AR')}`;
+  doc.text(metaStr, ML + 4, y + 18.5);
+
+  y += 26;
+
+  const tokens = parseMarkdownTokens(contenido);
+  let prevType = '';
+
+  for (const tok of tokens) {
+    switch (tok.type) {
+      case 'h1': {
+        if (prevType && prevType !== 'blank') y += 2;
+        needSpace(lh(FS_H1) + 6);
+        setDraw(C_EMERALD);
+        doc.setLineWidth(0.4);
+        doc.line(ML, y - 1, PW - MR, y - 1);
+        doc.setFontSize(FS_H1);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_BLACK);
+        const h1lines = doc.splitTextToSize(tok.text.toUpperCase(), TW);
+        doc.text(h1lines, PW / 2, y + lh(FS_H1) - 0.5, { align: 'center' });
+        y += h1lines.length * lh(FS_H1) + 1;
+        doc.line(ML, y, PW - MR, y);
+        y += 2.5;
+        break;
+      }
+      case 'h2': {
+        y += 2;
+        needSpace(lh(FS_H2) + 5);
+        doc.setFontSize(FS_H2);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_EMERALD_DARK);
+        const h2lines = doc.splitTextToSize(tok.text, TW);
+        doc.text(h2lines, ML, y);
+        y += h2lines.length * lh(FS_H2) + 0.5;
+        setDraw(C_EMERALD);
+        doc.setLineWidth(0.28);
+        doc.line(ML, y, ML + Math.min(TW, tok.text.length * 2.2), y);
+        y += 2;
+        break;
+      }
+      case 'h3': {
+        y += 1.5;
+        needSpace(lh(FS_H3) + 4);
+        setFill(C_NAVY);
+        doc.rect(ML, y - lh(FS_H3) + 0.5, 1.8, lh(FS_H3), 'F');
+        doc.setFontSize(FS_H3);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_NAVY);
+        const h3lines = doc.splitTextToSize(tok.text, TW - 5);
+        doc.text(h3lines, ML + 4, y);
+        y += h3lines.length * lh(FS_H3) + 1;
+        break;
+      }
+      case 'quote': {
+        y += 1;
+        needSpace(lh(FS_BODY) + 4);
+        setFill(C_CARD_BG);
+        setDraw(C_EMERALD);
+        doc.setLineWidth(0.6);
+        const qLines = doc.splitTextToSize(tok.text, TW - 8);
+        const qH = qLines.length * lh(FS_BODY) + 3;
+        doc.rect(ML, y - 2, TW, qH, 'F');
+        doc.line(ML, y - 2, ML, y - 2 + qH);
+        renderInline(tok.segs, ML + 4, TW - 8, FS_BODY, C_DARK, false);
+        y += 1;
+        break;
+      }
+      case 'formula': {
+        y += 1.5;
+        needSpace(10);
+        setFill(C_CARD_BG);
+        setDraw(C_RULE);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(ML, y - 1, TW, 8, 1, 1, 'FD');
+        doc.setFont('courier', 'bold');
+        doc.setFontSize(FS_BODY);
+        setColor(C_NAVY);
+        doc.text(tok.text, PW / 2, y + 4, { align: 'center' });
+        doc.setFont(fontSel, 'normal');
+        y += 10;
+        break;
+      }
+      case 'image_var': {
+        y += 2;
+        needSpace(12);
+        setFill(C_CARD_BG);
+        setDraw(C_EMERALD);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(ML, y, TW, 9, 1.5, 1.5, 'FD');
+        doc.setFontSize(7.5);
+        doc.setFont(fontSel, 'italic');
+        setColor(C_EMERALD_DARK);
+        doc.text(`[Figura / Esquema: ${tok.label}]`, PW / 2, y + 5.5, { align: 'center' });
+        y += 12;
+        break;
+      }
+      case 'li1': {
+        needSpace(lh(FS_LI) + 0.8);
+        doc.setFontSize(FS_LI + 0.5);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_EMERALD_DARK);
+        doc.text('•', ML + 3, y);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 7, TW - 7, FS_LI, C_DARK, false);
+        break;
+      }
+      case 'li2': {
+        needSpace(lh(FS_LI) + 0.8);
+        doc.setFontSize(FS_LI - 0.5);
+        doc.setFont(fontSel, 'normal');
+        setColor(C_MUTED);
+        doc.text('◦', ML + 8, y);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 12, TW - 12, FS_LI - 0.5, C_MUTED, false);
+        break;
+      }
+      case 'body': {
+        needSpace(lh(FS_BODY) + 0.5);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML, TW, FS_BODY, C_BLACK, false);
+        break;
+      }
+      case 'blank': {
+        y += lh(FS_BODY) * 0.4;
+        break;
+      }
+    }
+    prevType = tok.type;
+  }
+
+  drawPageFooter(pageNum);
+
+  let finalBlob = doc.output('blob');
+  if (layoutMode === 'booklet' && window.PDFLib) {
+    try {
+      finalBlob = await convertPDFToTwoColumns(finalBlob);
+    } catch (e) {
+      console.warn('Fallback a standard PDF:', e);
+    }
+  }
+
+  const blobUrl = URL.createObjectURL(finalBlob);
+  const cleanMateria = (materia || 'Materia').replace(/[\\/:*?"<>|]/g, '');
+  const cleanTitulo = (titulo || 'Resumen').replace(/[\\/:*?"<>|]/g, '');
+  const fileName = `${cleanMateria} - ${cleanTitulo}.pdf`;
+
+  return {
+    blob: finalBlob,
+    blobUrl,
+    pageCount: pageNum,
+    fileName
+  };
+}
+
 // ── 4. MAIN APP ──
 function App() {
-  const [theme, setTheme] = useState(localStorage.getItem('psi_theme') || 'light');
+  const [theme, setTheme] = useState(() => localStorage.getItem('psi_theme') || 'light');
   const [activeTab, setActiveTab] = useState('materias'); // 'materias', 'pdf', 'perfil', 'system'
   const [selectedMateriaId, setSelectedMateriaId] = useState(null);
   const [innerTab, setInnerTab] = useState('params');
   const [biblioFilter, setBiblioFilter] = useState('todos');
 
-  // Academic State (local cache)
-  const [materias, setMaterias] = useState(() => JSON.parse(localStorage.getItem('psi_materias_cache') || '[]'));
-  const [biblio, setBiblio] = useState(() => JSON.parse(localStorage.getItem('psi_biblio_cache') || '[]'));
-  const [clases, setClases] = useState(() => JSON.parse(localStorage.getItem('psi_clases_cache') || '[]'));
-  const [apuntes, setApuntes] = useState(() => JSON.parse(localStorage.getItem('psi_apuntes_cache') || '[]'));
-  const [pdfs, setPdfs] = useState(() => JSON.parse(localStorage.getItem('psi_pdfs_cache') || '[]'));
-  const [examenes, setExamenes] = useState(() => JSON.parse(localStorage.getItem('psi_examenes_cache') || '[]'));
+  // Academic State (con safe storage anti-crash)
+  const [materias, setMaterias] = useState(() => safeGetLocalStorage('psi_materias_cache', []));
+  const [biblio, setBiblio] = useState(() => safeGetLocalStorage('psi_biblio_cache', []));
+  const [clases, setClases] = useState(() => safeGetLocalStorage('psi_clases_cache', []));
+  const [apuntes, setApuntes] = useState(() => safeGetLocalStorage('psi_apuntes_cache', []));
+  const [pdfs, setPdfs] = useState(() => safeGetLocalStorage('psi_pdfs_cache', []));
+  const [examenes, setExamenes] = useState(() => safeGetLocalStorage('psi_examenes_cache', []));
 
   // Connectivity & Modals
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [syncQueue, setSyncQueue] = useState(() => JSON.parse(localStorage.getItem('psi_sync_queue') || '[]'));
+  const [syncQueue, setSyncQueue] = useState(() => safeGetLocalStorage('psi_sync_queue', []));
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.10.0';
+  const currentVersion = 'v2.11.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -430,9 +906,9 @@ function App() {
     setMaterias(initialMats);
     setBiblio(initialBib);
     setExamenes(initialExams);
-    localStorage.setItem('psi_materias_cache', JSON.stringify(initialMats));
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(initialBib));
-    localStorage.setItem('psi_examenes_cache', JSON.stringify(initialExams));
+    safeSetLocalStorage('psi_materias_cache', initialMats);
+    safeSetLocalStorage('psi_biblio_cache', initialBib);
+    safeSetLocalStorage('psi_examenes_cache', initialExams);
     saveToIndexedDB('materias', initialMats);
     saveToIndexedDB('bibliografia', initialBib);
     saveToIndexedDB('examenes', initialExams);
@@ -509,32 +985,32 @@ function App() {
 
       if (matsRes.status === 'fulfilled' && matsRes.value.data?.length) {
         setMaterias(matsRes.value.data);
-        localStorage.setItem('psi_materias_cache', JSON.stringify(matsRes.value.data));
+        safeSetLocalStorage('psi_materias_cache', matsRes.value.data);
         saveToIndexedDB('materias', matsRes.value.data);
       }
       if (bibRes.status === 'fulfilled' && bibRes.value.data) {
         setBiblio(bibRes.value.data);
-        localStorage.setItem('psi_biblio_cache', JSON.stringify(bibRes.value.data));
+        safeSetLocalStorage('psi_biblio_cache', bibRes.value.data);
         saveToIndexedDB('bibliografia', bibRes.value.data);
       }
       if (claRes.status === 'fulfilled' && claRes.value.data) {
         setClases(claRes.value.data);
-        localStorage.setItem('psi_clases_cache', JSON.stringify(claRes.value.data));
+        safeSetLocalStorage('psi_clases_cache', claRes.value.data);
         saveToIndexedDB('clases', claRes.value.data);
       }
       if (apuRes.status === 'fulfilled' && apuRes.value.data) {
         setApuntes(apuRes.value.data);
-        localStorage.setItem('psi_apuntes_cache', JSON.stringify(apuRes.value.data));
+        safeSetLocalStorage('psi_apuntes_cache', apuRes.value.data);
         saveToIndexedDB('apuntes', apuRes.value.data);
       }
       if (pdfRes.status === 'fulfilled' && pdfRes.value.data) {
         setPdfs(pdfRes.value.data);
-        localStorage.setItem('psi_pdfs_cache', JSON.stringify(pdfRes.value.data));
+        safeSetLocalStorage('psi_pdfs_cache', pdfRes.value.data);
         saveToIndexedDB('documentos_pdf', pdfRes.value.data);
       }
       if (exRes.status === 'fulfilled' && exRes.value.data) {
         setExamenes(exRes.value.data);
-        localStorage.setItem('psi_examenes_cache', JSON.stringify(exRes.value.data));
+        safeSetLocalStorage('psi_examenes_cache', exRes.value.data);
         saveToIndexedDB('examenes', exRes.value.data);
       }
     } catch (err) {
@@ -640,7 +1116,7 @@ function App() {
 
     const updated = isEdit ? materias.map(m => m.id === payload.id ? payload : m) : [...materias, payload];
     setMaterias(updated);
-    localStorage.setItem('psi_materias_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_materias_cache', updated);
     saveToIndexedDB('materias', updated);
     setModalMateria({ open: false, data: null });
     showToast(isEdit ? 'Materia actualizada' : 'Materia creada', 'book');
@@ -671,7 +1147,7 @@ function App() {
         }
       });
       setExamenes(currentExs);
-      localStorage.setItem('psi_examenes_cache', JSON.stringify(currentExs));
+      safeSetLocalStorage('psi_examenes_cache', currentExs);
       saveToIndexedDB('examenes', currentExs);
     }
 
@@ -693,7 +1169,7 @@ function App() {
     if (!confirm('¿Eliminar esta materia y todos sus datos asociados?')) return;
     const updated = materias.filter(m => m.id !== id);
     setMaterias(updated);
-    localStorage.setItem('psi_materias_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_materias_cache', updated);
     if (selectedMateriaId === id) setSelectedMateriaId(null);
     showToast('Materia eliminada', 'trash-2');
 
@@ -717,7 +1193,7 @@ function App() {
 
     const updated = isEdit ? biblio.map(b => b.id === payload.id ? payload : b) : [payload, ...biblio];
     setBiblio(updated);
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_biblio_cache', updated);
     setModalBiblio({ open: false, data: null });
     showToast('Texto guardado en bibliografía', 'file-text');
 
@@ -745,7 +1221,7 @@ function App() {
 
     const updated = [...newItems, ...biblio];
     setBiblio(updated);
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_biblio_cache', updated);
     setModalBiblioBatch(false);
     showToast(`${newItems.length} textos importados con éxito`, 'check-circle-2');
 
@@ -766,7 +1242,7 @@ function App() {
 
     const updated = biblio.map(b => b.id === id ? { ...b, estado: nextEstado } : b);
     setBiblio(updated);
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_biblio_cache', updated);
 
     if (supabaseClient && isOnline) {
       try { await supabaseClient.from('bibliografia').update({ estado: nextEstado }).eq('id', id); }
@@ -780,7 +1256,7 @@ function App() {
     if (!confirm('¿Eliminar este texto?')) return;
     const updated = biblio.filter(b => b.id !== id);
     setBiblio(updated);
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_biblio_cache', updated);
     showToast('Texto eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -803,7 +1279,7 @@ function App() {
 
     const updated = isEdit ? clases.map(c => c.id === payload.id ? payload : c) : [payload, ...clases];
     setClases(updated);
-    localStorage.setItem('psi_clases_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_clases_cache', updated);
     saveToIndexedDB('clases', updated);
     setModalClase({ open: false, data: null });
     showToast(isEdit ? 'Clase actualizada con éxito' : 'Protocolo de clase guardado', 'check-circle-2');
@@ -824,7 +1300,7 @@ function App() {
     if (!confirm('¿Eliminar esta clase?')) return;
     const updated = clases.filter(c => c.id !== id);
     setClases(updated);
-    localStorage.setItem('psi_clases_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_clases_cache', updated);
     showToast('Clase eliminada', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -851,40 +1327,50 @@ function App() {
 
     const updated = isEdit ? apuntes.map(a => a.id === payload.id ? payload : a) : [payload, ...apuntes];
     setApuntes(updated);
-    localStorage.setItem('psi_apuntes_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_apuntes_cache', updated);
     saveToIndexedDB('apuntes', updated);
     setModalApunte({ open: false, data: null });
     setModalUploadApuntePDF({ open: false, materiaId: null });
     showToast('Apunte guardado con éxito', 'file-edit');
 
-    // Si vino de una subida de PDF, también registrar en documentos_pdf
-    if (formData.pdfName) {
+    // Si vino de una subida de PDF o se solicitó guardar en sistema, registrar en documentos_pdf
+    if (formData.pdfName || formData.saveToPdfDocs) {
       const pdfPayload = {
         id: 'pdf_' + Date.now(),
-        nombre_archivo: formData.pdfName,
+        nombre_archivo: formData.pdfName || `${formData.titulo || 'Apunte'}.pdf`,
         materia_id: targetMatId,
         materia: targetMatName,
         unidad: formData.unidad || 'Unidad 1',
-        num_paginas: formData.numPages || 1,
+        num_paginas: parseInt(formData.numPages, 10) || 1,
         va_parcial: Boolean(formData.va_parcial),
-        texto_extraido: (formData.contenido || '').slice(0, 1500),
+        texto_extraido: (formData.contenido || '').slice(0, 5000),
         created_at: new Date().toISOString()
       };
       const updatedPdfs = [pdfPayload, ...pdfs];
       setPdfs(updatedPdfs);
-      localStorage.setItem('psi_pdfs_cache', JSON.stringify(updatedPdfs));
+      safeSetLocalStorage('psi_pdfs_cache', updatedPdfs);
       saveToIndexedDB('documentos_pdf', updatedPdfs);
       if (supabaseClient && isOnline) {
-        try { await supabaseClient.from('documentos_pdf').insert([pdfPayload]); } catch(e) {}
+        try { await supabaseClient.from('documentos_pdf').insert([pdfPayload]); } catch(e) {
+          console.warn('Error al insertar en documentos_pdf:', e);
+        }
       }
     }
 
     if (supabaseClient && isOnline) {
       try {
-        const { pdfName, numPages, ...cleanPayload } = payload;
+        const { pdfName, numPages, saveToPdfDocs, ...cleanPayload } = payload;
+        // Postgres nro_parcial is INT: ensure integer conversion or default 1
+        if (cleanPayload.nro_parcial) {
+          const matchedNum = String(cleanPayload.nro_parcial).match(/\d+/);
+          cleanPayload.nro_parcial = matchedNum ? parseInt(matchedNum[0], 10) : 1;
+        } else {
+          cleanPayload.nro_parcial = 1;
+        }
         if (isEdit) await supabaseClient.from('apuntes').update(cleanPayload).eq('id', payload.id);
         else await supabaseClient.from('apuntes').insert([cleanPayload]);
       } catch (e) {
+        console.warn('Error sincronizando apunte en Supabase:', e);
         enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', payload);
       }
     } else {
@@ -896,7 +1382,8 @@ function App() {
     if (!confirm('¿Eliminar este apunte?')) return;
     const updated = apuntes.filter(a => a.id !== id);
     setApuntes(updated);
-    localStorage.setItem('psi_apuntes_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_apuntes_cache', updated);
+    saveToIndexedDB('apuntes', updated);
     showToast('Apunte eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -924,7 +1411,7 @@ function App() {
 
     const updated = isEdit ? examenes.map(e => e.id === payload.id ? payload : e) : [payload, ...examenes];
     setExamenes(updated);
-    localStorage.setItem('psi_examenes_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_examenes_cache', updated);
     setModalExamen({ open: false, data: null });
     showToast('Examen registrado correctamente', 'calendar-check');
 
@@ -944,7 +1431,7 @@ function App() {
     if (!confirm('¿Eliminar este examen?')) return;
     const updated = examenes.filter(e => e.id !== id);
     setExamenes(updated);
-    localStorage.setItem('psi_examenes_cache', JSON.stringify(updated));
+    safeSetLocalStorage('psi_examenes_cache', updated);
     showToast('Examen eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -1036,8 +1523,8 @@ function App() {
 
     setPdfs(updatedPdfs);
     setBiblio(updatedBib);
-    localStorage.setItem('psi_pdfs_cache', JSON.stringify(updatedPdfs));
-    localStorage.setItem('psi_biblio_cache', JSON.stringify(updatedBib));
+    safeSetLocalStorage('psi_pdfs_cache', updatedPdfs);
+    safeSetLocalStorage('psi_biblio_cache', updatedBib);
     setIngestionData(null);
     showToast('PDF y Bibliografía guardados con éxito', 'check-circle');
 
@@ -1105,9 +1592,11 @@ function App() {
               className="flex items-center gap-2.5 cursor-pointer"
               onClick={() => { setActiveTab('materias'); setSelectedMateriaId(null); }}
             >
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-600 to-teal-800 flex items-center justify-center text-white shadow-emerald border border-white/20">
-                <Icon name="graduation-cap" className="w-5 h-5 text-white" size={20} />
-              </div>
+              <img
+                src="logo.png"
+                alt="PsiEstudio"
+                className="w-9 h-9 rounded-xl object-cover shadow-emerald border border-app-border/40 hover:scale-105 transition-transform"
+              />
               <div>
                 <h1 className="text-lg font-black tracking-tight leading-none text-app-text">
                   PsiEstudio
@@ -3913,8 +4402,74 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   });
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'double_page'
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [pdfLayoutMode, setPdfLayoutMode] = useState('standard'); // 'standard' | 'booklet'
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [compiledPDF, setCompiledPDF] = useState(null);
   const textareaRef = useRef(null);
   const pdfImportRef = useRef(null);
+
+  const handleCompilePDF = async (forceDownload = false) => {
+    if (!form.contenido?.trim()) {
+      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
+      return null;
+    }
+    setIsGeneratingPDF(true);
+    triggerHaptic('medium');
+    try {
+      const res = await generateAcademicPDFBlob({
+        materia: materiaNombre || form.materia || '',
+        unidad: form.unidad || 'Unidad 1',
+        titulo: form.titulo || 'Resumen Académico',
+        contenido: form.contenido,
+        layoutMode: pdfLayoutMode
+      });
+      setCompiledPDF(res);
+      setIsGeneratingPDF(false);
+
+      if (forceDownload) {
+        const a = document.createElement('a');
+        a.href = res.blobUrl;
+        a.download = res.fileName;
+        a.click();
+        if (showToast) showToast(`PDF descargado con éxito (${res.pageCount} págs)`, 'download');
+      } else {
+        if (showToast) showToast(`PDF listo para ver (${res.pageCount} págs)`, 'check-circle');
+      }
+      return res;
+    } catch (err) {
+      console.error('Error generando PDF:', err);
+      setIsGeneratingPDF(false);
+      if (showToast) showToast('Error al generar PDF: ' + err.message, 'alert-triangle');
+      return null;
+    }
+  };
+
+  const handleSavePDFToSystem = async () => {
+    setIsGeneratingPDF(true);
+    triggerHaptic('success');
+    try {
+      let pdfData = compiledPDF;
+      if (!pdfData) {
+        pdfData = await handleCompilePDF(false);
+      }
+      const finalName = pdfData ? pdfData.fileName : `${form.titulo || 'Apunte'}.pdf`;
+      const finalPages = pdfData ? pdfData.pageCount : 1;
+
+      const payload = {
+        ...form,
+        pdfName: finalName,
+        numPages: finalPages,
+        saveToPdfDocs: true
+      };
+      onSave(payload);
+      if (showToast) showToast('✅ Guardado en Apuntes y Subido a PDFs OCR', 'check-circle');
+    } catch (err) {
+      console.error('Error guardando en el sistema:', err);
+      if (showToast) showToast('Error al guardar en sistema: ' + err.message, 'alert-triangle');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
 
   const handleImportPDF = (e) => {
     const file = e.target.files[0];
@@ -4077,15 +4632,29 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
               <span>{copiedPrompt ? "¡Prompt Copiado!" : "Copiar Prompt IA"}</span>
             </button>
 
-            {viewMode === 'double_page' && (
-              <button
-                type="button"
-                onClick={handlePrintPDF}
-                className="px-3.5 py-2 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
-              >
-                <Icon name="printer" className="w-4 h-4" /> Imprimir / PDF
-              </button>
-            )}
+            {/* Descargar PDF Button */}
+            <button
+              type="button"
+              onClick={() => handleCompilePDF(true)}
+              disabled={isGeneratingPDF}
+              className="px-3 py-2 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50"
+              title="Descargar PDF académico vectorial"
+            >
+              <Icon name={isGeneratingPDF ? "refresh-cw" : "download"} className={`w-3.5 h-3.5 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{isGeneratingPDF ? "Compilando..." : "Descargar PDF"}</span>
+            </button>
+
+            {/* Subir al Sistema Button */}
+            <button
+              type="button"
+              onClick={handleSavePDFToSystem}
+              disabled={isGeneratingPDF}
+              className="px-3 py-2 bg-app-emerald text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110 disabled:opacity-50"
+              title="Guardar apunte y dejar el PDF subido al sistema"
+            >
+              <Icon name="upload-cloud" className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Subir al Sistema</span>
+            </button>
 
             <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
               <Icon name="x" className="w-5 h-5" />
@@ -4188,34 +4757,122 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
 
         {/* ── 2. HOJA DOBLE / NEUROSCAN PDF PRINT PREVIEW MODE ── */}
         {viewMode === 'double_page' && (
-          <div className="flex-1 overflow-y-auto p-4 sm:p-5 bg-app-surface rounded-xl border border-app-border">
-            <div
-              id="academic-pdf-print-area"
-              className="max-w-4xl mx-auto bg-white text-slate-900 p-5 sm:p-12 rounded-xl shadow-fluffy border border-slate-200"
-            >
-              {/* Document Header */}
-              <div className="border-b-2 border-emerald-600 pb-4 mb-6 flex justify-between items-end">
-                <div>
-                  <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 block">
-                    PSIESTUDIO • GUÍA ACADÉMICA DE ESTUDIO
-                  </span>
-                  <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 uppercase tracking-tight">
-                    {form.titulo || 'RESUMEN ACADÉMICO'}
-                  </h1>
-                  <p className="text-xs font-bold text-slate-600 mt-0.5">
-                    {materiaNombre || 'Cátedra'} • {form.unidad} • {form.tipo}
-                  </p>
-                </div>
-                <div className="text-right text-[10px] text-slate-400 font-mono">
-                  {new Date().toLocaleDateString('es-AR')}
-                </div>
+          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
+            {/* Control Bar for PDF Generation and Display */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-app-surface border border-app-border rounded-xl">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-app-muted">Maquetación:</span>
+                <select
+                  value={pdfLayoutMode}
+                  onChange={e => { setPdfLayoutMode(e.target.value); setCompiledPDF(null); }}
+                  className="p-1.5 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
+                >
+                  <option value="standard">A4 Estándar (1 Columna)</option>
+                  <option value="booklet">Folleto Doble Hoja (2 Columnas)</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(false)}
+                  disabled={isGeneratingPDF}
+                  className="px-3 py-1.5 bg-app-card border border-app-emerald/40 text-app-emerald rounded-lg text-xs font-bold hover:border-app-emerald flex items-center gap-1.5"
+                >
+                  <Icon name={isGeneratingPDF ? "refresh-cw" : "play"} className={`w-3.5 h-3.5 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+                  <span>{compiledPDF ? "Recompilar PDF" : "Compilar y Ver PDF"}</span>
+                </button>
               </div>
 
-              {/* High Density Double-Column Content */}
-              <div
-                className="academic-double-column print-double-column text-[11.5px] leading-relaxed text-slate-800 space-y-2 text-justify"
-                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="italic text-slate-400">Sin contenido cargado.</p>' }}
-              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(true)}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50"
+                >
+                  <Icon name="download" className="w-3.5 h-3.5" /> Descargar PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePDFToSystem}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-emerald text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110 disabled:opacity-50"
+                >
+                  <Icon name="upload-cloud" className="w-3.5 h-3.5" /> Subir al Sistema
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintPDF}
+                  className="px-3 py-1.5 bg-app-surface border border-app-border text-app-text rounded-lg text-xs font-bold flex items-center gap-1.5 hover:border-app-emerald"
+                  title="Imprimir versión HTML nativa"
+                >
+                  <Icon name="printer" className="w-3.5 h-3.5" /> Imprimir
+                </button>
+              </div>
+            </div>
+
+            {/* Live PDF Viewer or Fallback Preview */}
+            <div className="flex-1 overflow-y-auto p-2 sm:p-4 bg-app-surface/50 rounded-xl border border-app-border flex flex-col items-center">
+              {compiledPDF ? (
+                <div className="w-full h-full flex flex-col space-y-2">
+                  <div className="flex justify-between items-center text-xs px-2 text-app-muted">
+                    <span className="font-bold text-app-emerald flex items-center gap-1">
+                      <Icon name="check-circle" className="w-3.5 h-3.5" /> Documento Vectorial PDF Listo ({compiledPDF.pageCount} páginas)
+                    </span>
+                    <span>{compiledPDF.fileName}</span>
+                  </div>
+                  <iframe
+                    src={compiledPDF.blobUrl}
+                    className="w-full h-[66vh] rounded-xl border border-app-border bg-white shadow-fluffy"
+                    title="Visor PDF Académico"
+                  />
+                </div>
+              ) : (
+                <div className="w-full space-y-4">
+                  <div className="max-w-md mx-auto text-center p-6 bg-app-card border border-app-border rounded-xl shadow-card space-y-3">
+                    <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
+                      <Icon name="file-text" className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-sm font-black text-app-text">Visualizador de PDF Académico</h4>
+                    <p className="text-xs text-app-muted">
+                      Compila este apunte en un documento PDF vectorial limpio con membrete de cátedra, paginación y formato universitario.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleCompilePDF(false)}
+                      disabled={isGeneratingPDF}
+                      className="w-full py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
+                    >
+                      <Icon name="sparkles" className="w-4 h-4" /> Generar y Ver PDF Directamente
+                    </button>
+                  </div>
+
+                  <div
+                    id="academic-pdf-print-area"
+                    className="max-w-4xl mx-auto bg-white text-slate-900 p-5 sm:p-12 rounded-xl shadow-fluffy border border-slate-200"
+                  >
+                    <div className="border-b-2 border-emerald-600 pb-4 mb-6 flex justify-between items-end">
+                      <div>
+                        <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 block">
+                          PSIESTUDIO • GUÍA ACADÉMICA DE ESTUDIO
+                        </span>
+                        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 uppercase tracking-tight">
+                          {form.titulo || 'RESUMEN ACADÉMICO'}
+                        </h1>
+                        <p className="text-xs font-bold text-slate-600 mt-0.5">
+                          {materiaNombre || 'Cátedra'} • {form.unidad} • {form.tipo}
+                        </p>
+                      </div>
+                      <div className="text-right text-[10px] text-slate-400 font-mono">
+                        {new Date().toLocaleDateString('es-AR')}
+                      </div>
+                    </div>
+
+                    <div
+                      className="academic-double-column print-double-column text-[11.5px] leading-relaxed text-slate-800 space-y-2 text-justify"
+                      dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="italic text-slate-400">Sin contenido cargado.</p>' }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -5083,9 +5740,76 @@ function ModalFlashcards({ title, items, onClose }) {
   );
 }
 
-// ── 6. MOUNT APP ──
+// ── 6. ERROR BOUNDARY ANTI-BLANK-SCREEN ──
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[PsiEstudio ErrorBoundary] Error atrapado:', error, errorInfo);
+  }
+
+  handleCleanCorruptedCache = () => {
+    try {
+      localStorage.removeItem('psi_apuntes_cache');
+      localStorage.removeItem('psi_pdfs_cache');
+      localStorage.removeItem('psi_sync_queue');
+    } catch (e) {}
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-app-base text-app-text flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-app-card border border-app-border p-6 sm:p-8 rounded-2xl shadow-fluffy text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-app-amber-bg text-app-amber border border-app-amber/30 flex items-center justify-center">
+              <Icon name="alert-triangle" className="w-7 h-7 text-app-amber" size={28} />
+            </div>
+            <h2 className="text-xl font-black text-app-text">PsiEstudio • Recuperación Automática</h2>
+            <p className="text-xs text-app-muted leading-relaxed">
+              Se detectó un problema en los datos cacheados localmente. Tu información en Supabase e IndexedDB permanece a salvo.
+            </p>
+            <div className="p-3 bg-app-surface border border-app-border rounded-xl text-left overflow-x-auto max-h-32 text-xs font-mono text-app-ruby">
+              {this.state.error?.message || String(this.state.error)}
+            </div>
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={this.handleCleanCorruptedCache}
+                className="w-full py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
+              >
+                <Icon name="refresh-cw" className="w-4 h-4" /> Limpiar Caché y Reabrir
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="w-full py-2.5 bg-app-surface border border-app-border text-app-muted hover:text-app-text font-bold text-xs rounded-xl"
+              >
+                Reintentar sin limpiar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── 7. MOUNT APP ──
 const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = ReactDOM.createRoot(rootElement);
-  root.render(<App />);
+  root.render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
 }
