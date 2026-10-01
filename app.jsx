@@ -1032,7 +1032,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.4';
+  const currentVersion = 'v2.12.5';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -2799,17 +2799,30 @@ function App() {
                                 <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
                                   <Icon name="mic" className="w-3.5 h-3.5 text-app-navy" /> Grabaciones ({grabacionesList.length}):
                                 </div>
-                                <div className="flex flex-wrap gap-1.5">
+                                <div className="space-y-2">
                                   {grabacionesList.map((g, idx) => (
-                                    <a
-                                      key={g.id || idx}
-                                      href={g.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="px-2.5 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 flex items-center gap-1.5 hover:brightness-110"
-                                    >
-                                      <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
-                                    </a>
+                                    (g.url && (g.url.startsWith('data:audio') || g.url.startsWith('blob:') || g.isDirectFile)) ? (
+                                      <div key={g.id || idx} className="p-2.5 rounded-xl bg-app-surface border border-app-border space-y-1 shadow-sm">
+                                        <div className="flex items-center justify-between text-xs font-bold text-app-text">
+                                          <span className="flex items-center gap-1.5 truncate">
+                                            <Icon name="music" className="w-3.5 h-3.5 text-app-navy shrink-0" />
+                                            <strong className="truncate">{g.title || `Audio ${idx + 1}`}</strong>
+                                          </span>
+                                          <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                        </div>
+                                        <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
+                                      </div>
+                                    ) : (
+                                      <a
+                                        key={g.id || idx}
+                                        href={g.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex px-3 py-1.5 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 items-center gap-1.5 hover:brightness-110"
+                                      >
+                                        <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
+                                      </a>
+                                    )
                                   ))}
                                 </div>
                               </div>
@@ -3330,17 +3343,30 @@ function App() {
                             <div className="text-[11px] font-bold text-app-muted flex items-center gap-1">
                               <Icon name="mic" className="w-3.5 h-3.5 text-app-navy" /> Grabaciones ({grabacionesList.length}):
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="space-y-2">
                               {grabacionesList.map((g, idx) => (
-                                <a
-                                  key={g.id || idx}
-                                  href={g.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2.5 py-1 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 flex items-center gap-1.5 hover:brightness-110"
-                                >
-                                  <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
-                                </a>
+                                (g.url && (g.url.startsWith('data:audio') || g.url.startsWith('blob:') || g.isDirectFile)) ? (
+                                  <div key={g.id || idx} className="p-2.5 rounded-xl bg-app-surface border border-app-border space-y-1 shadow-sm">
+                                    <div className="flex items-center justify-between text-xs font-bold text-app-text">
+                                      <span className="flex items-center gap-1.5 truncate">
+                                        <Icon name="music" className="w-3.5 h-3.5 text-app-navy shrink-0" />
+                                        <strong className="truncate">{g.title || `Audio ${idx + 1}`}</strong>
+                                      </span>
+                                      <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                    </div>
+                                    <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
+                                  </div>
+                                ) : (
+                                  <a
+                                    key={g.id || idx}
+                                    href={g.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex px-3 py-1.5 bg-app-navy-bg text-app-navy text-xs font-bold rounded-xl border border-app-navy/30 items-center gap-1.5 hover:brightness-110"
+                                  >
+                                    <Icon name="play-circle" className="w-3.5 h-3.5" /> {g.title || `Audio ${idx + 1}`}
+                                  </a>
+                                )
                               ))}
                             </div>
                           </div>
@@ -3999,6 +4025,7 @@ function App() {
           initialData={modalClase.data}
           onClose={() => setModalClase({ open: false, data: null })}
           onSave={handleSaveClase}
+          showToast={showToast}
         />
       )}
 
@@ -4798,7 +4825,7 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
   );
 }
 
-function ModalClase({ initialData, onClose, onSave }) {
+function ModalClase({ initialData, onClose, onSave, showToast }) {
   const [form, setForm] = useState(initialData || {
     fecha: new Date().toISOString().split('T')[0],
     nro_clase: 1,
@@ -4816,23 +4843,89 @@ function ModalClase({ initialData, onClose, onSave }) {
   const [audioTitleInput, setAudioTitleInput] = useState('');
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [imageCaptionInput, setImageCaptionInput] = useState('');
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  const handleAddAudio = () => {
+  const audioFileInputRef = useRef(null);
+  const imageFileInputRef = useRef(null);
+
+  // Copiar Prompt de Extracción de Diapositivas para IA
+  const handleCopyDiapositivasPrompt = () => {
+    const promptText = `Actúa como un transcriptor y asistente académico universitario. A continuación te adjunto las imágenes o fotografías de las diapositivas proyectadas y las notas del pizarrón de la clase.
+
+Por favor, extrae de manera exhaustiva, fiel y textual todo el contenido de cada diapositiva o lámina, sin resumir ni omitir definiciones, esquemas, clasificaciones ni notas clave del docente.
+
+Estructura tu respuesta exactamente con este formato para cada diapositiva:
+
+[DIAPOSITIVA 1: Título o Tema Principal]
+- Contenido textual completo, conceptos, esquemas y clasificaciones exactas.
+
+[DIAPOSITIVA 2: Título o Tema Principal]
+- Contenido textual completo... (continúa así en orden numérico con todas las diapositivas)`;
+
+    navigator.clipboard.writeText(promptText);
+    triggerHaptic('success');
+    if (showToast) showToast('¡Prompt para extraer Diapositivas con IA copiado!', 'sparkles');
+  };
+
+  const handleAddAudioUrl = () => {
     if (!audioUrlInput.trim()) return;
     const currentList = form.grabaciones || [];
     const item = {
       id: Date.now(),
       url: audioUrlInput.trim(),
-      title: audioTitleInput.trim() || `Audio #${currentList.length + 1}`
+      title: audioTitleInput.trim() || `Audio #${currentList.length + 1}`,
+      isLink: true
     };
     setForm({ ...form, grabaciones: [...currentList, item] });
     setAudioUrlInput('');
     setAudioTitleInput('');
     triggerHaptic('light');
+    if (showToast) showToast('Audio agregado a la clase', 'music');
+  };
+
+  const handleAudioFilesUpload = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingAudio(true);
+    triggerHaptic('medium');
+
+    const fileList = Array.from(files);
+    let loadedCount = 0;
+    const newAudios = [];
+
+    fileList.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Data = event.target.result;
+        newAudios.push({
+          id: `audio_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          url: base64Data,
+          title: file.name.replace(/\.[^/.]+$/, ''),
+          sizeBytes: file.size,
+          isDirectFile: true
+        });
+        loadedCount++;
+        if (loadedCount === fileList.length) {
+          setForm(prev => ({
+            ...prev,
+            grabaciones: [...(prev.grabaciones || []), ...newAudios]
+          }));
+          setIsUploadingAudio(false);
+          if (showToast) showToast(`${fileList.length} audio(s) cargado(s) directamente`, 'check-circle');
+        }
+      };
+      reader.onerror = () => {
+        loadedCount++;
+        if (loadedCount === fileList.length) setIsUploadingAudio(false);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleRemoveAudio = (id) => {
     setForm({ ...form, grabaciones: (form.grabaciones || []).filter(a => a.id !== id) });
+    triggerHaptic('warning');
   };
 
   const handleAddImageUrl = () => {
@@ -4841,52 +4934,76 @@ function ModalClase({ initialData, onClose, onSave }) {
     const item = {
       id: Date.now(),
       url: imageUrlInput.trim(),
-      caption: imageCaptionInput.trim() || `Foto #${currentList.length + 1}`
+      caption: imageCaptionInput.trim() || `Foto #${currentList.length + 1}`,
+      isLink: true
     };
     setForm({ ...form, imagenes: [...currentList, item] });
     setImageUrlInput('');
     setImageCaptionInput('');
     triggerHaptic('light');
+    if (showToast) showToast('Foto agregada', 'image');
   };
 
-  const handleImageFileUpload = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target.result;
-      const currentList = form.imagenes || [];
-      const item = {
-        id: Date.now(),
-        url: base64,
-        caption: file.name.replace(/\.[^/.]+$/, '')
+  const handleImageFilesUpload = (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingImage(true);
+    triggerHaptic('medium');
+
+    const fileList = Array.from(files);
+    let loadedCount = 0;
+    const newImgs = [];
+
+    fileList.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        newImgs.push({
+          id: `img_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          url: event.target.result,
+          caption: file.name.replace(/\.[^/.]+$/, ''),
+          isDirectFile: true
+        });
+        loadedCount++;
+        if (loadedCount === fileList.length) {
+          setForm(prev => ({
+            ...prev,
+            imagenes: [...(prev.imagenes || []), ...newImgs]
+          }));
+          setIsUploadingImage(false);
+          if (showToast) showToast(`${fileList.length} imagen(es) subida(s) desde el dispositivo`, 'check-circle');
+        }
       };
-      setForm({ ...form, imagenes: [...currentList, item] });
-      triggerHaptic('light');
-    };
-    reader.readAsDataURL(file);
+      reader.onerror = () => {
+        loadedCount++;
+        if (loadedCount === fileList.length) setIsUploadingImage(false);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleRemoveImage = (id) => {
     setForm({ ...form, imagenes: (form.imagenes || []).filter(img => img.id !== id) });
+    triggerHaptic('warning');
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-xl p-4 shadow-fluffy space-y-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl p-5 sm:p-6 shadow-fluffy space-y-4 overflow-hidden">
+        {/* Modal Header */}
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
-            <h3 className="text-xl font-extrabold text-app-text">
+            <h3 className="text-xl font-black text-app-text">
               {initialData ? 'Editar Protocolo de Clase' : 'Registrar Protocolo de Clase'}
             </h3>
-            <p className="text-xs text-app-muted">Audios, diapositivas, fotos del pizarrón y advertencias de examen.</p>
+            <p className="text-xs text-app-muted">Audios grabados, fotos de pizarrón, diapositivas y énfasis de examen.</p>
           </div>
-          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
+          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border">
             <Icon name="x" className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="flex-1 overflow-y-auto space-y-4 pr-1">
+        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="flex-1 overflow-y-auto space-y-5 pr-1">
+          {/* Metadata Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Fecha</label>
@@ -4918,79 +5035,140 @@ function ModalClase({ initialData, onClose, onSave }) {
           {/* Énfasis y Aclaraciones del Docente */}
           <div>
             <label className="block text-xs font-bold uppercase text-app-emerald mb-1 flex items-center gap-1.5">
-              <Icon name="alert-triangle" className="w-3.5 h-3.5 text-app-amber" /> Énfasis y Aclaraciones del Docente (Para el Parcial)
+              <Icon name="alert-triangle" className="w-4 h-4 text-app-amber" /> Énfasis y Aclaraciones del Docente (Para el Parcial)
             </label>
-            <textarea value={form.aclaraciones || ''} onChange={e => setForm({ ...form, aclaraciones: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-24" placeholder="Conceptos en los que el profesor hizo hincapié, preguntas tentativas de parcial, autores no evaluados..." />
+            <textarea value={form.aclaraciones || ''} onChange={e => setForm({ ...form, aclaraciones: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-24 leading-relaxed" placeholder="Conceptos en los que el profesor hizo hincapié, preguntas tentativas de parcial, autores no evaluados..." />
           </div>
 
-          {/* Diapositivas / Contenido de Pizarra */}
-          <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1 flex items-center gap-1.5">
-              <Icon name="presentation" className="w-3.5 h-3.5 text-app-navy" /> Contenido de Diapositivas / Notas de Pizarrón
-            </label>
-            <textarea value={form.contenido_ppt || ''} onChange={e => setForm({ ...form, contenido_ppt: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-24 font-mono" placeholder="Esquemas, diapositivas proyectadas o apuntes textuales de clase..." />
+          {/* Diapositivas / Contenido de Pizarra con Prompt IA */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
+                <Icon name="presentation" className="w-4 h-4 text-app-navy" /> Contenido de Diapositivas / Notas de Pizarrón
+              </label>
+              <button
+                type="button"
+                onClick={handleCopyDiapositivasPrompt}
+                className="px-3 py-1.5 rounded-xl bg-app-navy text-white text-xs font-bold flex items-center gap-1.5 shadow-sm hover:brightness-110 transition-all"
+                title="Copia el prompt para pasárselo a la IA junto con las fotos de las diapositivas"
+              >
+                <Icon name="sparkles" className="w-3.5 h-3.5 text-white" /> Copiar Prompt IA Diapositivas
+              </button>
+            </div>
+            <textarea
+              value={form.contenido_ppt || ''}
+              onChange={e => setForm({ ...form, contenido_ppt: e.target.value })}
+              className="w-full p-3.5 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-28 font-mono leading-relaxed"
+              placeholder="Pega aquí el texto exacto extraído de las diapositivas con el formato [DIAPOSITIVA N: Tema]..."
+            />
           </div>
 
-          {/* Subir Grabaciones de Audio */}
-          <div className="bg-app-surface p-4 rounded-lg border border-app-border space-y-3">
-            <div className="flex justify-between items-center">
+          {/* ── SECCIÓN DE AUDIOS (SUBIDA DIRECTA + ENLACE) ── */}
+          <div className="bg-app-surface p-4 rounded-xl border border-app-border space-y-3 shadow-sm">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
                 <Icon name="mic" className="w-4 h-4 text-app-navy" /> Grabaciones de Audio de la Clase ({(form.grabaciones || []).length})
               </label>
+              <label className="cursor-pointer px-3.5 py-1.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110 transition-all">
+                <Icon name={isUploadingAudio ? "refresh-cw" : "upload"} className={`w-3.5 h-3.5 ${isUploadingAudio ? 'animate-spin' : ''}`} />
+                <span>{isUploadingAudio ? "Cargando audio..." : "Subir Audio desde Celular / Archivo"}</span>
+                <input
+                  type="file"
+                  ref={audioFileInputRef}
+                  accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.opus,.webm"
+                  multiple
+                  className="hidden"
+                  onChange={handleAudioFilesUpload}
+                />
+              </label>
             </div>
 
+            {/* Inserción por URL / Enlace */}
             <div className="flex gap-2">
               <input
                 value={audioTitleInput}
                 onChange={e => setAudioTitleInput(e.target.value)}
-                placeholder="Título (ej: Audio Parte 1)"
+                placeholder="Título del audio (ej: Grabación Parte 1)"
                 className="w-1/3 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
               />
               <input
                 value={audioUrlInput}
                 onChange={e => setAudioUrlInput(e.target.value)}
-                placeholder="Enlace URL del Audio / Drive / Grabadora"
+                placeholder="O pega link URL (Drive / Grabadora)"
                 className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
               />
               <button
                 type="button"
-                onClick={handleAddAudio}
-                className="px-4 py-2.5 bg-app-navy text-white text-xs font-bold rounded-xl shadow-card hover:brightness-110 flex items-center gap-1"
+                onClick={handleAddAudioUrl}
+                className="px-4 py-2.5 bg-app-card border border-app-border hover:border-app-navy text-app-navy text-xs font-bold rounded-xl flex items-center gap-1"
               >
                 <Icon name="plus" className="w-3.5 h-3.5" /> Agregar
               </button>
             </div>
 
+            {/* Listado y Reproductor de Audios */}
             {(form.grabaciones || []).length > 0 && (
-              <div className="space-y-1.5 pt-1">
+              <div className="space-y-2 pt-1">
                 {(form.grabaciones || []).map(a => (
-                  <div key={a.id} className="flex items-center justify-between p-2 rounded-xl bg-app-card border border-app-border text-xs">
-                    <div className="flex items-center gap-2 truncate">
-                      <Icon name="music" className="w-4 h-4 text-app-navy shrink-0" />
-                      <span className="font-bold text-app-text">{a.title}</span>
-                      <span className="text-app-muted text-[11px] truncate">({a.url})</span>
+                  <div key={a.id} className="p-3 rounded-xl bg-app-card border border-app-border space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 truncate">
+                        <div className="w-7 h-7 rounded-lg bg-app-navy-bg text-app-navy flex items-center justify-center shrink-0">
+                          <Icon name="music" className="w-4 h-4" />
+                        </div>
+                        <span className="font-extrabold text-xs text-app-text truncate">{a.title}</span>
+                        {a.isDirectFile && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald">
+                            Archivo Local
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAudio(a.id)}
+                        className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg border border-transparent hover:border-app-ruby/30"
+                        title="Eliminar audio"
+                      >
+                        <Icon name="trash-2" className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                    <button type="button" onClick={() => handleRemoveAudio(a.id)} className="p-1 text-app-ruby hover:bg-app-ruby-bg rounded-lg">
-                      <Icon name="trash-2" className="w-3.5 h-3.5" />
-                    </button>
+
+                    {/* Audio Player nativo */}
+                    {a.url && (
+                      <audio
+                        controls
+                        src={a.url}
+                        className="w-full h-8 rounded-lg bg-app-surface border border-app-border"
+                        preload="metadata"
+                      />
+                    )}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Fotos de Pizarrón e Imágenes */}
-          <div className="bg-app-surface p-4 rounded-lg border border-app-border space-y-3">
-            <div className="flex justify-between items-center">
+          {/* ── SECCIÓN DE FOTOS / PIZARRÓN (SUBIDA DIRECTA MULTIPLE + LINK) ── */}
+          <div className="bg-app-surface p-4 rounded-xl border border-app-border space-y-3 shadow-sm">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
                 <Icon name="camera" className="w-4 h-4 text-app-emerald" /> Fotos de Pizarra / Diapositivas ({(form.imagenes || []).length})
               </label>
-              <label className="cursor-pointer px-3 py-1.5 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30 flex items-center gap-1.5 hover:brightness-110">
-                <Icon name="upload" className="w-3.5 h-3.5" /> Subir desde Cámara / Galería
-                <input type="file" accept="image/*" className="hidden" onChange={handleImageFileUpload} />
+              <label className="cursor-pointer px-3.5 py-1.5 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30 flex items-center gap-1.5 hover:brightness-110 transition-all">
+                <Icon name={isUploadingImage ? "refresh-cw" : "upload"} className={`w-3.5 h-3.5 ${isUploadingImage ? 'animate-spin' : ''}`} />
+                <span>{isUploadingImage ? "Subiendo fotos..." : "Subir desde Cámara / Galería"}</span>
+                <input
+                  type="file"
+                  ref={imageFileInputRef}
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleImageFilesUpload}
+                />
               </label>
             </div>
 
+            {/* Inserción por URL */}
             <div className="flex gap-2">
               <input
                 value={imageCaptionInput}
@@ -5001,30 +5179,32 @@ function ModalClase({ initialData, onClose, onSave }) {
               <input
                 value={imageUrlInput}
                 onChange={e => setImageUrlInput(e.target.value)}
-                placeholder="O pega el link URL de la foto"
+                placeholder="O pega link URL de la foto"
                 className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
               />
               <button
                 type="button"
                 onClick={handleAddImageUrl}
-                className="px-4 py-2.5 bg-app-emerald text-white text-xs font-bold rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1"
+                className="px-4 py-2.5 bg-app-card border border-app-border hover:border-app-emerald text-app-emerald text-xs font-bold rounded-xl flex items-center gap-1"
               >
                 <Icon name="plus" className="w-3.5 h-3.5" /> Añadir
               </button>
             </div>
 
+            {/* Grid de Fotos */}
             {(form.imagenes || []).length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 pt-1">
                 {(form.imagenes || []).map(img => (
-                  <div key={img.id} className="relative rounded-xl overflow-hidden border border-app-border group">
-                    <img src={img.url} alt={img.caption} className="w-full h-24 object-cover" />
-                    <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[10px] p-1 truncate text-center font-bold">
+                  <div key={img.id} className="relative rounded-xl overflow-hidden border border-app-border group bg-black/50">
+                    <img src={img.url} alt={img.caption} className="w-full h-28 object-cover group-hover:scale-105 transition-transform" />
+                    <span className="absolute bottom-0 inset-x-0 bg-black/75 backdrop-blur-sm text-white text-[10px] p-1 truncate text-center font-bold">
                       {img.caption}
                     </span>
                     <button
                       type="button"
                       onClick={() => handleRemoveImage(img.id)}
-                      className="absolute top-1 right-1 p-1 bg-black/80 text-white rounded-lg hover:bg-app-ruby transition-colors"
+                      className="absolute top-1.5 right-1.5 p-1 bg-black/80 text-white rounded-lg hover:bg-app-ruby transition-colors"
+                      title="Eliminar foto"
                     >
                       <Icon name="x" className="w-3.5 h-3.5" />
                     </button>
@@ -5034,572 +5214,28 @@ function ModalClase({ initialData, onClose, onSave }) {
             )}
           </div>
 
-          {/* Link Resumen / Documento */}
-          <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Enlace a Documento / Apunte de Clase</label>
-            <input
-              value={form.link_doc_resumen || ''}
-              onChange={e => setForm({ ...form, link_doc_resumen: e.target.value })}
-              className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none"
-              placeholder="https://docs.google.com/..."
-            />
+          {/* Form Actions */}
+          <div className="flex justify-end gap-3 pt-3 border-t border-app-border">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2.5 rounded-xl border border-app-border bg-app-surface text-app-muted hover:text-app-text font-bold text-xs"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-2.5 rounded-xl bg-app-emerald text-white font-extrabold text-xs shadow-emerald hover:brightness-110 flex items-center gap-2"
+            >
+              <Icon name="check" className="w-4 h-4 text-white" /> Guardar Protocolo de Clase
+            </button>
           </div>
-
-          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-extrabold text-sm rounded-xl shadow-emerald hover:brightness-110">
-            {initialData ? 'Actualizar Protocolo de Clase' : 'Guardar Protocolo de Clase'}
-          </button>
         </form>
       </div>
     </div>
   );
 }
 
-function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits = [], onClose, onSave, showToast }) {
-  const [form, setForm] = useState(initialData || {
-    titulo: '', tipo: 'Resumen', unidad: availableUnits[0] || 'Unidad 1', va_parcial: false, contenido: ''
-  });
-  const [viewMode, setViewMode] = useState(initialData?.pdfData ? 'double_page' : 'split'); // 'split' | 'double_page'
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  
-  const [compiledPDF, setCompiledPDF] = useState(() => {
-    if (initialData?.pdfData) {
-      const src = typeof initialData.pdfData === 'string' ? initialData.pdfData : (initialData.pdfData instanceof Blob ? URL.createObjectURL(initialData.pdfData) : null);
-      if (src) {
-        return {
-          blobUrl: src,
-          fileName: initialData.pdfName || initialData.nombre_archivo || `${initialData.titulo || 'Documento'}.pdf`,
-          pageCount: initialData.num_paginas || initialData.numPages || 1,
-          isDirectPDF: true
-        };
-      }
-    }
-    return null;
-  });
-
-  const textareaRef = useRef(null);
-  const pdfImportRef = useRef(null);
-
-  const handleCompilePDF = async (forceDownload = false) => {
-    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
-      if (showToast) showToast('Mostrando PDF original cargado', 'check-circle');
-      return compiledPDF;
-    }
-    if (!form.contenido?.trim()) {
-      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
-      return null;
-    }
-    setIsGeneratingPDF(true);
-    triggerHaptic('medium');
-    try {
-      const res = await generateAcademicPDFBlob({
-        materia: materiaNombre || form.materia || '',
-        unidad: form.unidad || 'Unidad 1',
-        titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido
-      });
-      setCompiledPDF(res);
-      setIsGeneratingPDF(false);
-
-      if (forceDownload) {
-        const a = document.createElement('a');
-        a.href = res.blobUrl;
-        a.download = res.fileName;
-        a.click();
-        if (showToast) showToast(`PDF descargado con éxito (${res.pageCount} págs)`, 'download');
-      } else {
-        if (showToast) showToast(`PDF listo para ver (${res.pageCount} págs)`, 'check-circle');
-      }
-      return res;
-    } catch (err) {
-      console.error('Error generando PDF:', err);
-      setIsGeneratingPDF(false);
-      if (showToast) showToast('Error al generar PDF: ' + err.message, 'alert-triangle');
-      return null;
-    }
-  };
-
-  const handleDownloadNormal = async () => {
-    // 1. Si es un PDF ya subido intacto y no se editó texto, descargar el original exacto
-    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
-      downloadPDFHelper({
-        pdfData: form.pdfData,
-        fileName: form.pdfName || form.nombre_archivo || form.titulo,
-        twoColumns: false,
-        showToast
-      });
-      return;
-    }
-
-    // 2. Si es texto escrito en el editor, compilar con motor exacto de Scanner OCR
-    if (!form.contenido?.trim()) {
-      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
-      return;
-    }
-    setIsGeneratingPDF(true);
-    triggerHaptic('medium');
-    try {
-      const res = await generateAcademicPDFBlob({
-        materia: materiaNombre || form.materia || '',
-        unidad: form.unidad || 'Unidad 1',
-        titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido
-      });
-      setCompiledPDF(res);
-
-      const a = document.createElement('a');
-      a.href = res.blobUrl;
-      a.download = res.fileName;
-      a.click();
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onSave({
-          ...form,
-          pdfName: res.fileName,
-          numPages: res.pageCount,
-          saveToPdfDocs: true,
-          pdfData: reader.result
-        });
-      };
-      reader.readAsDataURL(res.blob);
-
-      if (showToast) showToast(`PDF Normal descargado (${res.pageCount} págs)`, 'download');
-    } catch (err) {
-      console.error('Error generando PDF:', err);
-      if (showToast) showToast('Error al generar PDF: ' + err.message, 'alert-triangle');
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
-
-  const handleDownloadTwoColumns = async () => {
-    // 1. Si es un PDF ya subido y no se editó texto, convertir ese PDF exacto a 2 páginas por hoja
-    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
-      setIsGeneratingPDF(true);
-      await downloadPDFHelper({
-        pdfData: form.pdfData,
-        fileName: form.pdfName || form.nombre_archivo || form.titulo,
-        twoColumns: true,
-        showToast
-      });
-      setIsGeneratingPDF(false);
-      return;
-    }
-
-    // 2. Si es texto de editor, compilar con Scanner OCR y convertir a 2 columnas
-    if (!form.contenido?.trim()) {
-      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
-      return;
-    }
-    setIsGeneratingPDF(true);
-    triggerHaptic('medium');
-    try {
-      const res = await generateAcademicPDFBlob({
-        materia: materiaNombre || form.materia || '',
-        unidad: form.unidad || 'Unidad 1',
-        titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido
-      });
-
-      const twoColBlob = await convertPDFToTwoColumns(res.blob);
-      const twoColUrl = URL.createObjectURL(twoColBlob);
-      const cleanBase = (res.fileName || 'Apunte').replace(/\.pdf$/i, '');
-      const twoColName = `${cleanBase} (2 Paginas por hoja).pdf`;
-
-      const a = document.createElement('a');
-      a.href = twoColUrl;
-      a.download = twoColName;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(twoColUrl), 10000);
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        onSave({
-          ...form,
-          pdfName: twoColName,
-          numPages: res.pageCount,
-          saveToPdfDocs: true,
-          pdfData: reader.result
-        });
-      };
-      reader.readAsDataURL(twoColBlob);
-
-      if (showToast) showToast(`PDF 2 Págs / Hoja descargado`, 'download');
-    } catch (err) {
-      console.error('Error generando PDF 2 columnas:', err);
-      if (showToast) showToast('Error al procesar formato 2 páginas: ' + err.message, 'alert-triangle');
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
-
-  const handleSaveOnly = () => {
-    onSave(form);
-    if (showToast) showToast('Apunte guardado con éxito', 'check-circle');
-    onClose();
-  };
-
-  const handleImportPDF = (e) => {
-    const file = e.target.files[0];
-    if (!file || file.type !== 'application/pdf') return;
-    if (showToast) showToast('Extrayendo texto del PDF...', 'loader');
-    const cleanName = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
-    const reader = new FileReader();
-    reader.onload = async function() {
-      try {
-        const typedArray = new Uint8Array(this.result);
-        if (window.pdfjsLib) {
-          try {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          } catch(e) {}
-        }
-        const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise;
-        let fullText = `# ${form.titulo || cleanName}\n\n`;
-        const maxPages = Math.min(pdf.numPages, 30);
-        for (let i = 1; i <= maxPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map(item => item.str).join(' ').trim();
-          if (pageText) {
-            fullText += `### Página ${i}\n${pageText}\n\n`;
-          }
-        }
-        setForm(prev => ({
-          ...prev,
-          titulo: prev.titulo || cleanName,
-          contenido: fullText
-        }));
-        if (showToast) showToast(`Texto extraído con éxito (${maxPages} págs)`, 'check-circle');
-      } catch (err) {
-        console.error('Error procesando PDF a texto:', err);
-        if (showToast) showToast('Error al procesar PDF: ' + err.message, 'alert-triangle');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const handleContentChange = (newContent) => {
-    const titleMatch = newContent.match(/^#\s+(.+)$/m);
-    if (titleMatch && titleMatch[1]) {
-      const extracted = titleMatch[1].trim();
-      setForm(prev => ({ ...prev, contenido: newContent, titulo: extracted }));
-    } else {
-      setForm(prev => ({ ...prev, contenido: newContent }));
-    }
-  };
-
-  const handlePaste = (e) => {
-    const textPasted = e.clipboardData.getData('text');
-    if (textPasted && textPasted.length > 30) {
-      triggerHaptic('light');
-    }
-  };
-
-  const handleCopyPrompt = () => {
-    const promptText = `Actúa como un profesor universitario experto en ${materiaNombre || 'la materia'}. Estructura y desarrolla un apunte exhaustivo, riguroso y conceptualmente denso basado en los siguientes temas, utilizando la sintaxis estricta de Scanner OCR:
-
-1. TÍTULOS Y JERARQUÍA:
-- Título principal con '# TÍTULO'
-- Subtítulos principales con '## Título'
-- Subtítulos secundarios con '### Subtítulo'
-
-2. CONTENIDO Y FORMATO:
-- Viñetas de primer nivel con '• Texto' (resalta conceptos clave con **negritas**)
-- Viñetas de segundo nivel con '  ◦ Subdetalle'
-- Redacta explicaciones teóricas extensas, completas y fieles al autor (sin recortes superficiales).
-
-3. TABLAS Y CUADROS COMPARATIVOS (MUY IMPORTANTE):
-- Cuando haya protocolos, clasificaciones, baremos, comparación de subtests, puntuaciones o pasos de análisis, genera SIEMPRE tablas Markdown estructuradas:
-| Columna 1 | Columna 2 | Columna 3 |
-|---|---|---|
-| Fila 1 | Dato A | Dato B |
-| Fila 2 | Dato C | Dato D |
-
-4. FIGURAS Y FÓRMULAS:
-- Para esquemas o gráficos usa '[imagen 1: Descripción de la lámina]'
-- Para fórmulas matemáticas o estadísticas usa '$f(x)$' o '$$ecuación$$'`;
-
-    navigator.clipboard.writeText(promptText);
-    setCopiedPrompt(true);
-    triggerHaptic('success');
-    if (showToast) showToast('¡Prompt con soporte de Tablas copiado!', 'sparkles');
-    setTimeout(() => setCopiedPrompt(false), 3000);
-  };
-
-  const insertSyntax = (prefix, suffix = '') => {
-    const el = textareaRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const current = form.contenido || '';
-    const selected = current.substring(start, end);
-    const updated = current.substring(0, start) + prefix + selected + suffix + current.substring(end);
-    setForm(prev => ({ ...prev, contenido: updated }));
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + prefix.length, end + prefix.length);
-    }, 50);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-[94vh] flex flex-col rounded-xl p-5 sm:p-4 shadow-fluffy space-y-3 sm:space-y-4 overflow-hidden">
-        
-        {/* Header Bar */}
-        <div className="flex flex-wrap justify-between items-center gap-2 border-b border-app-border pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
-                {materiaNombre || 'Cátedra'}
-              </span>
-              <span className="text-xs text-app-muted font-bold">• {form.unidad}</span>
-              {form.pdfData && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-navy-bg text-app-navy border border-app-navy/20">
-                  PDF Original Vinculado
-                </span>
-              )}
-            </div>
-            <h3 className="text-lg sm:text-xl font-black text-app-text mt-0.5 truncate max-w-lg">
-              {form.titulo || (initialData ? 'Editar Apunte' : 'Nuevo Apunte Académico')}
-            </h3>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* View Mode Toggle */}
-            <div className="flex bg-app-surface p-1 rounded-lg border border-app-border">
-              <button
-                type="button"
-                onClick={() => { setViewMode('split'); triggerHaptic('light'); }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  viewMode === 'split' ? 'bg-app-card text-app-emerald shadow-card border border-app-border' : 'text-app-muted hover:text-app-text'
-                }`}
-              >
-                <Icon name="columns" className="w-3.5 h-3.5" /> Editor Split
-              </button>
-              <button
-                type="button"
-                onClick={() => { setViewMode('double_page'); triggerHaptic('light'); }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                  viewMode === 'double_page' ? 'bg-app-card text-app-emerald shadow-card border border-app-border' : 'text-app-muted hover:text-app-text'
-                }`}
-              >
-                <Icon name="book-open" className="w-3.5 h-3.5" /> Hoja Doble / PDF
-              </button>
-            </div>
-
-            {/* Import PDF Button */}
-            <input
-              type="file"
-              ref={pdfImportRef}
-              accept="application/pdf"
-              className="hidden"
-              onChange={handleImportPDF}
-            />
-            <button
-              type="button"
-              onClick={() => pdfImportRef.current?.click()}
-              className="px-3 py-2 rounded-lg text-xs font-extrabold border bg-app-surface border-app-border text-app-navy hover:border-app-navy transition-all flex items-center gap-1.5 shadow-sm"
-              title="Importar y extraer texto desde un archivo PDF"
-            >
-              <Icon name="upload-cloud" className="w-4 h-4 text-app-navy" />
-              <span>Importar PDF</span>
-            </button>
-
-            {/* Prompt Copy Button */}
-            <button
-              type="button"
-              onClick={handleCopyPrompt}
-              className={`px-3.5 py-2 rounded-lg text-xs font-extrabold border transition-all flex items-center gap-1.5 shadow-sm ${
-                copiedPrompt
-                  ? 'bg-app-emerald text-white border-app-emerald'
-                  : 'bg-app-surface border-app-border text-app-emerald hover:border-app-emerald'
-              }`}
-            >
-              <Icon name={copiedPrompt ? "check" : "sparkles"} className="w-4 h-4" />
-              <span>{copiedPrompt ? "¡Prompt Copiado!" : "Copiar Prompt IA"}</span>
-            </button>
-
-            {/* Descargar Normal A4 Button */}
-            <button
-              type="button"
-              onClick={handleDownloadNormal}
-              disabled={isGeneratingPDF}
-              className="px-3 py-2 bg-app-surface border border-app-border hover:border-app-navy text-app-navy rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-all"
-              title="Descargar PDF normal en A4"
-            >
-              <Icon name="download" className="w-3.5 h-3.5 text-app-navy" />
-              <span className="hidden sm:inline">⬇ Normal</span>
-            </button>
-
-            {/* Descargar 2 Págs / Hoja Button */}
-            <button
-              type="button"
-              onClick={handleDownloadTwoColumns}
-              disabled={isGeneratingPDF}
-              className="px-3 py-2 bg-app-navy text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50 transition-all"
-              title="Descargar en formato 2 páginas por hoja (apuntes imprimibles)"
-            >
-              <Icon name="book-open" className="w-3.5 h-3.5 text-white" />
-              <span className="hidden sm:inline">📖 2 Págs / Hoja</span>
-            </button>
-
-            {/* Guardar Apunte Button */}
-            <button
-              type="button"
-              onClick={handleSaveOnly}
-              className="px-3 py-2 bg-app-emerald text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110"
-              title="Guardar apunte en la base de datos"
-            >
-              <Icon name="check" className="w-3.5 h-3.5 text-white" />
-              <span className="hidden sm:inline">Guardar</span>
-            </button>
-
-            <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
-              <Icon name="x" className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* ── 1. SPLIT VIEW MODE ── */}
-        {viewMode === 'split' && (
-          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-lg">
-              <div className="flex flex-wrap gap-1 items-center">
-                <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
-                <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs italic font-bold hover:border-app-emerald">I</button>
-                <button type="button" onClick={() => insertSyntax('## ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H2</button>
-                <button type="button" onClick={() => insertSyntax('### ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">H3</button>
-                <button type="button" onClick={() => insertSyntax('• ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">• Viñeta</button>
-                <button type="button" onClick={() => insertSyntax('  ◦ ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">◦ Subviñeta</button>
-                <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">Cita</button>
-                <button type="button" onClick={() => insertSyntax('[imagen 1: ', ']')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold text-app-emerald hover:border-app-emerald">Figura</button>
-                <button type="button" onClick={() => insertSyntax('| Columna 1 | Columna 2 | Columna 3 |\n|---|---|---|\n| Dato A | Dato B | Dato C |\n')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold text-app-navy hover:border-app-navy">📊 Tabla</button>
-                <div className="h-4 w-px bg-app-border mx-1"></div>
-                <button type="button" onClick={() => insertSyntax('$', '$')} title="Fórmula en línea (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$f(x)$</button>
-                <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} title="Ecuación en bloque (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$$\Sigma$$</button>
-              </div>
-              
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const template = `# ${form.titulo || 'TÍTULO DEL TEXTO'}\n\n## Introducción\nEl presente texto aborda de manera sistemática...\n\n## Primer Núcleo Temático\nExplicación fiel, desarrollada y extensa de cada punto conceptual...\n\n• Concepto clave de primer nivel.\n  ◦ Subclasificación o matiz teórico específico.\n\n[imagen 1: Esquema de articulación conceptual]\n`;
-                    setForm({ ...form, contenido: (form.contenido || '') + template });
-                    triggerHaptic('light');
-                  }}
-                  className="px-3 py-1 rounded-xl bg-app-emerald-bg border border-app-emerald/30 text-xs font-extrabold text-app-emerald hover:brightness-110 flex items-center gap-1"
-                >
-                  <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Scanner OCR
-                </button>
-              </div>
-            </div>
-
-            {/* Split View Editor & Live Preview */}
-            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
-              <textarea
-                ref={textareaRef}
-                value={form.contenido}
-                onPaste={handlePaste}
-                onChange={e => handleContentChange(e.target.value)}
-                placeholder="Pega aquí el código Markdown generado por la IA (el título se extraerá automáticamente desde #)..."
-                className="w-full h-full p-4 rounded-lg bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none overflow-y-auto leading-relaxed"
-              />
-
-              <div
-                className="w-full h-full p-5 rounded-lg bg-app-card border border-app-border overflow-y-auto prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en vivo aparecerá aquí...</span>' }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* ── 2. HOJA DOBLE / NEUROSCAN PDF PRINT PREVIEW MODE ── */}
-        {viewMode === 'double_page' && (
-          <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
-            {/* Control Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-app-surface border border-app-border rounded-xl">
-              <div className="flex items-center gap-2 text-xs font-bold text-app-muted">
-                <span className="flex items-center gap-1.5 text-app-emerald font-extrabold">
-                  <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> {form.pdfName || form.titulo || 'Vista Previa del Documento'}
-                </span>
-                {form.pdfData && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-navy-bg text-app-navy border border-app-navy/20">
-                    PDF Original
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleDownloadNormal}
-                  disabled={isGeneratingPDF}
-                  className="px-3.5 py-1.5 bg-app-surface border border-app-border text-app-navy rounded-xl text-xs font-extrabold flex items-center gap-1.5 hover:border-app-navy shadow-sm"
-                >
-                  <Icon name="download" className="w-3.5 h-3.5 text-app-navy" /> ⬇ Normal
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadTwoColumns}
-                  disabled={isGeneratingPDF}
-                  className="px-3.5 py-1.5 bg-app-navy text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
-                >
-                  <Icon name="book-open" className="w-3.5 h-3.5" /> 📖 2 Págs / Hoja
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveOnly}
-                  className="px-3.5 py-1.5 bg-app-emerald text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110"
-                >
-                  <Icon name="check" className="w-3.5 h-3.5" /> Guardar
-                </button>
-              </div>
-            </div>
-
-            {/* Live PDF Viewer */}
-            <div className="flex-1 overflow-hidden p-2 bg-slate-900/60 rounded-xl border border-app-border flex flex-col items-center justify-center">
-              {compiledPDF ? (
-                <div className="w-full h-full flex flex-col space-y-1">
-                  <div className="flex justify-between items-center text-xs px-2 text-app-muted">
-                    <span className="font-bold text-app-emerald flex items-center gap-1">
-                      <Icon name="check-circle" className="w-3.5 h-3.5" /> {compiledPDF.isDirectPDF ? 'Documento PDF Original Vinculado' : `Documento Vectorial PDF Listo (${compiledPDF.pageCount} páginas)`}
-                    </span>
-                    <span className="truncate max-w-xs">{compiledPDF.fileName}</span>
-                  </div>
-                  <iframe
-                    src={compiledPDF.blobUrl}
-                    className="w-full flex-1 rounded-xl border-0 bg-white"
-                    title="Visor PDF Académico"
-                  />
-                </div>
-              ) : (
-                <div className="max-w-md mx-auto text-center p-8 bg-app-card border border-app-border rounded-xl shadow-card space-y-3">
-                  <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
-                    <Icon name="file-text" className="w-6 h-6" />
-                  </div>
-                  <h4 className="text-sm font-black text-app-text">Visualizador de PDF Scanner OCR</h4>
-                  <p className="text-xs text-app-muted">
-                    Compila este apunte con el diseño editorial exacto de Scanner OCR o visualiza el archivo PDF original cargado.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleCompilePDF(false)}
-                    disabled={isGeneratingPDF}
-                    className="w-full py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
-                  >
-                    <Icon name="sparkles" className="w-4 h-4" /> Generar y Ver PDF Directamente
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── 5. MODAL: SUBIR DOCUMENTO PDF DIRECTO (SIN OCR / SIN DESTRUCTURAR) ──
 function ModalSubirDocumentoPDF({

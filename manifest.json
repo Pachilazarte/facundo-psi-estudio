@@ -31,7 +31,7 @@
       "files": [
         {
           "name": "file",
-          "accept": ["application/pdf", "image/*", "text/*"]
+          "accept": ["application/pdf", "image/*", "audio/*", "text/*"]
         }
       ]
     }

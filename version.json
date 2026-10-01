@@ -1,7 +1,7 @@
 {
-  "version": "2.12.4",
-  "buildDate": "2026-10-01T19:15:00.000Z",
+  "version": "2.12.5",
+  "buildDate": "2026-10-01T20:20:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Eliminación del botón Recompilar en el visor de doble hoja (para preservar los PDFs intactos), auditoría de consistencia de datos IndexedDB/Supabase y optimización integral del código."
+  "notes": "Subida directa de audios desde el celular/dispositivo con reproductor integrado, botón para copiar Prompt IA de extracción textual de diapositivas, y soporte para compartir archivos de audio e imágenes vía PWA Web Share Target."
 }
