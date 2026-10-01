@@ -1,7 +1,7 @@
 {
-  "version": "2.12.2",
-  "buildDate": "2026-10-01T18:45:00.000Z",
+  "version": "2.12.3",
+  "buildDate": "2026-10-01T18:55:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Sincronización automática de PDFs subidos con el listado de Apuntes (aparecen en ambas pestañas con botones de Visualizar, ⬇ A4 Normal, 📖 2 Págs y Editor)."
+  "notes": "Soporte nativo para Tablas y Cuadros Comparativos Markdown en apuntes, visor interactivo y compilador PDF con jsPDF-AutoTable, además de actualización del Prompt IA con reglas de generación de tablas estructuradas."
 }

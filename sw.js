@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-ios-v2.12.2';
+const CACHE_NAME = 'psiestudio-ios-v2.12.3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const ASSETS_TO_CACHE = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js',
   'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js',
   'https://unpkg.com/dexie@latest/dist/dexie.js',
   'https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css',

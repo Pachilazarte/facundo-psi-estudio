@@ -171,6 +171,28 @@ function parseMarkdownToHTML(md) {
   if (!md) return '';
   let html = md;
 
+  // Render Markdown Tables
+  html = html.replace(/((?:^\s*\|.+\|\s*\r?\n?)+)/gm, (match) => {
+    const lines = match.trim().split(/\r?\n/).filter(l => l.trim().startsWith('|'));
+    if (lines.length < 2) return match;
+    const parseRow = (row) => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+    const header = parseRow(lines[0]);
+    let startIdx = 1;
+    if (lines.length > 1 && /^[\s|:-]+$/.test(lines[1])) startIdx = 2;
+    const rows = lines.slice(startIdx).map(parseRow);
+    
+    return `<div class="overflow-x-auto my-3.5 rounded-xl border border-app-border bg-app-surface shadow-sm">
+      <table class="w-full text-xs text-left border-collapse">
+        <thead class="bg-app-card border-b border-app-border text-app-text font-extrabold text-[11px]">
+          <tr>${header.map(h => `<th class="px-3 py-2 border-r border-app-border last:border-0">${h}</th>`).join('')}</tr>
+        </thead>
+        <tbody class="divide-y divide-app-border">
+          ${rows.map((r, rIdx) => `<tr class="${rIdx % 2 === 1 ? 'bg-app-card/30' : ''} hover:bg-app-card/60 transition-colors">${r.map(c => `<td class="px-3 py-2 border-r border-app-border last:border-0 text-app-text">${c}</td>`).join('')}</tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  });
+
   // KaTeX Display Math $$...$$
   html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
     if (window.katex) {
@@ -470,12 +492,48 @@ function parseInline(str) {
 }
 
 function parseMarkdown(text) {
-  var lines = String(text || '').split('\n');
+  var rawLines = String(text || '').split('\n');
   var tokens = [];
   var secCount = 0, formulaCount = 0, wordCount = 0;
 
-  lines.forEach(function(rawLine) {
+  var i = 0;
+  while (i < rawLines.length) {
+    var rawLine = rawLines[i];
     var line = rawLine.trimEnd();
+
+    // Detección de Tabla Markdown
+    if (/^\s*\|(.+)\|\s*$/.test(line)) {
+      var tableLines = [];
+      while (i < rawLines.length && /^\s*\|(.+)\|\s*$/.test(rawLines[i].trimEnd())) {
+        tableLines.push(rawLines[i].trimEnd());
+        i++;
+      }
+      
+      if (tableLines.length >= 2) {
+        var parseRow = function(rowStr) {
+          var trimmed = rowStr.trim().replace(/^\|/, '').replace(/\|$/, '');
+          return trimmed.split('|').map(function(c) { return c.trim(); });
+        };
+        
+        var headerCells = parseRow(tableLines[0]);
+        var startRow = 1;
+        if (tableLines.length > 1 && /^[\s|:-]+$/.test(tableLines[1])) {
+          startRow = 2;
+        }
+        
+        var bodyRows = [];
+        for (var r = startRow; r < tableLines.length; r++) {
+          bodyRows.push(parseRow(tableLines[r]));
+        }
+        
+        tokens.push({
+          type: 'table',
+          headers: headerCells,
+          rows: bodyRows
+        });
+        continue;
+      }
+    }
 
     var imgMatch = line.match(/^\s*(\[(?:imagen|FIGURA|IMAGEN|grafico)\s*\d*:?\s*([^\]]+)\]|!\[(.*?)\]\((.*?)\))\s*$/i);
     if (imgMatch) {
@@ -517,7 +575,8 @@ function parseMarkdown(text) {
       tokens.push({ type: 'body', text: line, segs: parseInline(line) });
       wordCount += line.split(/\s+/).length;
     }
-  });
+    i++;
+  }
 
   return { tokens: tokens, sections: secCount, formulas: formulaCount, words: wordCount };
 }
@@ -817,6 +876,84 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
         break;
       }
 
+      case 'table': {
+        y += 2;
+        if (doc.autoTable) {
+          needSpace(16);
+          doc.autoTable({
+            head: [tok.headers],
+            body: tok.rows,
+            startY: y,
+            margin: { left: ML, right: MR },
+            styles: {
+              font: fontSel,
+              fontSize: 7.5,
+              cellPadding: 1.6,
+              lineColor: C_RULE,
+              lineWidth: 0.15,
+              textColor: C_DARK
+            },
+            headStyles: {
+              fillColor: C_ACCENT,
+              textColor: [255, 255, 255],
+              fontStyle: 'bold',
+              fontSize: 8
+            },
+            alternateRowStyles: {
+              fillColor: [248, 250, 252]
+            },
+            didDrawPage: function(data) {
+              if (data.pageNumber > pageNum) {
+                pageNum = data.pageNumber;
+                drawPageHeader();
+              }
+            }
+          });
+          y = doc.lastAutoTable.finalY + 3;
+        } else {
+          var colCount = tok.headers.length || 1;
+          var colW = TW / colCount;
+          var cellH = 6;
+          var tableH = (tok.rows.length + 1) * cellH;
+          needSpace(tableH + 4);
+
+          // Table Header
+          doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+          doc.rect(ML, y, TW, cellH, 'F');
+          doc.setFont(fontSel, 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(255, 255, 255);
+          tok.headers.forEach(function(h, cIdx) {
+            var cellX = ML + (cIdx * colW) + 2;
+            doc.text(String(h).slice(0, 25), cellX, y + 4.2);
+          });
+          y += cellH;
+
+          // Table Rows
+          doc.setFont(fontSel, 'normal');
+          doc.setFontSize(7);
+          tok.rows.forEach(function(row, rIdx) {
+            needSpace(cellH + 1);
+            if (rIdx % 2 === 1) {
+              doc.setFillColor(245, 247, 250);
+              doc.rect(ML, y, TW, cellH, 'F');
+            }
+            setDraw(C_RULE);
+            doc.setLineWidth(0.12);
+            doc.rect(ML, y, TW, cellH, 'S');
+
+            setColor(C_DARK);
+            row.forEach(function(val, cIdx) {
+              var cellX = ML + (cIdx * colW) + 2;
+              doc.text(String(val || '').slice(0, 28), cellX, y + 4.2);
+            });
+            y += cellH;
+          });
+          y += 3;
+        }
+        break;
+      }
+
       case 'hr': {
         needSpace(4);
         setDraw(C_RULE);
@@ -895,7 +1032,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.2';
+  const currentVersion = 'v2.12.3';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -5160,18 +5297,33 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   };
 
   const handleCopyPrompt = () => {
-    const promptText = `Actúa como un profesor universitario experto en ${materiaNombre || 'la materia'}. Estructura y desarrolla un apunte exhaustivo, riguroso y conceptualmente denso basado en los siguientes temas, utilizando la sintaxis de Scanner OCR:
-- Título con '# TÍTULO'
+    const promptText = `Actúa como un profesor universitario experto en ${materiaNombre || 'la materia'}. Estructura y desarrolla un apunte exhaustivo, riguroso y conceptualmente denso basado en los siguientes temas, utilizando la sintaxis estricta de Scanner OCR:
+
+1. TÍTULOS Y JERARQUÍA:
+- Título principal con '# TÍTULO'
 - Subtítulos principales con '## Título'
 - Subtítulos secundarios con '### Subtítulo'
-- Viñetas de primer nivel con '• Texto' (usa **negritas** para conceptos clave)
+
+2. CONTENIDO Y FORMATO:
+- Viñetas de primer nivel con '• Texto' (resalta conceptos clave con **negritas**)
 - Viñetas de segundo nivel con '  ◦ Subdetalle'
-- Para esquemas o gráficos usa '[imagen 1: Descripción del gráfico]'
+- Redacta explicaciones teóricas extensas, completas y fieles al autor (sin recortes superficiales).
+
+3. TABLAS Y CUADROS COMPARATIVOS (MUY IMPORTANTE):
+- Cuando haya protocolos, clasificaciones, baremos, comparación de subtests, puntuaciones o pasos de análisis, genera SIEMPRE tablas Markdown estructuradas:
+| Columna 1 | Columna 2 | Columna 3 |
+|---|---|---|
+| Fila 1 | Dato A | Dato B |
+| Fila 2 | Dato C | Dato D |
+
+4. FIGURAS Y FÓRMULAS:
+- Para esquemas o gráficos usa '[imagen 1: Descripción de la lámina]'
 - Para fórmulas matemáticas o estadísticas usa '$f(x)$' o '$$ecuación$$'`;
+
     navigator.clipboard.writeText(promptText);
     setCopiedPrompt(true);
     triggerHaptic('success');
-    if (showToast) showToast('¡Prompt copiado al portapapeles!', 'sparkles');
+    if (showToast) showToast('¡Prompt con soporte de Tablas copiado!', 'sparkles');
     setTimeout(() => setCopiedPrompt(false), 3000);
   };
 
@@ -5323,6 +5475,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
                 <button type="button" onClick={() => insertSyntax('  ◦ ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">◦ Subviñeta</button>
                 <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">Cita</button>
                 <button type="button" onClick={() => insertSyntax('[imagen 1: ', ']')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold text-app-emerald hover:border-app-emerald">Figura</button>
+                <button type="button" onClick={() => insertSyntax('| Columna 1 | Columna 2 | Columna 3 |\n|---|---|---|\n| Dato A | Dato B | Dato C |\n')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold text-app-navy hover:border-app-navy">📊 Tabla</button>
                 <div className="h-4 w-px bg-app-border mx-1"></div>
                 <button type="button" onClick={() => insertSyntax('$', '$')} title="Fórmula en línea (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$f(x)$</button>
                 <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} title="Ecuación en bloque (LaTeX)" className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-mono font-bold text-app-navy hover:border-app-navy">$$\Sigma$$</button>
