@@ -1,7 +1,7 @@
 {
-  "version": "2.12.1",
-  "buildDate": "2026-10-01T18:35:00.000Z",
+  "version": "2.12.2",
+  "buildDate": "2026-10-01T18:45:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Motor de PDF 100% idéntico a Scanner OCR (NEUROSCAN), preservación total de PDFs subidos como binarios intactos, visor de iframe integrado y descargas directas A4 normal y 2 páginas por carilla."
+  "notes": "Sincronización automática de PDFs subidos con el listado de Apuntes (aparecen en ambas pestañas con botones de Visualizar, ⬇ A4 Normal, 📖 2 Págs y Editor)."
 }

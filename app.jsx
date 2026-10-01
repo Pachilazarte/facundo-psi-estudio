@@ -895,7 +895,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.1';
+  const currentVersion = 'v2.12.2';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1175,8 +1175,34 @@ function App() {
         if (mats.length > 0) setMaterias(mats);
         if (bibs.length > 0) setBiblio(bibs);
         if (clas.length > 0) setClases(clas);
-        if (apus.length > 0) setApuntes(apus);
         if (pdfsList.length > 0) setPdfs(pdfsList);
+        
+        let mergedApuntes = apus || [];
+        if (pdfsList && pdfsList.length > 0) {
+          pdfsList.forEach(p => {
+            const existingIdx = mergedApuntes.findIndex(a => a.id === p.id || a.pdfName === p.nombre_archivo);
+            if (existingIdx === -1) {
+              mergedApuntes = [{
+                id: p.id,
+                materia_id: p.materia_id,
+                materia: p.materia,
+                unidad: p.unidad || 'Unidad 1',
+                titulo: p.titulo || p.nombre_archivo,
+                tipo: p.tipo || 'Resumen',
+                va_parcial: Boolean(p.va_parcial),
+                nro_parcial: p.nro_parcial || null,
+                pdfName: p.nombre_archivo,
+                numPages: p.num_paginas || 1,
+                pdfData: p.pdfData || null,
+                contenido: `[Documento PDF Original: ${p.nombre_archivo || p.titulo}]`,
+                created_at: p.created_at || new Date().toISOString()
+              }, ...mergedApuntes];
+            } else if (p.pdfData && !mergedApuntes[existingIdx].pdfData) {
+              mergedApuntes[existingIdx].pdfData = p.pdfData;
+            }
+          });
+        }
+        if (mergedApuntes.length > 0) setApuntes(mergedApuntes);
         if (exas.length > 0) setExamenes(exas);
         if (queue.length > 0) setSyncQueue(queue);
       } catch (e) {
@@ -1624,22 +1650,60 @@ function App() {
     setApuntes(updated);
     safeSetLocalStorage('psi_apuntes_cache', updated);
     saveToIndexedDB('apuntes', updated);
+
+    // Si también está en pdfs, eliminarlo
+    if (pdfs.some(p => p.id === id)) {
+      const updatedP = pdfs.filter(p => p.id !== id);
+      setPdfs(updatedP);
+      safeSetLocalStorage('psi_pdfs_cache', updatedP);
+      saveToIndexedDB('documentos_pdf', updatedP);
+    }
+
     showToast('Apunte eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
-      try { await supabaseClient.from('apuntes').delete().eq('id', id); }
-      catch (e) { enqueueAction('DELETE', 'apuntes', { id }); }
+      try {
+        await supabaseClient.from('apuntes').delete().eq('id', id);
+        await supabaseClient.from('documentos_pdf').delete().eq('id', id);
+      } catch (e) {
+        enqueueAction('DELETE', 'apuntes', { id });
+        enqueueAction('DELETE', 'documentos_pdf', { id });
+      }
     } else {
       enqueueAction('DELETE', 'apuntes', { id });
+      enqueueAction('DELETE', 'documentos_pdf', { id });
     }
   };
 
   const handleSaveDocumentoPDF = async (docPayload) => {
+    // 1. Guardar en documentos_pdf
     const updated = [docPayload, ...pdfs.filter(p => p.id !== docPayload.id)];
     setPdfs(updated);
     safeSetLocalStorage('psi_pdfs_cache', updated);
     saveToIndexedDB('documentos_pdf', updated);
-    showToast('Documento PDF guardado en el sistema', 'check-circle');
+
+    // 2. También registrar/actualizar en apuntes para que aparezca en el listado de apuntes
+    const apunteRecord = {
+      id: docPayload.id,
+      materia_id: docPayload.materia_id,
+      materia: docPayload.materia,
+      unidad: docPayload.unidad || 'Unidad 1',
+      titulo: docPayload.titulo || docPayload.nombre_archivo,
+      tipo: docPayload.tipo || 'Resumen',
+      va_parcial: Boolean(docPayload.va_parcial),
+      nro_parcial: docPayload.nro_parcial || null,
+      pdfName: docPayload.nombre_archivo,
+      numPages: docPayload.num_paginas || 1,
+      pdfData: docPayload.pdfData,
+      contenido: `[Documento PDF Original: ${docPayload.nombre_archivo || docPayload.titulo}]`,
+      created_at: docPayload.created_at || new Date().toISOString()
+    };
+    const updatedApuntes = [apunteRecord, ...apuntes.filter(a => a.id !== apunteRecord.id)];
+    setApuntes(updatedApuntes);
+    safeSetLocalStorage('psi_apuntes_cache', updatedApuntes);
+    saveToIndexedDB('apuntes', updatedApuntes);
+
+    showToast('Documento y Apunte guardados con éxito', 'check-circle');
 
     if (supabaseClient && isOnline) {
       try {
@@ -1647,6 +1711,18 @@ function App() {
         await supabaseClient.from('documentos_pdf').upsert([cleanPayload]);
       } catch (e) {
         console.warn('Error sincronizando documento_pdf en Supabase:', e);
+      }
+      try {
+        const { pdfData, ...cleanApunte } = apunteRecord;
+        if (cleanApunte.nro_parcial) {
+          const matchedNum = String(cleanApunte.nro_parcial).match(/\d+/);
+          cleanApunte.nro_parcial = matchedNum ? parseInt(matchedNum[0], 10) : 1;
+        } else {
+          cleanApunte.nro_parcial = 1;
+        }
+        await supabaseClient.from('apuntes').upsert([cleanApunte]);
+      } catch (e2) {
+        console.warn('Error sincronizando apunte derivado en Supabase:', e2);
       }
     }
   };
@@ -2721,30 +2797,67 @@ function App() {
                           <div className="flex justify-between items-center mb-2">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
-                              {a.pdfName && (
+                              {(a.pdfData || a.pdfName) && (
                                 <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
-                                  <Icon name="file-text" className="w-3 h-3" /> PDF
+                                  <Icon name="file-text" className="w-3 h-3" /> PDF Original
                                 </span>
                               )}
                             </div>
                             <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                           </div>
                           <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
-                          <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
+                          <p className="text-xs text-app-muted line-clamp-3 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
                         </div>
-                        <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
-                          <span className="font-bold text-app-amber text-[11px] truncate max-w-[130px]" title={a.nro_parcial || 'Para Parcial'}>
+                        <div className="flex flex-wrap justify-between items-center pt-3 border-t border-app-border gap-2 text-xs">
+                          <span className="font-bold text-app-amber text-[11px] truncate max-w-[120px]" title={a.nro_parcial || 'Para Parcial'}>
                             {a.va_parcial ? (a.nro_parcial ? `Para ${a.nro_parcial}` : 'Para Parcial') : 'Estudio'}
                           </span>
-                          <div className="flex gap-1.5">
+                          <div className="flex flex-wrap gap-1.5 items-center">
+                            {(a.pdfData || a.pdfName) ? (
+                              <>
+                                <button
+                                  onClick={() => setModalPDFViewer({ open: true, data: a })}
+                                  className="px-2.5 py-1 bg-app-emerald-bg text-app-emerald border border-app-emerald/30 font-bold rounded-xl flex items-center gap-1 hover:brightness-110"
+                                  title="Visualizar documento PDF interactivo"
+                                >
+                                  <Icon name="eye" className="w-3.5 h-3.5" /> Visualizar
+                                </button>
+                                <button
+                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
+                                  className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
+                                  title="Descargar PDF normal en A4"
+                                >
+                                  <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
+                                </button>
+                                <button
+                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
+                                  className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
+                                  title="Descargar en formato 2 páginas por hoja (cuadernillo)"
+                                >
+                                  <Icon name="book-open" className="w-3 h-3 text-white" /> 📖 2 Págs
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setModalApunte({ open: true, data: a })}
+                                className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                              >
+                                <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                              </button>
+                            )}
                             <button
                               onClick={() => setModalApunte({ open: true, data: a })}
-                              className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                              className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border"
+                              title="Editar apunte / Ver editor split"
                             >
-                              <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                              <Icon name="edit-3" className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => handleDeleteApunte(a.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30">
-                              <Icon name="trash-2" className="w-4 h-4" />
+                            <button
+                              onClick={() => handleDeleteApunte(a.id)}
+                              className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                              title="Eliminar apunte"
+                            >
+                              <Icon name="trash-2" className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
@@ -3219,30 +3332,67 @@ function App() {
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
-                          {a.pdfName && (
+                          {(a.pdfData || a.pdfName) && (
                             <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
-                              <Icon name="file-text" className="w-3 h-3" /> PDF
+                              <Icon name="file-text" className="w-3 h-3" /> PDF Original
                             </span>
                           )}
                         </div>
                         <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                       </div>
                       <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
-                      <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
+                      <p className="text-xs text-app-muted line-clamp-3 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
                     </div>
-                    <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
-                      <span className="font-bold text-app-amber text-[11px] truncate max-w-[130px]" title={a.nro_parcial || 'Para Parcial'}>
+                    <div className="flex flex-wrap justify-between items-center pt-3 border-t border-app-border gap-2 text-xs">
+                      <span className="font-bold text-app-amber text-[11px] truncate max-w-[120px]" title={a.nro_parcial || 'Para Parcial'}>
                         {a.va_parcial ? (a.nro_parcial ? `Para ${a.nro_parcial}` : 'Para Parcial') : 'Estudio'}
                       </span>
-                      <div className="flex gap-1.5">
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {(a.pdfData || a.pdfName) ? (
+                          <>
+                            <button
+                              onClick={() => setModalPDFViewer({ open: true, data: a })}
+                              className="px-2.5 py-1 bg-app-emerald-bg text-app-emerald border border-app-emerald/30 font-bold rounded-xl flex items-center gap-1 hover:brightness-110"
+                              title="Visualizar documento PDF interactivo"
+                            >
+                              <Icon name="eye" className="w-3.5 h-3.5" /> Visualizar
+                            </button>
+                            <button
+                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
+                              className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
+                              title="Descargar PDF normal en A4"
+                            >
+                              <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
+                            </button>
+                            <button
+                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
+                              className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
+                              title="Descargar en formato 2 páginas por hoja (cuadernillo)"
+                            >
+                              <Icon name="book-open" className="w-3 h-3 text-white" /> 📖 2 Págs
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setModalApunte({ open: true, data: a })}
+                            className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                          >
+                            <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                          </button>
+                        )}
                         <button
                           onClick={() => setModalApunte({ open: true, data: a })}
-                          className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                          className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border"
+                          title="Editar apunte / Ver editor split"
                         >
-                          <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
+                          <Icon name="edit-3" className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => handleDeleteApunte(a.id)} className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30">
-                          <Icon name="trash-2" className="w-4 h-4" />
+                        <button
+                          onClick={() => handleDeleteApunte(a.id)}
+                          className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                          title="Eliminar apunte"
+                        >
+                          <Icon name="trash-2" className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
