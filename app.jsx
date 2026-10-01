@@ -239,27 +239,25 @@ function safeGetLocalStorage(key, fallback = []) {
 
 function safeSetLocalStorage(key, data) {
   try {
-    localStorage.setItem(key, typeof data === 'string' ? data : JSON.stringify(data));
+    let sanitized = data;
+    if (Array.isArray(data)) {
+      sanitized = data.map(item => {
+        if (!item) return item;
+        const clone = { ...item };
+        // Si tiene archivo PDF binario, no meterlo a localStorage (IndexedDB lo guarda completo)
+        if (clone.pdfData) delete clone.pdfData;
+        if (typeof clone.contenido === 'string' && clone.contenido.length > 4000) {
+          clone.contenido = clone.contenido.slice(0, 4000) + '\n\n... [Contenido completo guardado en IndexedDB]';
+        }
+        if (typeof clone.texto_extraido === 'string' && clone.texto_extraido.length > 4000) {
+          clone.texto_extraido = clone.texto_extraido.slice(0, 4000) + '\n\n... [Texto completo guardado en IndexedDB]';
+        }
+        return clone;
+      });
+    }
+    localStorage.setItem(key, typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized));
   } catch (err) {
     console.warn(`QuotaExceededError o error guardando '${key}' en localStorage:`, err);
-    if (Array.isArray(data)) {
-      try {
-        const trimmed = data.map(item => {
-          if (!item) return item;
-          const clone = { ...item };
-          if (typeof clone.contenido === 'string' && clone.contenido.length > 4000) {
-            clone.contenido = clone.contenido.slice(0, 4000) + '\n\n... [Contenido completo guardado en IndexedDB]';
-          }
-          if (typeof clone.texto_extraido === 'string' && clone.texto_extraido.length > 4000) {
-            clone.texto_extraido = clone.texto_extraido.slice(0, 4000) + '\n\n... [Texto completo guardado en IndexedDB]';
-          }
-          return clone;
-        });
-        localStorage.setItem(key, JSON.stringify(trimmed));
-      } catch (err2) {
-        console.warn(`Fallback de almacenamiento seguro también falló para '${key}':`, err2);
-      }
-    }
   }
 }
 
@@ -328,19 +326,39 @@ function parseMarkdownTokens(text) {
 async function convertPDFToTwoColumns(sourceBlob) {
   if (!window.PDFLib) return sourceBlob;
   const PDFLibObj = window.PDFLib;
-  const rawBytes = await sourceBlob.arrayBuffer();
+
+  let rawBytes;
+  if (sourceBlob instanceof Blob) {
+    rawBytes = await sourceBlob.arrayBuffer();
+  } else if (typeof sourceBlob === 'string' && sourceBlob.startsWith('data:')) {
+    const base64 = sourceBlob.split(',')[1];
+    const binaryStr = atob(base64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+    rawBytes = bytes.buffer;
+  } else if (typeof sourceBlob === 'string') {
+    const res = await fetch(sourceBlob);
+    rawBytes = await res.arrayBuffer();
+  } else if (sourceBlob instanceof ArrayBuffer) {
+    rawBytes = sourceBlob;
+  } else if (sourceBlob?.buffer instanceof ArrayBuffer) {
+    rawBytes = sourceBlob.buffer;
+  }
+
   const sourceDoc = await PDFLibObj.PDFDocument.load(rawBytes);
   const destDoc = await PDFLibObj.PDFDocument.create();
 
-  const marginPt = 4 * 2.83465; // 4mm
-  const gapPt = 4 * 2.83465;
-  const sheetW = 841.89; // A4 Horizontal
-  const sheetH = 595.28;
+  // Configuración idéntica a generadordepdf.html (NEUROSCAN)
+  const marginPt = 4 * 2.83465; // Estrecho (4mm)
+  const gapPt = 4 * 2.83465; // Separación (4mm)
+  const sheetW = 841.89; // A4 Horizontal (ancho)
+  const sheetH = 595.28; // A4 Horizontal (alto)
   const slotW = (sheetW - (marginPt * 2) - gapPt) / 2;
   const slotH = sheetH - (marginPt * 2);
 
   const totalPages = sourceDoc.getPageCount();
-  const zoom = 1.05;
+  const zoom = 1.05; // 105% Ampliación del contenido
 
   for (let i = 0; i < totalPages; i += 2) {
     const newPage = destDoc.addPage([sheetW, sheetH]);
@@ -362,6 +380,7 @@ async function convertPDFToTwoColumns(sourceBlob) {
         B += (h - nh) / 2; T -= (h - nh) / 2; h = nh;
       }
 
+      // Ampliación 105%
       const nw2 = w / zoom, nh2 = h / zoom;
       L += (w - nw2) / 2; R -= (w - nw2) / 2;
       B += (h - nh2) / 2; T -= (h - nh2) / 2;
@@ -376,12 +395,52 @@ async function convertPDFToTwoColumns(sourceBlob) {
       newPage.drawPage(emb, { x: posX, y: posY, width: drawW, height: drawH });
     };
 
-    await placePage(i, marginPt, marginPt);
-    await placePage(i + 1, marginPt + slotW + gapPt, marginPt);
+    await placePage(i, marginPt, marginPt); // Izquierda
+    await placePage(i + 1, marginPt + slotW + gapPt, marginPt); // Derecha
   }
 
   const outputBytes = await destDoc.save();
   return new Blob([outputBytes], { type: 'application/pdf' });
+}
+
+async function downloadPDFHelper({ pdfData, fileName, twoColumns = false, showToast }) {
+  if (!pdfData) {
+    if (showToast) showToast('No hay archivo PDF disponible para descargar', 'alert-circle');
+    return;
+  }
+  if (showToast) showToast(twoColumns ? 'Generando PDF 2 páginas por hoja...' : 'Preparando descarga...', 'refresh-cw');
+  try {
+    let blob;
+    if (twoColumns) {
+      blob = await convertPDFToTwoColumns(pdfData);
+    } else if (pdfData instanceof Blob) {
+      blob = pdfData;
+    } else if (typeof pdfData === 'string' && pdfData.startsWith('data:')) {
+      const base64 = pdfData.split(',')[1];
+      const binaryStr = atob(base64);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+      blob = new Blob([bytes], { type: 'application/pdf' });
+    } else if (typeof pdfData === 'string' && pdfData.startsWith('blob:')) {
+      const res = await fetch(pdfData);
+      blob = await res.blob();
+    } else {
+      blob = new Blob([pdfData], { type: 'application/pdf' });
+    }
+
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    const cleanBase = (fileName || 'Documento').replace(/\.pdf$/i, '');
+    a.download = twoColumns ? `${cleanBase} (2 Paginas por hoja).pdf` : `${cleanBase}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    if (showToast) showToast('Descarga iniciada con éxito', 'check-circle');
+  } catch (err) {
+    console.error('Error descargando PDF:', err);
+    if (showToast) showToast('Error al descargar: ' + err.message, 'alert-triangle');
+  }
 }
 
 async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '', contenido = '', layoutMode = 'standard' }) {
@@ -718,14 +777,16 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.11.1';
+  const currentVersion = 'v2.12.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
   const [modalBiblioBatch, setModalBiblioBatch] = useState(false);
   const [modalClase, setModalClase] = useState({ open: false, data: null });
   const [modalApunte, setModalApunte] = useState({ open: false, data: null });
-  const [modalUploadApuntePDF, setModalUploadApuntePDF] = useState({ open: false, materiaId: null });
+  const [modalUploadPDF, setModalUploadPDF] = useState({ open: false, materiaId: null });
+  const setModalUploadApuntePDF = setModalUploadPDF;
+  const modalUploadApuntePDF = modalUploadPDF;
   const [modalExamen, setModalExamen] = useState({ open: false, data: null });
   const [modalPDFViewer, setModalPDFViewer] = useState({ open: false, data: null });
   const [modalSearch, setModalSearch] = useState(false);
@@ -1388,24 +1449,31 @@ function App() {
     showToast('Apunte guardado con éxito', 'file-edit');
 
     // Si vino de una subida de PDF o se solicitó guardar en sistema, registrar en documentos_pdf
-    if (formData.pdfName || formData.saveToPdfDocs) {
+    if (formData.pdfName || formData.saveToPdfDocs || formData.pdfData) {
       const pdfPayload = {
         id: 'pdf_' + Date.now(),
         nombre_archivo: formData.pdfName || `${formData.titulo || 'Apunte'}.pdf`,
+        titulo: formData.titulo || 'Apunte Académico',
         materia_id: targetMatId,
         materia: targetMatName,
         unidad: formData.unidad || 'Unidad 1',
+        tipo: formData.tipo || 'Resumen',
         num_paginas: parseInt(formData.numPages, 10) || 1,
         va_parcial: Boolean(formData.va_parcial),
+        nro_parcial: formData.nro_parcial || null,
+        pdfData: formData.pdfData || null,
         texto_extraido: (formData.contenido || '').slice(0, 5000),
         created_at: new Date().toISOString()
       };
-      const updatedPdfs = [pdfPayload, ...pdfs];
+      const updatedPdfs = [pdfPayload, ...pdfs.filter(p => p.id !== pdfPayload.id)];
       setPdfs(updatedPdfs);
       safeSetLocalStorage('psi_pdfs_cache', updatedPdfs);
       saveToIndexedDB('documentos_pdf', updatedPdfs);
       if (supabaseClient && isOnline) {
-        try { await supabaseClient.from('documentos_pdf').insert([pdfPayload]); } catch(e) {
+        try {
+          const { pdfData, ...cleanPdf } = pdfPayload;
+          await supabaseClient.from('documentos_pdf').insert([cleanPdf]);
+        } catch(e) {
           console.warn('Error al insertar en documentos_pdf:', e);
         }
       }
@@ -1413,7 +1481,7 @@ function App() {
 
     if (supabaseClient && isOnline) {
       try {
-        const { pdfName, numPages, saveToPdfDocs, ...cleanPayload } = payload;
+        const { pdfName, numPages, saveToPdfDocs, pdfData, ...cleanPayload } = payload;
         // Postgres nro_parcial is INT: ensure integer conversion or default 1
         if (cleanPayload.nro_parcial) {
           const matchedNum = String(cleanPayload.nro_parcial).match(/\d+/);
@@ -1445,6 +1513,40 @@ function App() {
       catch (e) { enqueueAction('DELETE', 'apuntes', { id }); }
     } else {
       enqueueAction('DELETE', 'apuntes', { id });
+    }
+  };
+
+  const handleSaveDocumentoPDF = async (docPayload) => {
+    const updated = [docPayload, ...pdfs.filter(p => p.id !== docPayload.id)];
+    setPdfs(updated);
+    safeSetLocalStorage('psi_pdfs_cache', updated);
+    saveToIndexedDB('documentos_pdf', updated);
+    showToast('Documento PDF guardado en el sistema', 'check-circle');
+
+    if (supabaseClient && isOnline) {
+      try {
+        const { pdfData, ...cleanPayload } = docPayload;
+        await supabaseClient.from('documentos_pdf').upsert([cleanPayload]);
+      } catch (e) {
+        console.warn('Error sincronizando documento_pdf en Supabase:', e);
+      }
+    }
+  };
+
+  const handleDeleteDocumentoPDF = async (id) => {
+    const doc = pdfs.find(p => p.id === id);
+    if (!confirm(`¿Eliminar "${doc?.nombre_archivo || doc?.titulo || 'este documento'}" del sistema?`)) return;
+    const updated = pdfs.filter(p => p.id !== id);
+    setPdfs(updated);
+    safeSetLocalStorage('psi_pdfs_cache', updated);
+    saveToIndexedDB('documentos_pdf', updated);
+    showToast('Documento PDF eliminado', 'trash-2');
+
+    if (supabaseClient && isOnline) {
+      try { await supabaseClient.from('documentos_pdf').delete().eq('id', id); }
+      catch (e) { enqueueAction('DELETE', 'documentos_pdf', { id }); }
+    } else {
+      enqueueAction('DELETE', 'documentos_pdf', { id });
     }
   };
 
@@ -2535,24 +2637,95 @@ function App() {
               </div>
             )}
 
-            {/* 6. PDFs EN EL AULA */}
+            {/* 6. DOCUMENTOS PDF EN EL AULA */}
             {innerTab === 'pdfs' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {pdfs.filter(p => p.materia_id === selectedMateriaId || p.materia === currentMateria.nombre).map(p => (
-                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-xs font-bold text-app-emerald">{p.num_paginas} Páginas</span>
-                        <span className="text-xs text-app-muted">{p.unidad}</span>
-                      </div>
-                      <h4 className="text-base font-extrabold text-app-text mb-2">{p.nombre_archivo}</h4>
-                      <p className="text-xs text-app-muted line-clamp-3 leading-relaxed mb-4">{p.texto_extraido || 'Sin texto'}</p>
+              <div className="space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-3">
+                  <div>
+                    <h3 className="text-lg font-black text-app-text flex items-center gap-2">
+                      <Icon name="file-text" className="w-5 h-5 text-app-emerald" /> Documentos PDF de {currentMateria.nombre}
+                    </h3>
+                    <p className="text-xs text-app-muted">Archivos PDF listos para visualizar o descargar en formato Normal y Hoja Doble.</p>
+                  </div>
+                  <button
+                    onClick={() => { triggerHaptic('light'); setModalUploadPDF({ open: true, materiaId: selectedMateriaId }); }}
+                    className="px-4 py-2.5 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card hover:brightness-110 flex items-center gap-2"
+                  >
+                    <Icon name="upload-cloud" className="w-4 h-4 text-white" /> Subir Archivo PDF
+                  </button>
+                </div>
+
+                {currentMateriaPdfs.length === 0 ? (
+                  <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-4 shadow-card">
+                    <div className="w-14 h-14 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
+                      <Icon name="file-text" className="w-7 h-7" size={28} />
                     </div>
-                    <button onClick={() => setModalPDFViewer({ open: true, data: p })} className="w-full py-2 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30">
-                      Ver Documento Completo
+                    <div className="space-y-1">
+                      <h4 className="text-base font-extrabold text-app-text">Sin documentos PDF en esta materia</h4>
+                      <p className="text-xs text-app-muted max-w-sm mx-auto">
+                        Sube tus archivos PDF ya maquetados para tenerlos organizados, visualizarlos en pantalla o descargarlos en 2 páginas por hoja.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setModalUploadPDF({ open: true, materiaId: selectedMateriaId })}
+                      className="px-5 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card inline-flex items-center gap-2 hover:brightness-110"
+                    >
+                      <Icon name="upload-cloud" className="w-4 h-4" /> Subir Primer PDF
                     </button>
                   </div>
-                ))}
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {currentMateriaPdfs.map(p => (
+                      <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                              {p.unidad || 'General'}
+                            </span>
+                            <span className="text-xs text-app-muted font-bold">{p.num_paginas || 1} págs</span>
+                          </div>
+                          <h4 className="text-base font-black text-app-text mb-1.5 leading-snug line-clamp-2">
+                            {p.nombre_archivo || p.titulo}
+                          </h4>
+                          {p.tipo && (
+                            <span className="text-[10px] text-app-muted font-bold inline-block mb-3">
+                              {p.tipo} {p.va_parcial && p.nro_parcial ? `• ${p.nro_parcial}` : ''}
+                            </span>
+                          )}
+                        </div>
+                        <div className="pt-3 border-t border-app-border flex items-center justify-between gap-1.5">
+                          <button
+                            onClick={() => setModalPDFViewer({ open: true, data: p })}
+                            className="flex-1 py-2 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-1.5"
+                          >
+                            <Icon name="book-open" className="w-3.5 h-3.5" /> Visualizar
+                          </button>
+                          <button
+                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
+                            className="p-2 bg-app-surface text-app-text hover:border-app-navy border border-app-border rounded-xl text-xs font-bold"
+                            title="Descargar Normal A4"
+                          >
+                            <Icon name="download" className="w-4 h-4 text-app-navy" />
+                          </button>
+                          <button
+                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
+                            className="p-2 bg-app-navy text-white rounded-xl text-xs font-bold shadow-card hover:brightness-110"
+                            title="Descargar 2 Páginas por Hoja (Folleto)"
+                          >
+                            <span className="text-[11px] font-black">2P</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDocumentoPDF(p.id)}
+                            className="p-2 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                            title="Eliminar documento"
+                          >
+                            <Icon name="trash-2" className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3047,117 +3220,146 @@ function App() {
           </div>
         )}
 
-        {/* ── TAB: INGESTIÓN PDF ── */}
+        {/* ── TAB: BIBLIOTECA DE DOCUMENTOS PDF ── */}
         {activeTab === 'pdf' && (
           <div className="space-y-6 animate-fade-in">
-            <h2 className="text-2xl font-extrabold flex items-center gap-2 text-app-text">
-              <Icon name="file-up" className="w-6 h-6 text-app-emerald" size={24} /> Ingestión Inteligente de PDFs
-            </h2>
-
-            <label className="block border-2 border-dashed border-app-emerald/60 hover:border-app-emerald bg-app-card/60 p-10 rounded-xl text-center cursor-pointer shadow-fluffy transition-all hover:bg-app-emerald-bg/10">
-              <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-lg mx-auto flex items-center justify-center mb-3">
-                <Icon name="upload-cloud" className="w-7 h-7" size={28} />
+            <div className="flex flex-wrap justify-between items-center gap-4 bg-app-card p-5 rounded-xl border border-app-border shadow-card">
+              <div>
+                <h2 className="text-xl md:text-2xl font-black text-app-text flex items-center gap-2.5">
+                  <Icon name="file-text" className="w-6 h-6 text-app-emerald" size={24} /> Biblioteca de Documentos PDF
+                </h2>
+                <p className="text-xs text-app-muted mt-1">
+                  Visualiza tus documentos PDF completos o descárgalos en formato Normal (A4) y Folleto (2 Páginas por Hoja).
+                </p>
               </div>
-              <div className="text-lg font-extrabold text-app-text">Arrastra tu PDF o Haz Clic para Cargar</div>
-              <div className="text-xs text-app-muted mt-1">Soporta iOS Share Sheet, WhatsApp, Tablets y PC</div>
-              <input type="file" accept="application/pdf" className="hidden" onChange={handlePDFUpload} />
-            </label>
 
-            {ingestionData && (
-              <form onSubmit={handleConfirmIngestion} className="bg-app-card border border-app-border p-4 rounded-xl shadow-fluffy space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-extrabold text-app-text">{ingestionData.fileName}</h3>
-                  <span className="text-xs font-bold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald">{ingestionData.numPages} páginas</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Materia Asignada</label>
-                    <select
-                      value={ingestionData.materiaId}
-                      onChange={e => setIngestionData({ ...ingestionData, materiaId: e.target.value })}
-                      className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
-                    >
-                      {materias.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Unidad</label>
-                    <input
-                      value={ingestionData.unidad}
-                      onChange={e => setIngestionData({ ...ingestionData, unidad: e.target.value })}
-                      className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Título del Texto</label>
-                  <input
-                    value={ingestionData.titulo}
-                    onChange={e => setIngestionData({ ...ingestionData, titulo: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
-                    required
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="ingVaParcial"
-                    checked={ingestionData.vaParcial}
-                    onChange={e => setIngestionData({ ...ingestionData, vaParcial: e.target.checked })}
-                    className="w-5 h-5 accent-emerald-500 rounded"
-                  />
-                  <label htmlFor="ingVaParcial" className="text-sm font-bold text-app-amber cursor-pointer">Texto Evaluado en Parcial</label>
-                </div>
-
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-bold uppercase text-app-emerald">Texto Extraído (OCR)</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const mat = materias.find(m => m.id === ingestionData.materiaId);
-                        const prompt = generateAcademicPrompt(mat?.nombre || '', `${ingestionData.unidad} - ${ingestionData.titulo}`, ingestionData.extractedText);
-                        navigator.clipboard.writeText(prompt);
-                        showToast('📋 Prompt copiado con el texto OCR completo', 'sparkles');
-                        triggerHaptic('success');
-                      }}
-                      className="px-3 py-1 bg-app-emerald-bg text-app-emerald border border-app-emerald/30 rounded-xl text-xs font-bold hover:brightness-110 flex items-center gap-1.5"
-                    >
-                      <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA con OCR
-                    </button>
-                  </div>
-                  <textarea value={ingestionData.extractedText} readOnly className="w-full h-28 p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none" />
-                </div>
-
-                <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110">
-                  Confirmar e Ingestar a Supabase
-                </button>
-              </form>
-            )}
-
-            <div className="space-y-3">
-              <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
-                <Icon name="history" className="w-5 h-5 text-app-emerald" /> Documentos Ingestados Recientemente
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {pdfs.slice(0, 6).map(p => (
-                  <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-lg shadow-card flex flex-col justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-app-emerald">{p.materia}</span>
-                      <h4 className="text-base font-extrabold text-app-text mt-1 truncate">{p.nombre_archivo}</h4>
-                      <p className="text-xs text-app-muted line-clamp-2 mt-2">{p.texto_extraido || 'Sin preview'}</p>
-                    </div>
-                    <button onClick={() => setModalPDFViewer({ open: true, data: p })} className="mt-4 py-2 bg-app-emerald-bg text-app-emerald font-bold text-xs rounded-xl border border-app-emerald/30">
-                      Ver Documento
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => { triggerHaptic('light'); setModalUploadPDF({ open: true, materiaId: null }); }}
+                className="px-4 py-2.5 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card hover:brightness-110 flex items-center gap-2"
+              >
+                <Icon name="upload-cloud" className="w-4 h-4 text-white" /> Subir Archivo PDF
+              </button>
             </div>
+
+            {/* Quick Upload Banner */}
+            <div
+              onClick={() => { triggerHaptic('light'); setModalUploadPDF({ open: true, materiaId: null }); }}
+              className="border-2 border-dashed border-app-emerald/60 hover:border-app-emerald bg-app-card/60 p-8 rounded-2xl text-center cursor-pointer shadow-card transition-all hover:bg-app-emerald-bg/10"
+            >
+              <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-xl mx-auto flex items-center justify-center mb-2.5 border border-app-emerald/20">
+                <Icon name="upload-cloud" className="w-7 h-7 text-app-emerald" size={28} />
+              </div>
+              <div className="text-base font-extrabold text-app-text">Haz clic aquí o arrastra un PDF para guardarlo en el sistema</div>
+              <div className="text-xs text-app-muted mt-0.5">El archivo se conserva intacto, listo para visualizar y descargar en 1 o 2 columnas</div>
+            </div>
+
+            {/* Filter by Materia */}
+            <div className="overflow-x-auto no-scrollbar flex gap-1.5 py-1">
+              <button
+                onClick={() => setGlobalMateriaFilter('todas')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  globalMateriaFilter === 'todas'
+                    ? 'bg-app-emerald text-white shadow-emerald'
+                    : 'bg-app-surface text-app-muted hover:text-app-text border border-app-border'
+                }`}
+              >
+                Todas las Materias ({pdfs.length})
+              </button>
+              {materias.map(m => {
+                const count = pdfs.filter(p => p.materia_id === m.id || p.materia === m.nombre).length;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setGlobalMateriaFilter(m.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                      globalMateriaFilter === m.id
+                        ? 'bg-app-emerald text-white shadow-emerald'
+                        : 'bg-app-surface text-app-muted hover:text-app-text border border-app-border'
+                    }`}
+                  >
+                    <span>{m.abreviatura || m.nombre}</span>
+                    <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-md">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* PDF Grid */}
+            {pdfs.length === 0 ? (
+              <div className="bg-app-card border border-app-border rounded-2xl p-12 text-center space-y-4 shadow-card">
+                <div className="w-16 h-16 rounded-2xl bg-app-emerald-bg text-app-emerald mx-auto flex items-center justify-center border border-app-emerald/20">
+                  <Icon name="file-text" className="w-8 h-8" size={32} />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-base font-extrabold text-app-text">Aún no tienes documentos PDF guardados</h4>
+                  <p className="text-xs text-app-muted max-w-sm mx-auto">
+                    Sube tus apuntes en PDF o crea uno con el editor para tenerlos todos centralizados aquí.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setModalUploadPDF({ open: true, materiaId: null })}
+                  className="px-5 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald inline-flex items-center gap-2 hover:brightness-110"
+                >
+                  <Icon name="upload-cloud" className="w-4 h-4" /> Subir Primer PDF
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {pdfs
+                  .filter(p => globalMateriaFilter === 'todas' || p.materia_id === globalMateriaFilter || p.materia === materias.find(m => m.id === globalMateriaFilter)?.nombre)
+                  .map(p => (
+                    <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                            {p.materia || 'General'}
+                          </span>
+                          <span className="text-xs text-app-muted font-bold">{p.num_paginas || 1} págs</span>
+                        </div>
+                        <h4 className="text-base font-black text-app-text mb-1.5 leading-snug line-clamp-2">
+                          {p.nombre_archivo || p.titulo}
+                        </h4>
+                        <div className="text-[11px] text-app-muted font-bold flex items-center gap-2 mb-3">
+                          <span>{p.unidad || 'Unidad 1'}</span>
+                          {p.tipo && <span>• {p.tipo}</span>}
+                          {p.va_parcial && p.nro_parcial && (
+                            <span className="text-app-amber">• {p.nro_parcial}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="pt-3 border-t border-app-border flex items-center justify-between gap-1.5">
+                        <button
+                          onClick={() => setModalPDFViewer({ open: true, data: p })}
+                          className="flex-1 py-2 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-1.5"
+                        >
+                          <Icon name="book-open" className="w-3.5 h-3.5" /> Visualizar
+                        </button>
+                        <button
+                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
+                          className="p-2 bg-app-surface text-app-text hover:border-app-navy border border-app-border rounded-xl text-xs font-bold"
+                          title="Descargar Normal A4"
+                        >
+                          <Icon name="download" className="w-4 h-4 text-app-navy" />
+                        </button>
+                        <button
+                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
+                          className="p-2 bg-app-navy text-white rounded-xl text-xs font-bold shadow-card hover:brightness-110"
+                          title="Descargar 2 Páginas por Hoja (Folleto)"
+                        >
+                          <span className="text-[11px] font-black">2P</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteDocumentoPDF(p.id)}
+                          className="p-2 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                          title="Eliminar documento"
+                        >
+                          <Icon name="trash-2" className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -3406,18 +3608,16 @@ function App() {
         />
       )}
 
-      {modalUploadApuntePDF.open && (
-        <ModalSubirApuntePDF
-          isOpen={modalUploadApuntePDF.open}
-          initialMateriaId={modalUploadApuntePDF.materiaId || selectedMateriaId}
+      {(modalUploadPDF?.open || modalUploadApuntePDF?.open) && (
+        <ModalSubirDocumentoPDF
+          isOpen={true}
+          initialMateriaId={(modalUploadPDF?.materiaId || modalUploadApuntePDF?.materiaId) || selectedMateriaId}
           materias={materias}
-          biblio={biblio}
           showToast={showToast}
-          onClose={() => setModalUploadApuntePDF({ open: false, materiaId: null })}
-          onSave={handleSaveApunte}
-          onOpenSplitEditor={(apunteData) => {
-            setModalApunte({ open: true, data: apunteData });
+          onClose={() => {
+            setModalUploadPDF({ open: false, materiaId: null });
           }}
+          onSave={handleSaveDocumentoPDF}
         />
       )}
 
@@ -3435,9 +3635,8 @@ function App() {
         <ModalPDFViewer
           data={modalPDFViewer.data}
           onClose={() => setModalPDFViewer({ open: false, data: null })}
-          onCreateApunte={(apunteData) => {
-            setModalApunte({ open: true, data: apunteData });
-          }}
+          onDelete={handleDeleteDocumentoPDF}
+          showToast={showToast}
         />
       )}
 
@@ -4498,31 +4697,103 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
     }
   };
 
-  const handleSavePDFToSystem = async () => {
+  const handleDownloadNormal = async () => {
+    if (!form.contenido?.trim()) {
+      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
+      return;
+    }
     setIsGeneratingPDF(true);
-    triggerHaptic('success');
+    triggerHaptic('medium');
     try {
-      let pdfData = compiledPDF;
-      if (!pdfData) {
-        pdfData = await handleCompilePDF(false);
-      }
-      const finalName = pdfData ? pdfData.fileName : `${form.titulo || 'Apunte'}.pdf`;
-      const finalPages = pdfData ? pdfData.pageCount : 1;
+      const res = await generateAcademicPDFBlob({
+        materia: materiaNombre || form.materia || '',
+        unidad: form.unidad || 'Unidad 1',
+        titulo: form.titulo || 'Resumen Académico',
+        contenido: form.contenido,
+        layoutMode: 'standard'
+      });
+      setCompiledPDF(res);
 
-      const payload = {
-        ...form,
-        pdfName: finalName,
-        numPages: finalPages,
-        saveToPdfDocs: true
+      const a = document.createElement('a');
+      a.href = res.blobUrl;
+      a.download = res.fileName;
+      a.click();
+
+      // Guardar también en el sistema con pdfData
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onSave({
+          ...form,
+          pdfName: res.fileName,
+          numPages: res.pageCount,
+          saveToPdfDocs: true,
+          pdfData: reader.result
+        });
       };
-      onSave(payload);
-      if (showToast) showToast('✅ Guardado en Apuntes y Subido a PDFs OCR', 'check-circle');
+      reader.readAsDataURL(res.blob);
+
+      if (showToast) showToast(`PDF Normal descargado y guardado (${res.pageCount} págs)`, 'download');
     } catch (err) {
-      console.error('Error guardando en el sistema:', err);
-      if (showToast) showToast('Error al guardar en sistema: ' + err.message, 'alert-triangle');
+      console.error('Error generando PDF:', err);
+      if (showToast) showToast('Error al generar PDF: ' + err.message, 'alert-triangle');
     } finally {
       setIsGeneratingPDF(false);
     }
+  };
+
+  const handleDownloadTwoColumns = async () => {
+    if (!form.contenido?.trim()) {
+      if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
+      return;
+    }
+    setIsGeneratingPDF(true);
+    triggerHaptic('medium');
+    try {
+      const res = await generateAcademicPDFBlob({
+        materia: materiaNombre || form.materia || '',
+        unidad: form.unidad || 'Unidad 1',
+        titulo: form.titulo || 'Resumen Académico',
+        contenido: form.contenido,
+        layoutMode: 'standard'
+      });
+
+      const twoColBlob = await convertPDFToTwoColumns(res.blob);
+      const twoColUrl = URL.createObjectURL(twoColBlob);
+      const cleanBase = (res.fileName || 'Apunte').replace(/\.pdf$/i, '');
+      const twoColName = `${cleanBase} (2 Paginas por hoja).pdf`;
+
+      const a = document.createElement('a');
+      a.href = twoColUrl;
+      a.download = twoColName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(twoColUrl), 10000);
+
+      // Guardar también en el sistema con pdfData
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        onSave({
+          ...form,
+          pdfName: twoColName,
+          numPages: res.pageCount,
+          saveToPdfDocs: true,
+          pdfData: reader.result
+        });
+      };
+      reader.readAsDataURL(twoColBlob);
+
+      if (showToast) showToast(`PDF 2 Págs / Hoja descargado y guardado`, 'download');
+    } catch (err) {
+      console.error('Error generando PDF 2 columnas:', err);
+      if (showToast) showToast('Error al procesar formato 2 páginas: ' + err.message, 'alert-triangle');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleSaveOnly = () => {
+    onSave(form);
+    if (showToast) showToast('Apunte guardado con éxito', 'check-circle');
+    onClose();
   };
 
   const handleImportPDF = (e) => {
@@ -4686,28 +4957,39 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
               <span>{copiedPrompt ? "¡Prompt Copiado!" : "Copiar Prompt IA"}</span>
             </button>
 
-            {/* Descargar PDF Button */}
+            {/* Descargar Normal A4 Button */}
             <button
               type="button"
-              onClick={() => handleCompilePDF(true)}
+              onClick={handleDownloadNormal}
               disabled={isGeneratingPDF}
-              className="px-3 py-2 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50"
-              title="Descargar PDF académico vectorial"
+              className="px-3 py-2 bg-app-surface border border-app-border hover:border-app-navy text-app-navy rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-all"
+              title="Descargar PDF normal en A4"
             >
-              <Icon name={isGeneratingPDF ? "refresh-cw" : "download"} className={`w-3.5 h-3.5 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isGeneratingPDF ? "Compilando..." : "Descargar PDF"}</span>
+              <Icon name="download" className="w-3.5 h-3.5 text-app-navy" />
+              <span className="hidden sm:inline">⬇ Normal</span>
             </button>
 
-            {/* Subir al Sistema Button */}
+            {/* Descargar 2 Págs / Hoja Button */}
             <button
               type="button"
-              onClick={handleSavePDFToSystem}
+              onClick={handleDownloadTwoColumns}
               disabled={isGeneratingPDF}
-              className="px-3 py-2 bg-app-emerald text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110 disabled:opacity-50"
-              title="Guardar apunte y dejar el PDF subido al sistema"
+              className="px-3 py-2 bg-app-navy text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50 transition-all"
+              title="Descargar en formato 2 páginas por hoja (apuntes imprimibles)"
             >
-              <Icon name="upload-cloud" className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Subir al Sistema</span>
+              <Icon name="book-open" className="w-3.5 h-3.5 text-white" />
+              <span className="hidden sm:inline">📖 2 Págs / Hoja</span>
+            </button>
+
+            {/* Guardar Apunte Button */}
+            <button
+              type="button"
+              onClick={handleSaveOnly}
+              className="px-3 py-2 bg-app-emerald text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110"
+              title="Guardar apunte en la base de datos"
+            >
+              <Icon name="check" className="w-3.5 h-3.5 text-white" />
+              <span className="hidden sm:inline">Guardar</span>
             </button>
 
             <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -4838,19 +5120,26 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => handleCompilePDF(true)}
+                  onClick={handleDownloadNormal}
                   disabled={isGeneratingPDF}
-                  className="px-3.5 py-1.5 bg-app-navy text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50"
+                  className="px-3.5 py-1.5 bg-app-surface border border-app-border text-app-navy rounded-xl text-xs font-extrabold flex items-center gap-1.5 hover:border-app-navy shadow-sm"
                 >
-                  <Icon name="download" className="w-3.5 h-3.5" /> Descargar PDF
+                  <Icon name="download" className="w-3.5 h-3.5 text-app-navy" /> ⬇ Normal
                 </button>
                 <button
                   type="button"
-                  onClick={handleSavePDFToSystem}
+                  onClick={handleDownloadTwoColumns}
                   disabled={isGeneratingPDF}
-                  className="px-3.5 py-1.5 bg-app-emerald text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110 disabled:opacity-50"
+                  className="px-3.5 py-1.5 bg-app-navy text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-card hover:brightness-110"
                 >
-                  <Icon name="upload-cloud" className="w-3.5 h-3.5" /> Subir al Sistema
+                  <Icon name="book-open" className="w-3.5 h-3.5" /> 📖 2 Págs / Hoja
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveOnly}
+                  className="px-3.5 py-1.5 bg-app-emerald text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-emerald hover:brightness-110"
+                >
+                  <Icon name="check" className="w-3.5 h-3.5" /> Guardar
                 </button>
                 <button
                   type="button"
@@ -4954,47 +5243,36 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   );
 }
 
-function ModalSubirApuntePDF({
+// ── 5. MODAL: SUBIR DOCUMENTO PDF DIRECTO (SIN OCR / SIN DESTRUCTURAR) ──
+function ModalSubirDocumentoPDF({
   isOpen,
   onClose,
   onSave,
-  onOpenSplitEditor,
   materias = [],
-  biblio = [],
   initialMateriaId = null,
   showToast
 }) {
   if (!isOpen) return null;
 
   const [file, setFile] = useState(null);
-  const [isExtracting, setIsExtracting] = useState(false);
   const [pageCount, setPageCount] = useState(0);
   const [materiaId, setMateriaId] = useState(initialMateriaId || (materias[0]?.id || ''));
   const [unidad, setUnidad] = useState('Unidad 1');
   const [isCustomUnidad, setIsCustomUnidad] = useState(false);
   const [customUnidad, setCustomUnidad] = useState('');
   const [titulo, setTitulo] = useState('');
-  const [tipo, setTipo] = useState('Resumen');
+  const [tipo, setTipo] = useState('Resumen de Estudio');
   const [vaParcial, setVaParcial] = useState(false);
   const [instanciaParcial, setInstanciaParcial] = useState('1° Parcial');
-  const [bibliografiaId, setBibliografiaId] = useState('');
-  const [contenido, setContenido] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef(null);
 
   const selectedMateria = materias.find(m => m.id === materiaId) || materias[0];
 
-  const materiaBiblio = useMemo(() => {
-    if (!materiaId) return [];
-    return biblio.filter(b => b.materia_id === materiaId || b.materia === selectedMateria?.nombre);
-  }, [biblio, materiaId, selectedMateria]);
-
   const availableUnits = useMemo(() => {
-    const set = new Set(materiaBiblio.map(b => b.unidad).filter(Boolean));
-    const list = Array.from(set);
-    return list.length > 0 ? list : ['Unidad 1', 'Unidad 2', 'Unidad 3', 'Unidad 4', 'Unidad 5'];
-  }, [materiaBiblio]);
+    return ['Unidad 1', 'Unidad 2', 'Unidad 3', 'Unidad 4', 'Unidad 5', 'Unidad 6', 'Unidad 7', 'Unidad 8'];
+  }, []);
 
   const availableEvaluaciones = useMemo(() => {
     const list = [];
@@ -5010,18 +5288,16 @@ function ModalSubirApuntePDF({
     return list;
   }, [selectedMateria]);
 
-  const processPDFFile = (selectedFile) => {
+  const processFile = (selectedFile) => {
     if (!selectedFile || selectedFile.type !== 'application/pdf') {
-      if (showToast) showToast('Por favor selecciona un archivo PDF válido', 'alert-circle');
+      if (showToast) showToast('Por favor selecciona un archivo PDF válido (.pdf)', 'alert-circle');
       return;
     }
     setFile(selectedFile);
-    setIsExtracting(true);
-
     const cleanName = selectedFile.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
-    setTitulo(cleanName);
+    if (!titulo) setTitulo(cleanName);
 
-    // Auto-detección de materia si no vino preseleccionada
+    // Auto-detect materia
     if (!initialMateriaId) {
       const match = materias.find(m =>
         selectedFile.name.toLowerCase().includes(m.nombre.toLowerCase()) ||
@@ -5030,186 +5306,151 @@ function ModalSubirApuntePDF({
       if (match) setMateriaId(match.id);
     }
 
-    // Auto-detección de unidad
+    // Auto-detect unit
     const unitMatch = selectedFile.name.match(/unidad\s*(\d+)/i) || selectedFile.name.match(/\bu(\d+)\b/i);
     if (unitMatch) {
       setUnidad(`Unidad ${unitMatch[1]}`);
     }
 
-    const reader = new FileReader();
-    reader.onload = async function() {
-      try {
-        const typedArray = new Uint8Array(this.result);
-        if (window.pdfjsLib) {
-          try {
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          } catch(e) {}
+    // Conteo rápido de páginas sin OCR
+    if (window.pdfjsLib) {
+      const reader = new FileReader();
+      reader.onload = async function() {
+        try {
+          const typedArray = new Uint8Array(this.result);
+          const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise;
+          setPageCount(pdf.numPages);
+        } catch (e) {
+          setPageCount(1);
         }
-        const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise;
-        setPageCount(pdf.numPages);
-
-        let fullText = `# ${cleanName}\n\n`;
-        const maxPages = Math.min(pdf.numPages, 35);
-        for (let i = 1; i <= maxPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map(item => item.str).join(' ').trim();
-          if (pageText) {
-            fullText += `### Página ${i}\n${pageText}\n\n`;
-          }
-        }
-
-        const detectedTitle = extractAcademicTitle(fullText);
-        if (detectedTitle && detectedTitle.length > 3 && detectedTitle !== cleanName) {
-          setTitulo(detectedTitle);
-        }
-
-        setContenido(fullText);
-        setIsExtracting(false);
-        if (showToast) showToast(`PDF analizado: ${pdf.numPages} páginas extraídas`, 'check-circle');
-      } catch (err) {
-        console.error('Error procesando PDF:', err);
-        setIsExtracting(false);
-        if (showToast) showToast('Texto extraído parcialmente o protegido', 'alert-triangle');
-      }
-    };
-    reader.readAsArrayBuffer(selectedFile);
+      };
+      reader.readAsArrayBuffer(selectedFile);
+    }
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processPDFFile(e.dataTransfer.files[0]);
+      processFile(e.dataTransfer.files[0]);
     }
   };
 
-  const handleSave = (e) => {
+  const handleSubmit = (e) => {
     if (e) e.preventDefault();
+    if (!file) {
+      if (showToast) showToast('Por favor selecciona un archivo PDF para subir', 'alert-circle');
+      return;
+    }
+    setIsSaving(true);
+    triggerHaptic('medium');
+
     const finalUnidad = isCustomUnidad ? (customUnidad.trim() || 'Unidad 1') : unidad;
     const finalMateria = materias.find(m => m.id === materiaId) || selectedMateria;
 
-    const apuntePayload = {
-      materia_id: materiaId,
-      materia: finalMateria ? finalMateria.nombre : 'General',
-      unidad: finalUnidad,
-      titulo: titulo.trim() || file?.name || 'Apunte desde PDF',
-      tipo,
-      va_parcial: vaParcial,
-      nro_parcial: vaParcial ? instanciaParcial : null,
-      bibliografia_ids: bibliografiaId ? [bibliografiaId] : [],
-      contenido: contenido || (file ? `PDF adjunto: ${file.name}` : ''),
-      pdfName: file ? file.name : null,
-      numPages: pageCount
+    const reader = new FileReader();
+    reader.onload = function() {
+      const dataUrl = this.result;
+      const docPayload = {
+        id: 'pdf_' + Date.now(),
+        nombre_archivo: file.name,
+        titulo: titulo.trim() || file.name.replace(/\.pdf$/i, ''),
+        materia_id: materiaId,
+        materia: finalMateria ? finalMateria.nombre : 'General',
+        unidad: finalUnidad,
+        tipo,
+        va_parcial: vaParcial,
+        nro_parcial: vaParcial ? instanciaParcial : null,
+        num_paginas: pageCount || 1,
+        tamaño_bytes: file.size,
+        pdfData: dataUrl,
+        created_at: new Date().toISOString()
+      };
+
+      onSave(docPayload);
+      setIsSaving(false);
+      onClose();
     };
-
-    onSave(apuntePayload);
-  };
-
-  const handleOpenInEditor = () => {
-    const finalUnidad = isCustomUnidad ? (customUnidad.trim() || 'Unidad 1') : unidad;
-    const finalMateria = materias.find(m => m.id === materiaId) || selectedMateria;
-
-    onOpenSplitEditor({
-      materia_id: materiaId,
-      materia: finalMateria ? finalMateria.nombre : 'General',
-      unidad: finalUnidad,
-      titulo: titulo.trim() || file?.name || 'Apunte desde PDF',
-      tipo,
-      va_parcial: vaParcial,
-      nro_parcial: vaParcial ? instanciaParcial : null,
-      bibliografia_ids: bibliografiaId ? [bibliografiaId] : [],
-      contenido: contenido || (file ? `PDF adjunto: ${file.name}` : '')
-    });
-    onClose();
+    reader.onerror = function() {
+      setIsSaving(false);
+      if (showToast) showToast('Error al leer el archivo PDF', 'alert-triangle');
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-xl shadow-fluffy overflow-hidden">
-        
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+      <div className="bg-app-card border border-app-border w-full max-w-xl rounded-2xl shadow-fluffy overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
-        <div className="flex justify-between items-center p-4 sm:p-5 border-b border-app-border">
+        <div className="flex justify-between items-center px-5 py-4 border-b border-app-border bg-app-surface">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-app-navy-bg text-app-navy flex items-center justify-center border border-app-navy/20">
-              <Icon name="upload-cloud" className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center border border-app-emerald/20">
+              <Icon name="upload-cloud" className="w-5 h-5 text-app-emerald" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-app-text">Subir Apunte en PDF</h3>
-              <p className="text-xs text-app-muted">Carga tu apunte directamente y completa los datos para filtros y búsquedas.</p>
+              <h3 className="text-base font-extrabold text-app-text">Subir Archivo PDF</h3>
+              <p className="text-xs text-app-muted">El archivo se guarda intacto para visualizarlo y descargarlo</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text rounded-lg">
+          <button onClick={onClose} className="p-1.5 text-app-muted hover:text-app-text rounded-lg">
             <Icon name="x" className="w-5 h-5" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
-          
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs font-sans">
           {/* Dropzone */}
           <div
-            onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+            className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
               isDragging
-                ? 'border-app-emerald bg-app-emerald-bg/30 scale-[0.99]'
+                ? 'border-app-emerald bg-app-emerald-bg/20 scale-[0.99]'
                 : file
-                  ? 'border-app-emerald/40 bg-app-emerald-bg/10'
-                  : 'border-app-border bg-app-surface hover:border-app-emerald/50'
+                ? 'border-app-emerald/60 bg-app-emerald-bg/10'
+                : 'border-app-border hover:border-app-emerald/60 hover:bg-app-surface'
             }`}
           >
             <input
-              type="file"
               ref={fileInputRef}
+              type="file"
               accept="application/pdf"
               className="hidden"
-              onChange={e => e.target.files[0] && processPDFFile(e.target.files[0])}
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) processFile(e.target.files[0]);
+              }}
             />
-
-            {isExtracting ? (
-              <div className="py-4 space-y-2">
-                <div className="w-8 h-8 border-2 border-app-emerald border-t-transparent rounded-full animate-spin mx-auto"></div>
-                <p className="text-xs font-bold text-app-emerald">Extrayendo texto y analizando documento...</p>
-              </div>
-            ) : file ? (
-              <div className="flex items-center justify-between gap-3 text-left">
-                <div className="flex items-center gap-3 truncate">
-                  <div className="w-10 h-10 rounded-lg bg-app-emerald-bg text-app-emerald flex items-center justify-center shrink-0">
-                    <Icon name="file-text" className="w-5 h-5" />
-                  </div>
-                  <div className="truncate">
-                    <p className="text-xs font-extrabold text-app-text truncate">{file.name}</p>
-                    <p className="text-[11px] text-app-muted">
-                      {(file.size / (1024 * 1024)).toFixed(2)} MB • {pageCount} {pageCount === 1 ? 'página' : 'páginas'} detectadas
-                    </p>
-                  </div>
+            {file ? (
+              <div className="space-y-1.5">
+                <div className="w-12 h-12 rounded-xl bg-app-emerald text-white mx-auto flex items-center justify-center shadow-emerald">
+                  <Icon name="file-text" className="w-6 h-6 text-white" />
                 </div>
-                <span className="text-[11px] font-bold text-app-emerald bg-app-surface px-2.5 py-1 rounded-lg border border-app-border shrink-0">
-                  Cambiar PDF
-                </span>
+                <div className="font-extrabold text-sm text-app-text truncate max-w-sm mx-auto">{file.name}</div>
+                <div className="text-[11px] text-app-muted flex items-center justify-center gap-2">
+                  <span>{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                  {pageCount > 0 && <span>• {pageCount} páginas</span>}
+                  <span className="text-app-emerald font-bold">• Clic para cambiar</span>
+                </div>
               </div>
             ) : (
-              <div className="py-4 space-y-1.5">
-                <div className="w-12 h-12 rounded-xl bg-app-surface text-app-muted flex items-center justify-center mx-auto border border-app-border">
-                  <Icon name="file-up" className="w-6 h-6 text-app-emerald" />
+              <div className="space-y-2">
+                <div className="w-12 h-12 rounded-xl bg-app-surface text-app-muted mx-auto flex items-center justify-center border border-app-border">
+                  <Icon name="upload-cloud" className="w-6 h-6 text-app-muted" />
                 </div>
-                <p className="text-xs font-extrabold text-app-text">
-                  Arrastra tu apunte en PDF aquí o <span className="text-app-emerald underline">explora tus archivos</span>
-                </p>
-                <p className="text-[11px] text-app-muted">Se extraerá el texto automáticamente para lectura y búsquedas</p>
+                <div>
+                  <div className="font-extrabold text-sm text-app-text">Arrastra tu archivo PDF aquí</div>
+                  <div className="text-[11px] text-app-muted mt-0.5">o haz clic para seleccionar desde tu dispositivo</div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Grid de Metadatos y Filtros */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            
-            {/* Materia */}
+          {/* Materia y Unidad */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Materia / Cátedra *</label>
+              <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Materia *</label>
               <select
                 value={materiaId}
                 onChange={e => setMateriaId(e.target.value)}
@@ -5217,38 +5458,33 @@ function ModalSubirApuntePDF({
                 className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
               >
                 {materias.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.abreviatura ? `[${m.abreviatura}] ` : ''}{m.nombre}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.nombre}</option>
                 ))}
               </select>
             </div>
 
-            {/* Unidad */}
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-xs font-bold uppercase text-app-emerald">Unidad Temática *</label>
+                <label className="block text-[11px] font-bold uppercase text-app-emerald">Unidad *</label>
                 <button
                   type="button"
                   onClick={() => setIsCustomUnidad(!isCustomUnidad)}
-                  className="text-[10px] font-bold text-app-emerald hover:underline"
+                  className="text-[10px] text-app-muted hover:text-app-emerald font-bold"
                 >
-                  {isCustomUnidad ? 'Seleccionar existente' : '+ Nueva unidad'}
+                  {isCustomUnidad ? 'Elegir de lista' : 'Personalizada'}
                 </button>
               </div>
               {isCustomUnidad ? (
                 <input
                   value={customUnidad}
                   onChange={e => setCustomUnidad(e.target.value)}
-                  placeholder="Ej: Unidad 4, Anexo, etc."
-                  required
+                  placeholder="Ej: Unidad 2, Módulo A..."
                   className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
                 />
               ) : (
                 <select
                   value={unidad}
                   onChange={e => setUnidad(e.target.value)}
-                  required
                   className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
                 >
                   {availableUnits.map(u => (
@@ -5259,75 +5495,55 @@ function ModalSubirApuntePDF({
             </div>
           </div>
 
-          {/* Título del Apunte */}
+          {/* Título del Documento */}
           <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Título del Apunte *</label>
+            <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Título del Documento *</label>
             <input
               value={titulo}
               onChange={e => setTitulo(e.target.value)}
               required
-              placeholder="Ej: Resumen Completo - Freud: Más allá del principio del placer"
+              placeholder="Ej: Resumen Unidad 2 - Freud y el Psicoanálisis"
               className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Tipo de Apunte */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tipo de Apunte</label>
-              <select
-                value={tipo}
-                onChange={e => setTipo(e.target.value)}
-                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
-              >
-                <option value="Resumen">Resumen Completo</option>
-                <option value="Guía de Estudio">Guía de Estudio</option>
-                <option value="Mapa Conceptual">Mapa Conceptual</option>
-                <option value="Fichas de Repaso">Fichas de Repaso</option>
-                <option value="Notas de Clase">Notas de Clase</option>
-                <option value="Transcripción">Transcripción</option>
-              </select>
-            </div>
-
-            {/* Texto Vinculado de la Bibliografía */}
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Texto del Programa (Opcional)</label>
-              <select
-                value={bibliografiaId}
-                onChange={e => setBibliografiaId(e.target.value)}
-                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
-              >
-                <option value="">Ninguno / Material general</option>
-                {materiaBiblio.map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.unidad} — {b.titulo_texto.slice(0, 30)}...
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Tipo de Documento */}
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Tipo de Documento</label>
+            <select
+              value={tipo}
+              onChange={e => setTipo(e.target.value)}
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+            >
+              <option value="Resumen de Estudio">Resumen de Estudio</option>
+              <option value="1° Parcial">1° Parcial</option>
+              <option value="2° Parcial">2° Parcial</option>
+              <option value="3° Parcial">3° Parcial</option>
+              <option value="Recuperatorio">Recuperatorio</option>
+              <option value="TP Evaluativo">TP Evaluativo</option>
+              <option value="Bibliografía Oficial">Bibliografía Oficial</option>
+              <option value="Otro">Otro Documento</option>
+            </select>
           </div>
 
           {/* Evaluación / Parcial Toggle */}
-          <div className="p-3.5 rounded-xl bg-app-surface border border-app-border space-y-3">
+          <div className="p-3 rounded-xl bg-app-surface border border-app-border space-y-2.5">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs font-extrabold text-app-text block">¿Este apunte entra en una evaluación o parcial?</span>
-                <span className="text-[11px] text-app-muted">Permite clasificar y simular preguntas para los exámenes.</span>
+                <span className="text-xs font-extrabold text-app-text block">¿Este archivo corresponde a un parcial o examen?</span>
+                <span className="text-[11px] text-app-muted">Te ayudará a filtrarlo en el calendario de estudio.</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={vaParcial}
-                  onChange={e => setVaParcial(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-10 h-6 bg-app-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-app-emerald"></div>
-              </label>
+              <input
+                type="checkbox"
+                checked={vaParcial}
+                onChange={e => setVaParcial(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500 rounded"
+              />
             </div>
 
             {vaParcial && (
-              <div className="pt-2 border-t border-app-border flex items-center gap-3">
-                <label className="text-xs font-bold text-app-emerald whitespace-nowrap">Instancia / Parcial:</label>
+              <div className="pt-2 border-t border-app-border flex items-center gap-2">
+                <label className="text-xs font-bold text-app-emerald whitespace-nowrap">Instancia:</label>
                 <select
                   value={instanciaParcial}
                   onChange={e => setInstanciaParcial(e.target.value)}
@@ -5341,56 +5557,22 @@ function ModalSubirApuntePDF({
             )}
           </div>
 
-          {/* Extracted Text Preview Toggle */}
-          {contenido && (
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => setShowPreview(!showPreview)}
-                className="text-xs font-bold text-app-emerald flex items-center gap-1 hover:underline"
-              >
-                <Icon name={showPreview ? "chevron-up" : "chevron-down"} className="w-3.5 h-3.5" />
-                {showPreview ? 'Ocultar vista previa del texto extraído' : `Ver / editar texto extraído (${contenido.length} caracteres)`}
-              </button>
-
-              {showPreview && (
-                <textarea
-                  value={contenido}
-                  onChange={e => setContenido(e.target.value)}
-                  rows={6}
-                  className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs font-mono text-app-text outline-none leading-relaxed"
-                  placeholder="Texto extraído del PDF..."
-                />
-              )}
-            </div>
-          )}
-
-          {/* Footer Actions */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-app-border">
+          {/* Footer Buttons */}
+          <div className="flex justify-end items-center gap-2 pt-3 border-t border-app-border">
             <button
               type="button"
               onClick={onClose}
-              className="py-2.5 px-4 bg-app-surface border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
+              className="px-4 py-2.5 bg-app-surface border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
             >
               Cancelar
             </button>
-            {contenido && (
-              <button
-                type="button"
-                onClick={handleOpenInEditor}
-                className="py-2.5 px-3 bg-app-surface border border-app-emerald/40 text-app-emerald font-bold text-xs rounded-xl hover:border-app-emerald flex items-center gap-1.5"
-                title="Editar en el editor Markdown con doble hoja"
-              >
-                <Icon name="columns" className="w-3.5 h-3.5" /> Abrir en Editor Completo
-              </button>
-            )}
             <button
               type="submit"
-              disabled={isExtracting}
-              className="flex-1 py-2.5 bg-app-emerald text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2 disabled:opacity-50"
+              disabled={!file || isSaving}
+              className="px-5 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 disabled:opacity-50 flex items-center gap-1.5"
             >
-              <Icon name="check-circle" className="w-4 h-4 text-white" />
-              Guardar Apunte
+              <Icon name={isSaving ? "refresh-cw" : "check"} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
+              <span>{isSaving ? "Guardando en el Sistema..." : "Guardar en el Sistema"}</span>
             </button>
           </div>
         </form>
@@ -5399,51 +5581,134 @@ function ModalSubirApuntePDF({
   );
 }
 
-function ModalPDFViewer({ data, onClose, onCreateApunte }) {
-  if (!data) return null;
-  const [selectedText, setSelectedText] = useState('');
+// Alias de compatibilidad
+const ModalSubirApuntePDF = ModalSubirDocumentoPDF;
 
-  const handleTextSelection = () => {
-    const sel = window.getSelection()?.toString();
-    if (sel && sel.trim().length > 0) {
-      setSelectedText(sel.trim());
+// ── 6. VISOR ACADÉMICO DE PDF DE ALTA FIDELIDAD ──
+function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
+  if (!data) return null;
+
+  const pdfSrc = useMemo(() => {
+    if (!data.pdfData) return null;
+    if (typeof data.pdfData === 'string') return data.pdfData;
+    if (data.pdfData instanceof Blob) return URL.createObjectURL(data.pdfData);
+    return null;
+  }, [data.pdfData]);
+
+  const [isProcessing2Col, setIsProcessing2Col] = useState(false);
+
+  const handleDownload2Col = async () => {
+    if (!data.pdfData) {
+      if (showToast) showToast('No hay archivo PDF para procesar', 'alert-triangle');
+      return;
     }
+    setIsProcessing2Col(true);
+    await downloadPDFHelper({
+      pdfData: data.pdfData,
+      fileName: data.nombre_archivo || data.titulo,
+      twoColumns: true,
+      showToast
+    });
+    setIsProcessing2Col(false);
+  };
+
+  const handleDownloadNorm = () => {
+    downloadPDFHelper({
+      pdfData: data.pdfData,
+      fileName: data.nombre_archivo || data.titulo,
+      twoColumns: false,
+      showToast
+    });
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-card border border-app-border w-full max-w-4xl max-h-[92vh] flex flex-col rounded-xl shadow-fluffy overflow-hidden">
-        <div className="flex justify-between items-center p-5 border-b border-app-border bg-app-surface">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+      <div className="bg-app-card border border-app-border w-full max-w-6xl h-[95vh] flex flex-col rounded-2xl shadow-fluffy overflow-hidden">
+        {/* Header */}
+        <div className="flex flex-wrap justify-between items-center px-5 py-3.5 border-b border-app-border bg-app-surface gap-3">
           <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Visor Académico de Documento</span>
-            <h3 className="text-lg font-extrabold text-app-text truncate max-w-md">{data.nombre_archivo}</h3>
-            <p className="text-xs text-app-muted">{data.materia} • {data.unidad}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                {data.materia || 'General'}
+              </span>
+              <span className="text-xs text-app-muted font-bold">• {data.unidad || 'Unidad 1'}</span>
+              {data.num_paginas && (
+                <span className="text-xs text-app-muted font-bold">• {data.num_paginas} págs</span>
+              )}
+              {data.va_parcial && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/20">
+                  {data.nro_parcial ? `Para ${data.nro_parcial}` : 'Para Parcial'}
+                </span>
+              )}
+            </div>
+            <h3 className="text-base sm:text-lg font-black text-app-text mt-0.5 truncate max-w-xl">
+              {data.nombre_archivo || data.titulo}
+            </h3>
           </div>
+
           <div className="flex items-center gap-2">
-            {selectedText && (
+            <button
+              onClick={handleDownloadNorm}
+              className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-navy text-app-navy font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+              title="Descargar PDF original en A4 normal"
+            >
+              <Icon name="download" className="w-4 h-4 text-app-navy" />
+              <span>⬇ Normal</span>
+            </button>
+
+            <button
+              onClick={handleDownload2Col}
+              disabled={isProcessing2Col}
+              className="px-3.5 py-2 bg-app-navy text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 shadow-card hover:brightness-110 disabled:opacity-50 transition-all"
+              title="Descargar en formato 2 páginas por hoja (apuntes imprimibles)"
+            >
+              <Icon name={isProcessing2Col ? "refresh-cw" : "book-open"} className={`w-4 h-4 ${isProcessing2Col ? 'animate-spin' : ''}`} />
+              <span>{isProcessing2Col ? "Procesando..." : "📖 2 Págs / Hoja"}</span>
+            </button>
+
+            {onDelete && (
               <button
                 onClick={() => {
-                  triggerHaptic('medium');
-                  if (onCreateApunte) {
-                    onCreateApunte({
-                      titulo: `Cita: ${data.nombre_archivo.slice(0, 30)}...`,
-                      tipo: 'Resumen',
-                      unidad: data.unidad || 'Unidad 1',
-                      contenido: `> "${selectedText}"\n\n**Fuente:** ${data.nombre_archivo} (${data.materia} - ${data.unidad})`
-                    });
+                  if (confirm(`¿Eliminar el documento "${data.nombre_archivo || data.titulo}" del sistema?`)) {
+                    onDelete(data.id);
+                    onClose();
                   }
-                  onClose();
                 }}
-                className="px-3 py-1.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-1.5 animate-pulse"
+                className="p-2 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
+                title="Eliminar documento del sistema"
               >
-                <Icon name="bookmark-plus" className="w-3.5 h-3.5" /> Convertir Selección en Apunte
+                <Icon name="trash-2" className="w-4 h-4" />
               </button>
             )}
-            <button onClick={onClose} className="px-3 py-1.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 hover:brightness-110">Cerrar</button>
+
+            <button
+              onClick={onClose}
+              className="px-3.5 py-2 bg-app-surface border border-app-border text-app-muted hover:text-app-text font-bold text-xs rounded-xl"
+            >
+              Cerrar
+            </button>
           </div>
         </div>
-        <div onMouseUp={handleTextSelection} onKeyUp={handleTextSelection} className="p-4 overflow-y-auto text-sm text-app-text leading-relaxed whitespace-pre-wrap select-text font-sans">
-          {data.texto_extraido || 'Sin texto extraído en este documento.'}
+
+        {/* PDF Viewer Body */}
+        <div className="flex-1 w-full h-full bg-slate-900/60 relative overflow-hidden flex flex-col items-center justify-center">
+          {pdfSrc ? (
+            <iframe
+              src={pdfSrc}
+              className="w-full h-full border-0"
+              title={data.nombre_archivo || data.titulo}
+            />
+          ) : (
+            <div className="p-8 text-center space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-app-amber-bg text-app-amber mx-auto flex items-center justify-center">
+                <Icon name="file-text" className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-bold text-app-text">El archivo no contiene datos binarios para visualización directa</p>
+              <p className="text-xs text-app-muted max-w-sm mx-auto">
+                Puedes volver a subir el archivo PDF original para tener la vista previa interactiva completa.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
