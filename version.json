@@ -1,7 +1,7 @@
 {
-  "version": "2.12.0",
-  "buildDate": "2026-10-01T17:40:00.000Z",
+  "version": "2.12.1",
+  "buildDate": "2026-10-01T18:35:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Subida directa de archivos PDF como documentos intactos (sin desglosar a texto ni romper formato), visor interactivo en pantalla completa con iframe, y descargas de alta fidelidad duales (A4 Normal y Cuadernillo 2 Páginas por Hoja con ampliación 105%)."
+  "notes": "Motor de PDF 100% idéntico a Scanner OCR (NEUROSCAN), preservación total de PDFs subidos como binarios intactos, visor de iframe integrado y descargas directas A4 normal y 2 páginas por carilla."
 }

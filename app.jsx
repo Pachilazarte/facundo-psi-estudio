@@ -443,132 +443,232 @@ async function downloadPDFHelper({ pdfData, fileName, twoColumns = false, showTo
   }
 }
 
-async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '', contenido = '', layoutMode = 'standard' }) {
-  const jspdfModule = window.jspdf;
-  if (!jspdfModule || !jspdfModule.jsPDF) {
-    throw new Error('La librería jsPDF no está disponible en este momento.');
+// ── 3. MOTOR ORIGINAL DE GENERACIÓN DE PDF NEUROSCAN (SCANNER OCR) ──
+function stripInline(s) {
+  return String(s || '')
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1');
+}
+
+function parseInline(str) {
+  var segments = [];
+  var re = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
+  var last = 0, m;
+  var safeStr = String(str || '');
+  while ((m = re.exec(safeStr)) !== null) {
+    if (m.index > last) {
+      segments.push({ text: safeStr.slice(last, m.index), bold: false, italic: false });
+    }
+    if (m[1] !== undefined)      segments.push({ text: m[1], bold: true,  italic: true  });
+    else if (m[2] !== undefined) segments.push({ text: m[2], bold: true,  italic: false });
+    else if (m[3] !== undefined) segments.push({ text: m[3], bold: false, italic: true  });
+    last = m.index + m[0].length;
+  }
+  if (last < safeStr.length) segments.push({ text: safeStr.slice(last), bold: false, italic: false });
+  return segments.length ? segments : [{ text: safeStr, bold: false, italic: false }];
+}
+
+function parseMarkdown(text) {
+  var lines = String(text || '').split('\n');
+  var tokens = [];
+  var secCount = 0, formulaCount = 0, wordCount = 0;
+
+  lines.forEach(function(rawLine) {
+    var line = rawLine.trimEnd();
+
+    var imgMatch = line.match(/^\s*(\[(?:imagen|FIGURA|IMAGEN|grafico)\s*\d*:?\s*([^\]]+)\]|!\[(.*?)\]\((.*?)\))\s*$/i);
+    if (imgMatch) {
+      var rawKey = imgMatch[1];
+      var label = imgMatch[2] || imgMatch[3] || rawKey;
+      var src = imgMatch[4] || '';
+      tokens.push({ type: 'image_var', rawKey: rawKey, label: label, src: src });
+    } else if (/^# /.test(line)) {
+      tokens.push({ type: 'h1', text: stripInline(line.slice(2).trim()) });
+      wordCount += line.split(/\s+/).length;
+    } else if (/^## /.test(line)) {
+      tokens.push({ type: 'h2', text: stripInline(line.slice(3).trim()) });
+      secCount++;
+      wordCount += line.split(/\s+/).length;
+    } else if (/^### /.test(line)) {
+      tokens.push({ type: 'h3', text: stripInline(line.slice(4).trim()) });
+      wordCount += line.split(/\s+/).length;
+    } else if (/^---+$/.test(line.trim())) {
+      tokens.push({ type: 'hr' });
+    } else if (/^\$\$.*\$\$$/.test(line.trim())) {
+      var formula = line.trim().slice(2, -2).trim();
+      tokens.push({ type: 'formula', text: formula });
+      formulaCount++;
+    } else if (/^◦ /.test(line)) {
+      var t2 = line.slice(2).trim();
+      tokens.push({ type: 'li2', text: t2, segs: parseInline(t2) });
+      wordCount += line.split(/\s+/).length;
+    } else if (/^• /.test(line)) {
+      var t1 = line.slice(2).trim();
+      tokens.push({ type: 'li1', text: t1, segs: parseInline(t1) });
+      wordCount += line.split(/\s+/).length;
+    } else if (/^[-*] /.test(line)) {
+      var tl = line.slice(2).trim();
+      tokens.push({ type: 'li1', text: tl, segs: parseInline(tl) });
+      wordCount += line.split(/\s+/).length;
+    } else if (!line.trim()) {
+      tokens.push({ type: 'blank' });
+    } else {
+      tokens.push({ type: 'body', text: line, segs: parseInline(line) });
+      wordCount += line.split(/\s+/).length;
+    }
+  });
+
+  return { tokens: tokens, sections: secCount, formulas: formulaCount, words: wordCount };
+}
+
+function getStoredImageData(key, fallbackSrc) {
+  if (fallbackSrc && fallbackSrc.startsWith('data:')) return fallbackSrc;
+  try {
+    const raw = localStorage.getItem('neuroscan_img_' + String(key).toLowerCase().trim());
+    return raw || fallbackSrc || null;
+  } catch (e) {
+    return fallbackSrc || null;
+  }
+}
+
+function getRotatedBase64Sync(base64, degrees) {
+  if (!degrees || degrees % 360 === 0) return base64;
+  try {
+    var img = new Image();
+    img.src = base64;
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    var rad = (degrees % 360) * Math.PI / 180;
+    var w = img.naturalWidth || img.width || 800;
+    var h = img.naturalHeight || img.height || 600;
+
+    if (degrees === 90 || degrees === 270) {
+      canvas.width = h;
+      canvas.height = w;
+    } else {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(rad);
+    ctx.drawImage(img, -w / 2, -h / 2);
+    return canvas.toDataURL('image/png');
+  } catch(e) {
+    return base64;
+  }
+}
+
+function buildPDF(parsed, materia, unidad, titulo, opts) {
+  opts = opts || { nums: true, footer: true, header: true };
+  var jspdf = window.jspdf;
+  if (!jspdf || !jspdf.jsPDF) throw new Error('jsPDF no disponible');
+  var fontSel = 'helvetica';
+  var doc = new jspdf.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  var PW = 210, PH = 297;
+  var ML = 15, MR = 15, MT = 20, MB = 18;
+  var TW = PW - ML - MR;
+  var pageNum = 1;
+
+  var C_BLACK  = [0, 0, 0];
+  var C_DARK   = [20, 20, 20];
+  var C_ACCENT = [0, 70, 140];
+  var C_SUB    = [60, 40, 120];
+  var C_DIM    = [110, 110, 120];
+  var C_RULE   = [180, 190, 205];
+  var C_FORM   = [130, 90, 0];
+
+  var FS_H1   = 12;
+  var FS_H2   = 10;
+  var FS_H3   = 10;
+  var FS_BODY = 9;
+  var FS_LI   = FS_BODY;
+  var FS_HDR  = 7;
+
+  function lh(fs) { return fs * 0.353 * 1.0; }
+
+  var y = MT;
+
+  function setColor(arr) { doc.setTextColor(arr[0], arr[1], arr[2]); }
+  function setDraw(arr)  { doc.setDrawColor(arr[0], arr[1], arr[2]); }
+
+  function needSpace(needed) {
+    if (y + needed > PH - MB) { addPage(); return true; }
+    return false;
   }
 
-  const doc = new jspdfModule.jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const fontSel = 'helvetica';
-
-  const PW = 210, PH = 297;
-  const ML = 15, MR = 15, MT = 20, MB = 18;
-  const TW = PW - ML - MR;
-  let pageNum = 1;
-
-  const C_BLACK = [15, 23, 42];
-  const C_DARK = [30, 41, 59];
-  const C_EMERALD = [16, 185, 129];
-  const C_EMERALD_DARK = [15, 118, 110];
-  const C_NAVY = [37, 99, 235];
-  const C_MUTED = [100, 116, 139];
-  const C_RULE = [226, 232, 240];
-  const C_CARD_BG = [248, 250, 252];
-
-  const FS_H1 = 13;
-  const FS_H2 = 10.5;
-  const FS_H3 = 9.5;
-  const FS_BODY = 8.5;
-  const FS_LI = 8.5;
-  const FS_HDR = 7.5;
-
-  const lh = (fs) => fs * 0.353 * 1.25;
-  let y = MT;
-
-  const setColor = (arr) => doc.setTextColor(arr[0], arr[1], arr[2]);
-  const setDraw = (arr) => doc.setDrawColor(arr[0], arr[1], arr[2]);
-  const setFill = (arr) => doc.setFillColor(arr[0], arr[1], arr[2]);
-
-  const drawPageFooter = (pNum) => {
+  function addPage() {
     doc.setFontSize(FS_HDR);
     doc.setFont(fontSel, 'normal');
-    setColor(C_MUTED);
-    doc.text(String(pNum), PW / 2, PH - 8, { align: 'center' });
+    setColor(C_DIM);
+    doc.text(String(pageNum), PW / 2, PH - 8, { align: 'center' });
 
     doc.setFontSize(FS_HDR - 0.5);
     doc.setFont(fontSel, 'italic');
-    setColor(C_MUTED);
-    const leftText = (materia ? materia + ' · ' : '') + (unidad || 'Guía de Estudio');
-    doc.text(leftText.slice(0, 45), ML, PH - 8);
-    doc.text((titulo || 'PsiEstudio').slice(0, 40), PW - MR, PH - 8, { align: 'right' });
-  };
+    setColor(C_DIM);
+    doc.text(materia + ' · ' + unidad, ML, PH - 8);
+    doc.text(titulo, PW - MR, PH - 8, { align: 'right' });
 
-  const drawPageHeader = () => {
-    doc.setFontSize(FS_HDR);
-    doc.setFont(fontSel, 'bold');
-    setColor(C_EMERALD_DARK);
-    doc.text('PSIESTUDIO · SUITE ACADÉMICA', ML, MT - 8);
-
-    doc.setFont(fontSel, 'normal');
-    setColor(C_MUTED);
-    const rightHeader = `${materia || 'Cátedra'} · ${unidad || 'Unidad'}`;
-    doc.text(rightHeader.slice(0, 50), PW - MR, MT - 8, { align: 'right' });
-
-    setDraw(C_RULE);
-    doc.setLineWidth(0.2);
-    doc.line(ML, MT - 5, PW - MR, MT - 5);
-  };
-
-  const addPage = () => {
-    drawPageFooter(pageNum);
     doc.addPage('a4', 'portrait');
     pageNum++;
     y = MT;
     drawPageHeader();
-  };
+  }
 
-  const needSpace = (needed) => {
-    if (y + needed > PH - MB) {
-      addPage();
-      return true;
-    }
-    return false;
-  };
+  function drawPageHeader() {
+    doc.setFontSize(FS_HDR);
+    doc.setFont(fontSel, 'normal');
+    setColor(C_DIM);
+    doc.text(materia + ' · ' + unidad + ' · ' + titulo, ML, MT - 8);
+    setDraw(C_RULE);
+    doc.setLineWidth(0.18);
+    doc.line(ML, MT - 5, PW - MR, MT - 5);
+  }
 
-  function renderInline(segs, startX, maxW, fs, baseColor, baseBold = false) {
-    const words = [];
-    (segs || []).forEach(seg => {
-      const parts = String(seg.text || '').split(/(\s+)/);
-      parts.forEach(p => {
+  function renderInline(segs, startX, maxW, fs, baseColor, baseBold) {
+    var words = [];
+    (segs || []).forEach(function(seg) {
+      var parts = String(seg.text || '').split(/(\s+)/);
+      parts.forEach(function(p) {
         if (p === '') return;
-        const isSpace = /^\s+$/.test(p);
-        words.push({ text: p, bold: seg.bold || baseBold, italic: !!seg.italic, isSpace });
+        var isSpace = /^\s+$/.test(p);
+        words.push({ text: p, bold: seg.bold || baseBold, italic: seg.italic, isSpace: isSpace });
       });
     });
 
-    const lineH = lh(fs);
-    const lines = [];
-    let curr = [];
-    let currW = 0;
+    var lineH = lh(fs);
+    var lines = [];
+    var curr = [];
+    var currW = 0;
 
-    words.forEach(w => {
-      const style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
+    words.forEach(function(w) {
+      var style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
       doc.setFont(fontSel, style);
       doc.setFontSize(fs);
-      const ww = doc.getTextWidth(w.text);
+      var ww = doc.getTextWidth(w.text);
 
       if (!w.isSpace && currW + ww > maxW && curr.length > 0) {
-        if (curr.length && curr[curr.length - 1].isSpace) curr.pop();
+        if (curr.length && curr[curr.length-1].isSpace) curr.pop();
         lines.push(curr);
-        curr = [{ ...w, width: ww }];
+        curr = [{ text: w.text, bold: w.bold, italic: w.italic, isSpace: false, width: ww }];
         currW = ww;
       } else {
-        curr.push({ ...w, width: ww });
+        curr.push({ text: w.text, bold: w.bold, italic: w.italic, isSpace: w.isSpace, width: ww });
         currW += ww;
       }
     });
-
     if (curr.length) {
-      if (curr[curr.length - 1].isSpace) curr.pop();
+      if (curr[curr.length-1].isSpace) curr.pop();
       lines.push(curr);
     }
 
-    lines.forEach(line => {
+    lines.forEach(function(line) {
       needSpace(lineH + 0.5);
-      let cx = startX;
-      line.forEach(w => {
-        const style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
+      var cx = startX;
+      line.forEach(function(w) {
+        var style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
         doc.setFont(fontSel, style);
         doc.setFontSize(fs);
         setColor(baseColor);
@@ -580,182 +680,200 @@ async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '',
     y += 0.3;
   }
 
-  // Página 1 Encabezado
+  // Header Página 1
   drawPageHeader();
 
-  setFill([240, 253, 244]);
-  setDraw(C_EMERALD);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(ML, y, TW, 22, 2, 2, 'FD');
+  var prevType = '';
 
-  doc.setFontSize(7.5);
-  doc.setFont(fontSel, 'bold');
-  setColor(C_EMERALD_DARK);
-  doc.text('GUÍA ACADÉMICA DE ESTUDIO · MATERIAL UNIVERSITARIO', ML + 4, y + 5.5);
-
-  doc.setFontSize(11);
-  doc.setFont(fontSel, 'bold');
-  setColor(C_BLACK);
-  const cleanTitle = (titulo || 'RESUMEN ACADÉMICO').toUpperCase();
-  const titleLines = doc.splitTextToSize(cleanTitle, TW - 8);
-  doc.text(titleLines.slice(0, 2), ML + 4, y + 11.5);
-
-  doc.setFontSize(7);
-  doc.setFont(fontSel, 'normal');
-  setColor(C_MUTED);
-  const metaStr = `${materia || 'Cátedra'} • ${unidad || 'Unidad'} • Fecha: ${new Date().toLocaleDateString('es-AR')}`;
-  doc.text(metaStr, ML + 4, y + 18.5);
-
-  y += 26;
-
-  const tokens = parseMarkdownTokens(contenido);
-  let prevType = '';
-
-  for (const tok of tokens) {
+  parsed.tokens.forEach(function(tok) {
     switch (tok.type) {
+
       case 'h1': {
         if (prevType && prevType !== 'blank') y += 2;
         needSpace(lh(FS_H1) + 6);
-        setDraw(C_EMERALD);
+        setDraw(C_ACCENT);
         doc.setLineWidth(0.4);
         doc.line(ML, y - 1, PW - MR, y - 1);
         doc.setFontSize(FS_H1);
-        doc.setFont(fontSel, 'bold');
-        setColor(C_BLACK);
-        const h1lines = doc.splitTextToSize(tok.text.toUpperCase(), TW);
+        doc.setFont(fontSel,'bold');
+        setColor(C_DARK);
+        var h1lines = doc.splitTextToSize(tok.text.toUpperCase(), TW);
         doc.text(h1lines, PW / 2, y + lh(FS_H1) - 0.5, { align: 'center' });
         y += h1lines.length * lh(FS_H1) + 1;
         doc.line(ML, y, PW - MR, y);
-        y += 2.5;
+        y += 2;
         break;
       }
+
       case 'h2': {
         y += 2;
-        needSpace(lh(FS_H2) + 5);
+        needSpace(lh(FS_H2) + 6);
         doc.setFontSize(FS_H2);
-        doc.setFont(fontSel, 'bold');
-        setColor(C_EMERALD_DARK);
-        const h2lines = doc.splitTextToSize(tok.text, TW);
+        doc.setFont(fontSel,'bold');
+        setColor(C_ACCENT);
+        var h2lines = doc.splitTextToSize(tok.text, TW);
         doc.text(h2lines, ML, y);
         y += h2lines.length * lh(FS_H2) + 0.5;
-        setDraw(C_EMERALD);
+        setDraw(C_ACCENT);
         doc.setLineWidth(0.28);
         doc.line(ML, y, ML + Math.min(TW, tok.text.length * 2.2), y);
         y += 2;
         break;
       }
+
       case 'h3': {
         y += 1.5;
         needSpace(lh(FS_H3) + 4);
-        setFill(C_NAVY);
+        doc.setFillColor(C_SUB[0], C_SUB[1], C_SUB[2]);
         doc.rect(ML, y - lh(FS_H3) + 0.5, 1.8, lh(FS_H3), 'F');
         doc.setFontSize(FS_H3);
-        doc.setFont(fontSel, 'bold');
-        setColor(C_NAVY);
-        const h3lines = doc.splitTextToSize(tok.text, TW - 5);
+        doc.setFont(fontSel,'bold');
+        setColor(C_SUB);
+        var h3lines = doc.splitTextToSize(tok.text, TW - 5);
         doc.text(h3lines, ML + 4, y);
         y += h3lines.length * lh(FS_H3) + 1;
         break;
       }
-      case 'quote': {
-        y += 1;
-        needSpace(lh(FS_BODY) + 4);
-        setFill(C_CARD_BG);
-        setDraw(C_EMERALD);
-        doc.setLineWidth(0.6);
-        const qLines = doc.splitTextToSize(tok.text, TW - 8);
-        const qH = qLines.length * lh(FS_BODY) + 3;
-        doc.rect(ML, y - 2, TW, qH, 'F');
-        doc.line(ML, y - 2, ML, y - 2 + qH);
-        renderInline(tok.segs, ML + 4, TW - 8, FS_BODY, C_DARK, false);
-        y += 1;
+
+      case 'image_var': {
+        var rawBase64 = getStoredImageData(tok.rawKey, tok.src);
+        y += 2;
+        if (rawBase64) {
+          try {
+            var finalBase64 = getRotatedBase64Sync(rawBase64, 0);
+
+            var maxImgW = TW;
+            var maxImgH = 100;
+            var imgProps = doc.getImageProperties(finalBase64);
+            var aspect = imgProps.width / imgProps.height;
+            var renderW = maxImgW;
+            var renderH = renderW / aspect;
+            if (renderH > maxImgH) {
+              renderH = maxImgH;
+              renderW = renderH * aspect;
+            }
+            var imgX = ML + (TW - renderW) / 2;
+
+            needSpace(renderH + 8);
+            doc.addImage(finalBase64, imgProps.fileType || 'PNG', imgX, y, renderW, renderH);
+            y += renderH + 3;
+
+            doc.setFontSize(8);
+            doc.setFont(fontSel, 'italic');
+            setColor(C_DIM);
+            doc.text('Figura / Lámina: ' + tok.label, PW / 2, y, { align: 'center' });
+            y += 5;
+          } catch(errImg) {
+            console.error('Error imagen:', errImg);
+            needSpace(10);
+            setDraw(C_RULE);
+            doc.setLineWidth(0.2);
+            doc.rect(ML, y, TW, 10);
+            doc.setFontSize(8);
+            doc.text('[Error al renderizar imagen: ' + tok.label + ']', PW / 2, y + 6, { align: 'center' });
+            y += 12;
+          }
+        } else {
+          needSpace(10);
+          doc.setDrawColor(0, 180, 220);
+          doc.setLineWidth(0.2);
+          doc.rect(ML, y, TW, 8);
+          doc.setFontSize(8);
+          doc.setFont(fontSel, 'italic');
+          setColor(C_ACCENT);
+          doc.text('📷 [Variable de imagen pendiente: ' + tok.label + ']', PW / 2, y + 5.5, { align: 'center' });
+          y += 11;
+        }
         break;
       }
+
+      case 'li1': {
+        needSpace(lh(FS_LI) + 1);
+        doc.setFontSize(FS_LI + 0.5);
+        doc.setFont(fontSel,'normal');
+        setColor(C_ACCENT);
+        doc.text('•', ML + 4, y);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 9, TW - 9, FS_LI, C_DARK, false);
+        break;
+      }
+
+      case 'li2': {
+        needSpace(lh(FS_LI) + 1);
+        doc.setFontSize(FS_LI - 0.5);
+        doc.setFont(fontSel,'normal');
+        setColor(C_SUB);
+        doc.text('◦', ML + 10, y);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 14, TW - 15, FS_LI - 0.5, C_DIM, false);
+        break;
+      }
+
       case 'formula': {
-        y += 1.5;
-        needSpace(10);
-        setFill(C_CARD_BG);
+        needSpace(lh(FS_BODY) + 2);
+        doc.setFontSize(FS_BODY);
+        doc.setFont(fontSel, 'italic');
+        setColor(C_FORM);
+        doc.text(tok.text, PW / 2, y, { align: 'center' });
+        y += lh(FS_BODY) + 1;
+        break;
+      }
+
+      case 'hr': {
+        needSpace(4);
         setDraw(C_RULE);
         doc.setLineWidth(0.2);
-        doc.roundedRect(ML, y - 1, TW, 8, 1, 1, 'FD');
-        doc.setFont('courier', 'bold');
-        doc.setFontSize(FS_BODY);
-        setColor(C_NAVY);
-        doc.text(tok.text, PW / 2, y + 4, { align: 'center' });
-        doc.setFont(fontSel, 'normal');
-        y += 10;
+        doc.line(ML, y, PW - MR, y);
+        y += 3;
         break;
       }
-      case 'image_var': {
-        y += 2;
-        needSpace(12);
-        setFill(C_CARD_BG);
-        setDraw(C_EMERALD);
-        doc.setLineWidth(0.2);
-        doc.roundedRect(ML, y, TW, 9, 1.5, 1.5, 'FD');
-        doc.setFontSize(7.5);
-        doc.setFont(fontSel, 'italic');
-        setColor(C_EMERALD_DARK);
-        doc.text(`[Figura / Esquema: ${tok.label}]`, PW / 2, y + 5.5, { align: 'center' });
-        y += 12;
-        break;
-      }
-      case 'li1': {
-        needSpace(lh(FS_LI) + 0.8);
-        doc.setFontSize(FS_LI + 0.5);
-        doc.setFont(fontSel, 'bold');
-        setColor(C_EMERALD_DARK);
-        doc.text('•', ML + 3, y);
-        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 7, TW - 7, FS_LI, C_DARK, false);
-        break;
-      }
-      case 'li2': {
-        needSpace(lh(FS_LI) + 0.8);
-        doc.setFontSize(FS_LI - 0.5);
-        doc.setFont(fontSel, 'normal');
-        setColor(C_MUTED);
-        doc.text('◦', ML + 8, y);
-        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 12, TW - 12, FS_LI - 0.5, C_MUTED, false);
-        break;
-      }
+
       case 'body': {
         needSpace(lh(FS_BODY) + 0.5);
         renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML, TW, FS_BODY, C_BLACK, false);
         break;
       }
+
       case 'blank': {
         y += lh(FS_BODY) * 0.4;
         break;
       }
     }
     prevType = tok.type;
+  });
+
+  if (opts && opts.nums) {
+    doc.setFontSize(FS_HDR);
+    doc.setFont(fontSel,'normal');
+    setColor(C_DIM);
+    doc.text(String(pageNum), PW / 2, PH - 8, { align: 'center' });
   }
 
-  drawPageFooter(pageNum);
+  return { blob: doc.output('blob'), pages: pageNum };
+}
 
-  let finalBlob = doc.output('blob');
-  if (layoutMode === 'booklet' && window.PDFLib) {
-    try {
-      finalBlob = await convertPDFToTwoColumns(finalBlob);
-    } catch (e) {
-      console.warn('Fallback a standard PDF:', e);
-    }
+async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '', contenido = '' }) {
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    throw new Error('La librería jsPDF no está disponible en este momento.');
   }
+  const cleanMateria = (materia || 'Cátedra').trim();
+  const cleanUnidad = (unidad || 'Unidad 1').trim();
+  const cleanTitulo = (titulo || 'Resumen Académico').trim();
 
-  const blobUrl = URL.createObjectURL(finalBlob);
-  const cleanMateria = (materia || 'Materia').replace(/[\\/:*?"<>|]/g, '');
-  const cleanTitulo = (titulo || 'Resumen').replace(/[\\/:*?"<>|]/g, '');
-  const fileName = `${cleanMateria} - ${cleanTitulo}.pdf`;
+  const parsed = parseMarkdown(contenido || '');
+  const result = buildPDF(parsed, cleanMateria, cleanUnidad, cleanTitulo, { nums: true, footer: true, header: true });
+
+  const blobUrl = URL.createObjectURL(result.blob);
+  const cleanM = cleanMateria.replace(/[/\\?%*:|"<>]/g, '-');
+  const cleanT = cleanTitulo.replace(/[/\\?%*:|"<>]/g, '-');
+  const cleanFileName = `${cleanM} - ${cleanT}.pdf`;
 
   return {
-    blob: finalBlob,
+    blob: result.blob,
     blobUrl,
-    pageCount: pageNum,
-    fileName
+    pageCount: result.pages,
+    fileName: cleanFileName
   };
 }
 
-// ── 4. MAIN APP ──
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('psi_theme') || 'light');
   const [activeTab, setActiveTab] = useState('materias'); // 'materias', 'pdf', 'perfil', 'system'
@@ -777,7 +895,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.0';
+  const currentVersion = 'v2.12.1';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -4653,15 +4771,33 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   const [form, setForm] = useState(initialData || {
     titulo: '', tipo: 'Resumen', unidad: availableUnits[0] || 'Unidad 1', va_parcial: false, contenido: ''
   });
-  const [viewMode, setViewMode] = useState('split'); // 'split' | 'double_page'
+  const [viewMode, setViewMode] = useState(initialData?.pdfData ? 'double_page' : 'split'); // 'split' | 'double_page'
   const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [pdfLayoutMode, setPdfLayoutMode] = useState('standard'); // 'standard' | 'booklet'
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [compiledPDF, setCompiledPDF] = useState(null);
+  
+  const [compiledPDF, setCompiledPDF] = useState(() => {
+    if (initialData?.pdfData) {
+      const src = typeof initialData.pdfData === 'string' ? initialData.pdfData : (initialData.pdfData instanceof Blob ? URL.createObjectURL(initialData.pdfData) : null);
+      if (src) {
+        return {
+          blobUrl: src,
+          fileName: initialData.pdfName || initialData.nombre_archivo || `${initialData.titulo || 'Documento'}.pdf`,
+          pageCount: initialData.num_paginas || initialData.numPages || 1,
+          isDirectPDF: true
+        };
+      }
+    }
+    return null;
+  });
+
   const textareaRef = useRef(null);
   const pdfImportRef = useRef(null);
 
   const handleCompilePDF = async (forceDownload = false) => {
+    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
+      if (showToast) showToast('Mostrando PDF original cargado', 'check-circle');
+      return compiledPDF;
+    }
     if (!form.contenido?.trim()) {
       if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
       return null;
@@ -4673,8 +4809,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         materia: materiaNombre || form.materia || '',
         unidad: form.unidad || 'Unidad 1',
         titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido,
-        layoutMode: pdfLayoutMode
+        contenido: form.contenido
       });
       setCompiledPDF(res);
       setIsGeneratingPDF(false);
@@ -4698,6 +4833,18 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   };
 
   const handleDownloadNormal = async () => {
+    // 1. Si es un PDF ya subido intacto y no se editó texto, descargar el original exacto
+    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
+      downloadPDFHelper({
+        pdfData: form.pdfData,
+        fileName: form.pdfName || form.nombre_archivo || form.titulo,
+        twoColumns: false,
+        showToast
+      });
+      return;
+    }
+
+    // 2. Si es texto escrito en el editor, compilar con motor exacto de Scanner OCR
     if (!form.contenido?.trim()) {
       if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
       return;
@@ -4709,8 +4856,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         materia: materiaNombre || form.materia || '',
         unidad: form.unidad || 'Unidad 1',
         titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido,
-        layoutMode: 'standard'
+        contenido: form.contenido
       });
       setCompiledPDF(res);
 
@@ -4719,7 +4865,6 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
       a.download = res.fileName;
       a.click();
 
-      // Guardar también en el sistema con pdfData
       const reader = new FileReader();
       reader.onloadend = () => {
         onSave({
@@ -4732,7 +4877,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
       };
       reader.readAsDataURL(res.blob);
 
-      if (showToast) showToast(`PDF Normal descargado y guardado (${res.pageCount} págs)`, 'download');
+      if (showToast) showToast(`PDF Normal descargado (${res.pageCount} págs)`, 'download');
     } catch (err) {
       console.error('Error generando PDF:', err);
       if (showToast) showToast('Error al generar PDF: ' + err.message, 'alert-triangle');
@@ -4742,6 +4887,20 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   };
 
   const handleDownloadTwoColumns = async () => {
+    // 1. Si es un PDF ya subido y no se editó texto, convertir ese PDF exacto a 2 páginas por hoja
+    if (form.pdfData && (!form.contenido || form.contenido.trim().length === 0)) {
+      setIsGeneratingPDF(true);
+      await downloadPDFHelper({
+        pdfData: form.pdfData,
+        fileName: form.pdfName || form.nombre_archivo || form.titulo,
+        twoColumns: true,
+        showToast
+      });
+      setIsGeneratingPDF(false);
+      return;
+    }
+
+    // 2. Si es texto de editor, compilar con Scanner OCR y convertir a 2 columnas
     if (!form.contenido?.trim()) {
       if (showToast) showToast('El apunte no tiene contenido para generar PDF.', 'alert-triangle');
       return;
@@ -4753,8 +4912,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         materia: materiaNombre || form.materia || '',
         unidad: form.unidad || 'Unidad 1',
         titulo: form.titulo || 'Resumen Académico',
-        contenido: form.contenido,
-        layoutMode: 'standard'
+        contenido: form.contenido
       });
 
       const twoColBlob = await convertPDFToTwoColumns(res.blob);
@@ -4768,7 +4926,6 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
       a.click();
       setTimeout(() => URL.revokeObjectURL(twoColUrl), 10000);
 
-      // Guardar también en el sistema con pdfData
       const reader = new FileReader();
       reader.onloadend = () => {
         onSave({
@@ -4781,7 +4938,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
       };
       reader.readAsDataURL(twoColBlob);
 
-      if (showToast) showToast(`PDF 2 Págs / Hoja descargado y guardado`, 'download');
+      if (showToast) showToast(`PDF 2 Págs / Hoja descargado`, 'download');
     } catch (err) {
       console.error('Error generando PDF 2 columnas:', err);
       if (showToast) showToast('Error al procesar formato 2 páginas: ' + err.message, 'alert-triangle');
@@ -4821,52 +4978,51 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             fullText += `### Página ${i}\n${pageText}\n\n`;
           }
         }
-        const detectedTitle = extractAcademicTitle(fullText) || cleanName;
         setForm(prev => ({
           ...prev,
-          titulo: prev.titulo || detectedTitle,
-          contenido: (prev.contenido ? prev.contenido + '\n\n' : '') + fullText,
-          pdfName: file.name
+          titulo: prev.titulo || cleanName,
+          contenido: fullText
         }));
-        if (showToast) showToast(`Texto extraído (${pdf.numPages} págs)`, 'check-circle');
+        if (showToast) showToast(`Texto extraído con éxito (${maxPages} págs)`, 'check-circle');
       } catch (err) {
-        if (showToast) showToast('Error al extraer texto del PDF', 'alert-triangle');
+        console.error('Error procesando PDF a texto:', err);
+        if (showToast) showToast('Error al procesar PDF: ' + err.message, 'alert-triangle');
       }
     };
     reader.readAsArrayBuffer(file);
-    e.target.value = '';
   };
 
-  // Auto-extraer título desde '# Título' si se pega contenido
   const handleContentChange = (newContent) => {
-    const detectedTitle = extractAcademicTitle(newContent);
-    if (detectedTitle && (!form.titulo || form.titulo.startsWith('Cita:') || form.titulo.startsWith('Resumen:') || form.titulo === '')) {
-      setForm(prev => ({ ...prev, contenido: newContent, titulo: detectedTitle }));
+    const titleMatch = newContent.match(/^#\s+(.+)$/m);
+    if (titleMatch && titleMatch[1]) {
+      const extracted = titleMatch[1].trim();
+      setForm(prev => ({ ...prev, contenido: newContent, titulo: extracted }));
     } else {
       setForm(prev => ({ ...prev, contenido: newContent }));
     }
   };
 
   const handlePaste = (e) => {
-    const text = e.clipboardData?.getData('text') || '';
-    const detectedTitle = extractAcademicTitle(text);
-    if (detectedTitle && (!form.titulo || form.titulo.startsWith('Cita:') || form.titulo.startsWith('Resumen:'))) {
-      setForm(prev => ({ ...prev, titulo: detectedTitle }));
+    const textPasted = e.clipboardData.getData('text');
+    if (textPasted && textPasted.length > 30) {
+      triggerHaptic('light');
     }
   };
 
   const handleCopyPrompt = () => {
-    const prompt = generateAcademicPrompt(materiaNombre, form.titulo || form.unidad, '');
-    navigator.clipboard.writeText(prompt);
+    const promptText = `Actúa como un profesor universitario experto en ${materiaNombre || 'la materia'}. Estructura y desarrolla un apunte exhaustivo, riguroso y conceptualmente denso basado en los siguientes temas, utilizando la sintaxis de Scanner OCR:
+- Título con '# TÍTULO'
+- Subtítulos principales con '## Título'
+- Subtítulos secundarios con '### Subtítulo'
+- Viñetas de primer nivel con '• Texto' (usa **negritas** para conceptos clave)
+- Viñetas de segundo nivel con '  ◦ Subdetalle'
+- Para esquemas o gráficos usa '[imagen 1: Descripción del gráfico]'
+- Para fórmulas matemáticas o estadísticas usa '$f(x)$' o '$$ecuación$$'`;
+    navigator.clipboard.writeText(promptText);
     setCopiedPrompt(true);
     triggerHaptic('success');
-    if (showToast) showToast('📋 Prompt Académico copiado al portapapeles', 'sparkles');
-    setTimeout(() => setCopiedPrompt(false), 2500);
-  };
-
-  const handlePrintPDF = () => {
-    triggerHaptic('medium');
-    window.print();
+    if (showToast) showToast('¡Prompt copiado al portapapeles!', 'sparkles');
+    setTimeout(() => setCopiedPrompt(false), 3000);
   };
 
   const insertSyntax = (prefix, suffix = '') => {
@@ -4874,10 +5030,10 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
     if (!el) return;
     const start = el.selectionStart;
     const end = el.selectionEnd;
-    const text = el.value;
-    const sel = text.substring(start, end);
-    const newText = text.substring(0, start) + prefix + sel + suffix + text.substring(end);
-    setForm({ ...form, contenido: newText });
+    const current = form.contenido || '';
+    const selected = current.substring(start, end);
+    const updated = current.substring(0, start) + prefix + selected + suffix + current.substring(end);
+    setForm(prev => ({ ...prev, contenido: updated }));
     setTimeout(() => {
       el.focus();
       el.setSelectionRange(start + prefix.length, end + prefix.length);
@@ -4896,6 +5052,11 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
                 {materiaNombre || 'Cátedra'}
               </span>
               <span className="text-xs text-app-muted font-bold">• {form.unidad}</span>
+              {form.pdfData && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-navy-bg text-app-navy border border-app-navy/20">
+                  PDF Original Vinculado
+                </span>
+              )}
             </div>
             <h3 className="text-lg sm:text-xl font-black text-app-text mt-0.5 truncate max-w-lg">
               {form.titulo || (initialData ? 'Editar Apunte' : 'Nuevo Apunte Académico')}
@@ -4998,50 +5159,10 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
           </div>
         </div>
 
-        {/* Form Inputs Header */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
-          <input
-            value={form.titulo}
-            onChange={e => setForm({ ...form, titulo: e.target.value })}
-            placeholder="Título del Apunte (o pega el prompt y se detectará automáticamente)"
-            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none sm:col-span-2"
-            required
-          />
-          <select
-            value={form.tipo}
-            onChange={e => setForm({ ...form, tipo: e.target.value })}
-            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
-          >
-            <option value="Resumen">Resumen Completo</option>
-            <option value="Guía de Estudio">Guía de Estudio</option>
-            <option value="Mapa Conceptual">Mapa Conceptual</option>
-            <option value="Fichas">Fichas de Repaso</option>
-            <option value="Notas de Clase">Notas de Clase</option>
-          </select>
-          <input
-            value={form.unidad}
-            onChange={e => setForm({ ...form, unidad: e.target.value })}
-            placeholder="Unidad (ej: Unidad 1)"
-            className="p-2.5 rounded-lg bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
-          />
-          <button
-            type="button"
-            onClick={() => setForm({ ...form, va_parcial: !form.va_parcial })}
-            className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-              form.va_parcial
-                ? 'bg-app-amber-bg text-app-amber border-app-amber/40 shadow-sm'
-                : 'bg-app-surface text-app-muted border-app-border hover:text-app-text'
-            }`}
-          >
-            <Icon name="check-circle" className="w-3.5 h-3.5" />
-            <span>{form.va_parcial ? 'Va a Parcial' : 'Para Estudio'}</span>
-          </button>
-        </div>
-
         {/* ── 1. SPLIT VIEW MODE ── */}
         {viewMode === 'split' && (
           <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
-            {/* Toolbar with Markdown, Math & Smart Templates */}
+            {/* Toolbar */}
             <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 bg-app-surface border border-app-border rounded-lg">
               <div className="flex flex-wrap gap-1 items-center">
                 <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded-xl bg-app-card border border-app-border text-xs font-bold hover:border-app-emerald">B</button>
@@ -5067,7 +5188,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
                   }}
                   className="px-3 py-1 rounded-xl bg-app-emerald-bg border border-app-emerald/30 text-xs font-extrabold text-app-emerald hover:brightness-110 flex items-center gap-1"
                 >
-                  <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Universitaria
+                  <Icon name="sparkles" className="w-3.5 h-3.5" /> Plantilla Scanner OCR
                 </button>
               </div>
             </div>
@@ -5094,23 +5215,14 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         {/* ── 2. HOJA DOBLE / NEUROSCAN PDF PRINT PREVIEW MODE ── */}
         {viewMode === 'double_page' && (
           <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
-            {/* Control Bar for PDF Generation and Display */}
+            {/* Control Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-app-surface border border-app-border rounded-xl">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-app-muted">Maquetación:</span>
-                <select
-                  value={pdfLayoutMode}
-                  onChange={e => { setPdfLayoutMode(e.target.value); setCompiledPDF(null); }}
-                  className="p-1.5 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
-                >
-                  <option value="standard">A4 Estándar (1 Columna)</option>
-                  <option value="booklet">Folleto Doble Hoja (2 Columnas)</option>
-                </select>
                 <button
                   type="button"
                   onClick={() => handleCompilePDF(false)}
                   disabled={isGeneratingPDF}
-                  className="px-3 py-1.5 bg-app-card border border-app-emerald/40 text-app-emerald rounded-lg text-xs font-bold hover:border-app-emerald flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 bg-app-card border border-app-emerald/40 text-app-emerald rounded-lg text-xs font-bold hover:border-app-emerald flex items-center gap-1.5"
                 >
                   <Icon name={isGeneratingPDF ? "refresh-cw" : "play"} className={`w-3.5 h-3.5 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
                   <span>{compiledPDF ? "Recompilar PDF" : "Compilar y Ver PDF"}</span>
@@ -5141,103 +5253,47 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
                 >
                   <Icon name="check" className="w-3.5 h-3.5" /> Guardar
                 </button>
-                <button
-                  type="button"
-                  onClick={handlePrintPDF}
-                  className="px-3 py-1.5 bg-app-surface border border-app-border text-app-text rounded-lg text-xs font-bold flex items-center gap-1.5 hover:border-app-emerald"
-                  title="Imprimir versión HTML nativa"
-                >
-                  <Icon name="printer" className="w-3.5 h-3.5" /> Imprimir
-                </button>
               </div>
             </div>
 
-            {/* Live PDF Viewer or Fallback Preview */}
-            <div className="flex-1 overflow-y-auto p-2 sm:p-4 bg-app-surface/50 rounded-xl border border-app-border flex flex-col items-center">
+            {/* Live PDF Viewer */}
+            <div className="flex-1 overflow-hidden p-2 bg-slate-900/60 rounded-xl border border-app-border flex flex-col items-center justify-center">
               {compiledPDF ? (
-                <div className="w-full h-full flex flex-col space-y-2">
+                <div className="w-full h-full flex flex-col space-y-1">
                   <div className="flex justify-between items-center text-xs px-2 text-app-muted">
                     <span className="font-bold text-app-emerald flex items-center gap-1">
-                      <Icon name="check-circle" className="w-3.5 h-3.5" /> Documento Vectorial PDF Listo ({compiledPDF.pageCount} páginas)
+                      <Icon name="check-circle" className="w-3.5 h-3.5" /> {compiledPDF.isDirectPDF ? 'Documento PDF Original Vinculado' : `Documento Vectorial PDF Listo (${compiledPDF.pageCount} páginas)`}
                     </span>
-                    <span>{compiledPDF.fileName}</span>
+                    <span className="truncate max-w-xs">{compiledPDF.fileName}</span>
                   </div>
                   <iframe
                     src={compiledPDF.blobUrl}
-                    className="w-full h-[66vh] rounded-xl border border-app-border bg-white shadow-fluffy"
+                    className="w-full flex-1 rounded-xl border-0 bg-white"
                     title="Visor PDF Académico"
                   />
                 </div>
               ) : (
-                <div className="w-full space-y-4">
-                  <div className="max-w-md mx-auto text-center p-6 bg-app-card border border-app-border rounded-xl shadow-card space-y-3">
-                    <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
-                      <Icon name="file-text" className="w-6 h-6" />
-                    </div>
-                    <h4 className="text-sm font-black text-app-text">Visualizador de PDF Académico</h4>
-                    <p className="text-xs text-app-muted">
-                      Compila este apunte en un documento PDF vectorial limpio con membrete de cátedra, paginación y formato universitario.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => handleCompilePDF(false)}
-                      disabled={isGeneratingPDF}
-                      className="w-full py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
-                    >
-                      <Icon name="sparkles" className="w-4 h-4" /> Generar y Ver PDF Directamente
-                    </button>
+                <div className="max-w-md mx-auto text-center p-8 bg-app-card border border-app-border rounded-xl shadow-card space-y-3">
+                  <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
+                    <Icon name="file-text" className="w-6 h-6" />
                   </div>
-
-                  <div
-                    id="academic-pdf-print-area"
-                    className="max-w-4xl mx-auto bg-white text-slate-900 p-5 sm:p-12 rounded-xl shadow-fluffy border border-slate-200"
+                  <h4 className="text-sm font-black text-app-text">Visualizador de PDF Scanner OCR</h4>
+                  <p className="text-xs text-app-muted">
+                    Compila este apunte con el diseño editorial exacto de Scanner OCR o visualiza el archivo PDF original cargado.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleCompilePDF(false)}
+                    disabled={isGeneratingPDF}
+                    className="w-full py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
                   >
-                    <div className="border-b-2 border-emerald-600 pb-4 mb-6 flex justify-between items-end">
-                      <div>
-                        <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700 block">
-                          PSIESTUDIO • GUÍA ACADÉMICA DE ESTUDIO
-                        </span>
-                        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 mt-1 uppercase tracking-tight">
-                          {form.titulo || 'RESUMEN ACADÉMICO'}
-                        </h1>
-                        <p className="text-xs font-bold text-slate-600 mt-0.5">
-                          {materiaNombre || 'Cátedra'} • {form.unidad} • {form.tipo}
-                        </p>
-                      </div>
-                      <div className="text-right text-[10px] text-slate-400 font-mono">
-                        {new Date().toLocaleDateString('es-AR')}
-                      </div>
-                    </div>
-
-                    <div
-                      className="academic-double-column print-double-column text-[11.5px] leading-relaxed text-slate-800 space-y-2 text-justify"
-                      dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="italic text-slate-400">Sin contenido cargado.</p>' }}
-                    />
-                  </div>
+                    <Icon name="sparkles" className="w-4 h-4" /> Generar y Ver PDF Directamente
+                  </button>
                 </div>
               )}
             </div>
           </div>
         )}
-
-        {/* Footer Actions */}
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="py-3 px-5 bg-app-surface border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
-          >
-            Cerrar
-          </button>
-          <button
-            type="button"
-            onClick={() => { triggerHaptic('success'); onSave(form); }}
-            className="flex-1 py-3 bg-app-emerald text-white font-extrabold text-sm rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
-          >
-            <Icon name="check-circle" className="w-4 h-4 text-white" />
-            Guardar Apunte en Supabase & Local
-          </button>
-        </div>
       </div>
     </div>
   );
