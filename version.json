@@ -1,7 +1,7 @@
 {
-  "version": "2.12.3",
-  "buildDate": "2026-10-01T18:55:00.000Z",
+  "version": "2.12.4",
+  "buildDate": "2026-10-01T19:15:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Soporte nativo para Tablas y Cuadros Comparativos Markdown en apuntes, visor interactivo y compilador PDF con jsPDF-AutoTable, además de actualización del Prompt IA con reglas de generación de tablas estructuradas."
+  "notes": "Eliminación del botón Recompilar en el visor de doble hoja (para preservar los PDFs intactos), auditoría de consistencia de datos IndexedDB/Supabase y optimización integral del código."
 }

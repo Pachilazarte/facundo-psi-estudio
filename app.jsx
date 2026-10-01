@@ -1032,7 +1032,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.3';
+  const currentVersion = 'v2.12.4';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -5520,16 +5520,15 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
           <div className="flex-1 flex flex-col space-y-3 overflow-hidden">
             {/* Control Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-app-surface border border-app-border rounded-xl">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleCompilePDF(false)}
-                  disabled={isGeneratingPDF}
-                  className="px-3.5 py-1.5 bg-app-card border border-app-emerald/40 text-app-emerald rounded-lg text-xs font-bold hover:border-app-emerald flex items-center gap-1.5"
-                >
-                  <Icon name={isGeneratingPDF ? "refresh-cw" : "play"} className={`w-3.5 h-3.5 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
-                  <span>{compiledPDF ? "Recompilar PDF" : "Compilar y Ver PDF"}</span>
-                </button>
+              <div className="flex items-center gap-2 text-xs font-bold text-app-muted">
+                <span className="flex items-center gap-1.5 text-app-emerald font-extrabold">
+                  <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> {form.pdfName || form.titulo || 'Vista Previa del Documento'}
+                </span>
+                {form.pdfData && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-navy-bg text-app-navy border border-app-navy/20">
+                    PDF Original
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

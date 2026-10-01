@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-ios-v2.12.3';
+const CACHE_NAME = 'psiestudio-ios-v2.12.4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
