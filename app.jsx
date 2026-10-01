@@ -40,17 +40,71 @@ try {
   console.warn('Dexie DB init warning:', e);
 }
 
-// ── 2. LUCIDE SVG ICON WRAPPER (ZERO EMOJIS) ──
-const Icon = ({ name, className = "w-4 h-4", size = 18 }) => {
-  const iconRef = useRef(null);
-
-  useEffect(() => {
-    if (window.lucide && iconRef.current) {
-      window.lucide.createIcons();
-    }
+// ── 2. LUCIDE SVG ICON WRAPPER (100% PURE REACT SVG, ZERO DOM MUTATION) ──
+const Icon = ({ name, className = "w-4 h-4", size = 18, style = {}, strokeWidth = 2, ...props }) => {
+  const pascalName = useMemo(() => {
+    if (!name) return 'HelpCircle';
+    const clean = String(name).replace(/^lucide-/i, '');
+    return clean
+      .split(/[-_]/)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('');
   }, [name]);
 
-  return <i ref={iconRef} data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block' }}></i>;
+  const iconDef = useMemo(() => {
+    if (typeof window === 'undefined' || !window.lucide) return null;
+    return window.lucide[pascalName] || (window.lucide.icons && window.lucide.icons[pascalName]) || null;
+  }, [pascalName]);
+
+  const widthVal = typeof size === 'number' ? `${size}px` : size;
+  const heightVal = typeof size === 'number' ? `${size}px` : size;
+  const combinedStyle = {
+    width: widthVal,
+    height: heightVal,
+    display: 'inline-block',
+    verticalAlign: 'middle',
+    flexShrink: 0,
+    ...style
+  };
+
+  if (!iconDef || !Array.isArray(iconDef)) {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={combinedStyle}
+        {...props}
+      />
+    );
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      style={combinedStyle}
+      {...props}
+    >
+      {iconDef.map(([tag, attrs], idx) => {
+        const Tag = tag;
+        return <Tag key={idx} {...attrs} />;
+      })}
+    </svg>
+  );
 };
 
 // ── 2.5 HAPTIC FEEDBACK UTILITY ──
@@ -145,7 +199,7 @@ function parseMarkdownToHTML(md) {
   html = html.replace(/\[imagen\s*(\d+):?\s*([^\]]*)\]/gi, (match, num, desc) => {
     return `<div class="my-4 p-4 rounded-lg bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
       <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald text-xs font-extrabold border border-app-emerald/20">
-        <i data-lucide="image" class="w-3.5 h-3.5 inline-block"></i> FIGURA ${num}
+        <svg class="w-3.5 h-3.5 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg> FIGURA ${num}
       </div>
       <p class="text-xs text-app-muted mt-2 italic font-serif">${desc.trim() || 'Esquema o fotografía conceptual'}</p>
     </div>`;
@@ -664,7 +718,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.11.0';
+  const currentVersion = 'v2.11.1';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });

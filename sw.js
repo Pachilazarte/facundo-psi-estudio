@@ -1,11 +1,10 @@
-const CACHE_NAME = 'psiestudio-ios-v2.11';
+const CACHE_NAME = 'psiestudio-ios-v2.11.1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './index.css',
   './colors.css',
   './app.jsx',
-  './app.js',
   './logo.png',
   './favicon.png',
   './icon-192.png',
