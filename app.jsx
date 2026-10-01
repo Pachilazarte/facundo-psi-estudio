@@ -188,13 +188,14 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.9.0';
+  const currentVersion = 'v2.10.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
   const [modalBiblioBatch, setModalBiblioBatch] = useState(false);
   const [modalClase, setModalClase] = useState({ open: false, data: null });
   const [modalApunte, setModalApunte] = useState({ open: false, data: null });
+  const [modalUploadApuntePDF, setModalUploadApuntePDF] = useState({ open: false, materiaId: null });
   const [modalExamen, setModalExamen] = useState({ open: false, data: null });
   const [modalPDFViewer, setModalPDFViewer] = useState({ open: false, data: null });
   const [modalSearch, setModalSearch] = useState(false);
@@ -640,13 +641,46 @@ function App() {
     const updated = isEdit ? materias.map(m => m.id === payload.id ? payload : m) : [...materias, payload];
     setMaterias(updated);
     localStorage.setItem('psi_materias_cache', JSON.stringify(updated));
+    saveToIndexedDB('materias', updated);
     setModalMateria({ open: false, data: null });
     showToast(isEdit ? 'Materia actualizada' : 'Materia creada', 'book');
 
+    // Sincronizar evaluaciones dinámicas en la colección de exámenes
+    if (Array.isArray(formData.evaluaciones) && formData.evaluaciones.length > 0) {
+      let currentExs = [...examenes];
+      formData.evaluaciones.forEach((ev, idx) => {
+        const existingIdx = currentExs.findIndex(ex => (ex.id === ev.id) || (ex.materia_id === payload.id && ex.nombre === ev.nombre));
+        const examItem = {
+          id: ev.id || ('ex_' + Date.now() + '_' + idx),
+          nombre: ev.nombre || ev.tipo || 'Evaluación',
+          materia_id: payload.id,
+          materia: payload.nombre,
+          tipo: ev.tipo || '1° Parcial',
+          fecha: ev.fecha || new Date().toISOString().split('T')[0],
+          modalidad: ev.modalidad || 'Presencial Escrito',
+          temas: ev.temario || '',
+          unidades_incluidas: [],
+          textos_vinculados: [],
+          textos_ids: [],
+          created_at: new Date().toISOString()
+        };
+        if (existingIdx >= 0) {
+          currentExs[existingIdx] = { ...currentExs[existingIdx], ...examItem };
+        } else {
+          currentExs.push(examItem);
+        }
+      });
+      setExamenes(currentExs);
+      localStorage.setItem('psi_examenes_cache', JSON.stringify(currentExs));
+      saveToIndexedDB('examenes', currentExs);
+    }
+
     if (supabaseClient && isOnline) {
       try {
-        if (isEdit) await supabaseClient.from('materias').update(payload).eq('id', payload.id);
-        else await supabaseClient.from('materias').insert([payload]);
+        // Excluir 'evaluaciones' del payload directo de materias en Supabase para evitar 400 Bad Request
+        const { evaluaciones, ...cleanMateria } = payload;
+        if (isEdit) await supabaseClient.from('materias').update(cleanMateria).eq('id', cleanMateria.id);
+        else await supabaseClient.from('materias').insert([cleanMateria]);
       } catch (e) {
         enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'materias', payload);
       }
@@ -803,24 +837,53 @@ function App() {
 
   const handleSaveApunte = async (formData) => {
     const isEdit = Boolean(formData.id);
+    const targetMatId = formData.materia_id || selectedMateriaId || (materias[0]?.id || null);
+    const targetMatObj = materias.find(m => m.id === targetMatId);
+    const targetMatName = targetMatObj ? targetMatObj.nombre : (currentMateria ? currentMateria.nombre : 'General');
+
     const payload = {
       ...formData,
       id: formData.id || 'apu_' + Date.now(),
-      materia_id: selectedMateriaId,
-      materia: currentMateria ? currentMateria.nombre : 'General',
+      materia_id: targetMatId,
+      materia: targetMatName,
       created_at: formData.created_at || new Date().toISOString()
     };
 
     const updated = isEdit ? apuntes.map(a => a.id === payload.id ? payload : a) : [payload, ...apuntes];
     setApuntes(updated);
     localStorage.setItem('psi_apuntes_cache', JSON.stringify(updated));
+    saveToIndexedDB('apuntes', updated);
     setModalApunte({ open: false, data: null });
-    showToast('Apunte guardado en Supabase', 'file-edit');
+    setModalUploadApuntePDF({ open: false, materiaId: null });
+    showToast('Apunte guardado con éxito', 'file-edit');
+
+    // Si vino de una subida de PDF, también registrar en documentos_pdf
+    if (formData.pdfName) {
+      const pdfPayload = {
+        id: 'pdf_' + Date.now(),
+        nombre_archivo: formData.pdfName,
+        materia_id: targetMatId,
+        materia: targetMatName,
+        unidad: formData.unidad || 'Unidad 1',
+        num_paginas: formData.numPages || 1,
+        va_parcial: Boolean(formData.va_parcial),
+        texto_extraido: (formData.contenido || '').slice(0, 1500),
+        created_at: new Date().toISOString()
+      };
+      const updatedPdfs = [pdfPayload, ...pdfs];
+      setPdfs(updatedPdfs);
+      localStorage.setItem('psi_pdfs_cache', JSON.stringify(updatedPdfs));
+      saveToIndexedDB('documentos_pdf', updatedPdfs);
+      if (supabaseClient && isOnline) {
+        try { await supabaseClient.from('documentos_pdf').insert([pdfPayload]); } catch(e) {}
+      }
+    }
 
     if (supabaseClient && isOnline) {
       try {
-        if (isEdit) await supabaseClient.from('apuntes').update(payload).eq('id', payload.id);
-        else await supabaseClient.from('apuntes').insert([payload]);
+        const { pdfName, numPages, ...cleanPayload } = payload;
+        if (isEdit) await supabaseClient.from('apuntes').update(cleanPayload).eq('id', payload.id);
+        else await supabaseClient.from('apuntes').insert([cleanPayload]);
       } catch (e) {
         enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', payload);
       }
@@ -1384,10 +1447,26 @@ function App() {
                     <div className="text-xs text-app-muted mt-2">Año: {currentMateria.año_cursado || 2026} • Cuatrimestre: {currentMateria.cuatrimestre || '2'}</div>
                   </div>
                   <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
-                    <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Fechas de Parciales</div>
-                    <div className="text-sm font-extrabold text-app-text">1° Parcial: {currentMateria.fecha_parcial1 || 'A definir'}</div>
-                    <div className="text-sm font-extrabold text-app-text mt-1">2° Parcial: {currentMateria.fecha_parcial2 || 'A definir'}</div>
-                    <div className="text-xs text-app-muted mt-2">Modalidad: {currentMateria.modalidad_parcial || 'Presencial'}</div>
+                    <div className="flex justify-between items-center mb-1">
+                      <div className="text-xs font-extrabold uppercase text-app-emerald">Evaluaciones & Parciales</div>
+                      <span className="text-[10px] font-bold text-app-muted">{(currentMateria.evaluaciones?.length || (currentMateria.fecha_parcial1 ? 1 : 0) + (currentMateria.fecha_parcial2 ? 1 : 0))} instancia(s)</span>
+                    </div>
+                    {currentMateria.evaluaciones && currentMateria.evaluaciones.length > 0 ? (
+                      <div className="space-y-1.5 mt-2">
+                        {currentMateria.evaluaciones.map((ev, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs py-0.5 border-b border-app-border/40 last:border-0">
+                            <span className="font-bold text-app-text truncate max-w-[140px]">{ev.nombre || ev.tipo}:</span>
+                            <span className="font-mono text-[11px] text-app-emerald font-bold">{ev.fecha || 'A definir'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-1 mt-1">
+                        <div className="text-sm font-extrabold text-app-text">1° Parcial: {currentMateria.fecha_parcial1 || 'A definir'}</div>
+                        <div className="text-sm font-extrabold text-app-text">2° Parcial: {currentMateria.fecha_parcial2 || 'A definir'}</div>
+                        <div className="text-xs text-app-muted mt-1">Modalidad: {currentMateria.modalidad_parcial || 'Presencial'}</div>
+                      </div>
+                    )}
                   </div>
                   <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
                     <div className="text-xs font-extrabold uppercase text-app-emerald mb-1">Examen Final & Enlaces</div>
@@ -1399,18 +1478,42 @@ function App() {
                   </div>
                 </div>
 
-                <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
-                  <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                    <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 1° Parcial
-                  </h4>
-                  <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial1 || 'No hay temario cargado para el 1° parcial.'}</p>
-                </div>
-                <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
-                  <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                    <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 2° Parcial
-                  </h4>
-                  <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial2 || 'No hay temario cargado para el 2° parcial.'}</p>
-                </div>
+                {/* Temarios dinámicos por cada evaluación */}
+                {currentMateria.evaluaciones && currentMateria.evaluaciones.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {currentMateria.evaluaciones.map((ev, i) => (
+                      <div key={i} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card space-y-2">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                            <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> {ev.nombre || ev.tipo}
+                          </h4>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                            {ev.modalidad || 'Presencial'}
+                          </span>
+                        </div>
+                        <p className="text-xs font-bold text-app-muted">Fecha: <span className="text-app-text">{ev.fecha || 'Sin fecha asignada'}</span></p>
+                        <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">
+                          {ev.temario || 'No hay temario cargado para esta evaluación.'}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
+                      <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                        <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 1° Parcial
+                      </h4>
+                      <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial1 || 'No hay temario cargado para el 1° parcial.'}</p>
+                    </div>
+                    <div className="bg-app-card border border-app-border p-5 sm:p-4 rounded-xl shadow-card space-y-3">
+                      <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                        <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> Temario 2° Parcial
+                      </h4>
+                      <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{currentMateria.temas_parcial2 || 'No hay temario cargado para el 2° parcial.'}</p>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1794,7 +1897,7 @@ function App() {
                     </h3>
                     <p className="text-xs text-app-muted">Redactados con máxima densidad y formato de doble hoja imprimible.</p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button
                       onClick={() => {
                         const prompt = generateAcademicPrompt(currentMateria?.nombre, currentMateriaUnits[0] || 'Unidad 1', '');
@@ -1807,6 +1910,12 @@ function App() {
                       <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA
                     </button>
                     <button
+                      onClick={() => { triggerHaptic('light'); setModalUploadApuntePDF({ open: true, materiaId: selectedMateriaId }); }}
+                      className="px-3.5 py-2 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card hover:brightness-110 flex items-center gap-1.5"
+                    >
+                      <Icon name="upload-cloud" className="w-4 h-4 text-white" /> Subir PDF de Apunte
+                    </button>
+                    <button
                       onClick={() => { triggerHaptic('light'); setModalApunte({ open: true, data: null }); }}
                       className="px-4 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5"
                     >
@@ -1816,20 +1925,30 @@ function App() {
                 </div>
 
                 {currentMateriaApuntes.length === 0 ? (
-                  <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-3 shadow-card">
+                  <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-4 shadow-card">
                     <div className="w-14 h-14 rounded-lg bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
                       <Icon name="file-text" className="w-7 h-7" size={28} />
                     </div>
-                    <h4 className="text-base font-extrabold text-app-text">Sin apuntes cargados en esta materia</h4>
-                    <p className="text-xs text-app-muted max-w-sm mx-auto">
-                      Copia el prompt académico, procésalo con tu IA preferida y pega el código aquí. Se auto-extraerá el título y quedará listo para leer o imprimir en hoja doble.
-                    </p>
-                    <button
-                      onClick={() => setModalApunte({ open: true, data: null })}
-                      className="px-5 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald"
-                    >
-                      Crear Primer Apunte
-                    </button>
+                    <div className="space-y-1">
+                      <h4 className="text-base font-extrabold text-app-text">Sin apuntes cargados en esta materia</h4>
+                      <p className="text-xs text-app-muted max-w-sm mx-auto">
+                        Puedes subir un apunte existente directamente en formato PDF o redactar uno nuevo con ayuda de IA y formato de doble hoja imprimible.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+                      <button
+                        onClick={() => setModalUploadApuntePDF({ open: true, materiaId: selectedMateriaId })}
+                        className="px-5 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2 hover:brightness-110"
+                      >
+                        <Icon name="upload-cloud" className="w-4 h-4" /> Subir Apunte en PDF
+                      </button>
+                      <button
+                        onClick={() => setModalApunte({ open: true, data: null })}
+                        className="px-5 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-2 hover:brightness-110"
+                      >
+                        <Icon name="plus-circle" className="w-4 h-4" /> Crear con Editor / IA
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1837,14 +1956,23 @@ function App() {
                       <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                         <div>
                           <div className="flex justify-between items-center mb-2">
-                            <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
+                              {a.pdfName && (
+                                <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
+                                  <Icon name="file-text" className="w-3 h-3" /> PDF
+                                </span>
+                              )}
+                            </div>
                             <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                           </div>
                           <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
                           <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
                         </div>
                         <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
-                          <span className="font-bold text-app-amber text-[11px]">{a.va_parcial ? 'Para Parcial' : 'Estudio'}</span>
+                          <span className="font-bold text-app-amber text-[11px] truncate max-w-[130px]" title={a.nro_parcial || 'Para Parcial'}>
+                            {a.va_parcial ? (a.nro_parcial ? `Para ${a.nro_parcial}` : 'Para Parcial') : 'Estudio'}
+                          </span>
                           <div className="flex gap-1.5">
                             <button
                               onClick={() => setModalApunte({ open: true, data: a })}
@@ -2191,7 +2319,7 @@ function App() {
                 </h2>
                 <p className="text-xs text-app-muted">Redacción de máxima densidad con soporte para fórmulas LaTeX y vista en hoja doble imprimible.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => {
                     const prompt = generateAcademicPrompt('', 'Unidad 1', '');
@@ -2202,6 +2330,12 @@ function App() {
                   className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald font-bold text-xs rounded-xl flex items-center gap-1.5"
                 >
                   <Icon name="sparkles" className="w-3.5 h-3.5" /> Copiar Prompt IA
+                </button>
+                <button
+                  onClick={() => { triggerHaptic('light'); setModalUploadApuntePDF({ open: true, materiaId: globalMateriaFilter !== 'todas' ? globalMateriaFilter : null }); }}
+                  className="px-3.5 py-2 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card hover:brightness-110 flex items-center gap-1.5"
+                >
+                  <Icon name="upload-cloud" className="w-4 h-4 text-white" /> Subir PDF de Apunte
                 </button>
                 <button
                   onClick={() => { triggerHaptic('light'); setModalApunte({ open: true, data: null }); }}
@@ -2249,14 +2383,23 @@ function App() {
                   <div key={a.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                     <div>
                       <div className="flex justify-between items-center mb-2">
-                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
+                          {a.pdfName && (
+                            <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
+                              <Icon name="file-text" className="w-3 h-3" /> PDF
+                            </span>
+                          )}
+                        </div>
                         <span className="text-xs text-app-muted font-bold">{a.unidad}</span>
                       </div>
                       <h4 className="text-base font-black text-app-text mb-2 leading-snug">{a.titulo}</h4>
                       <p className="text-xs text-app-muted line-clamp-4 leading-relaxed mb-4">{(a.contenido || '').replace(/[#*`>•◦]/g, '')}</p>
                     </div>
                     <div className="flex justify-between items-center pt-3 border-t border-app-border text-xs">
-                      <span className="font-bold text-app-amber text-[11px]">{a.va_parcial ? 'Para Parcial' : 'Estudio'}</span>
+                      <span className="font-bold text-app-amber text-[11px] truncate max-w-[130px]" title={a.nro_parcial || 'Para Parcial'}>
+                        {a.va_parcial ? (a.nro_parcial ? `Para ${a.nro_parcial}` : 'Para Parcial') : 'Estudio'}
+                      </span>
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => setModalApunte({ open: true, data: a })}
@@ -2720,6 +2863,21 @@ function App() {
         />
       )}
 
+      {modalUploadApuntePDF.open && (
+        <ModalSubirApuntePDF
+          isOpen={modalUploadApuntePDF.open}
+          initialMateriaId={modalUploadApuntePDF.materiaId || selectedMateriaId}
+          materias={materias}
+          biblio={biblio}
+          showToast={showToast}
+          onClose={() => setModalUploadApuntePDF({ open: false, materiaId: null })}
+          onSave={handleSaveApunte}
+          onOpenSplitEditor={(apunteData) => {
+            setModalApunte({ open: true, data: apunteData });
+          }}
+        />
+      )}
+
       {modalExamen.open && (
         <ModalExamenWithLinking
           initialData={modalExamen.data}
@@ -2896,17 +3054,115 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
 }
 
 function ModalMateria({ initialData, onClose, onSave }) {
-  const [form, setForm] = useState(initialData || {
-    nombre: '', abreviatura: '', docente: '', color: '#10B981',
-    año_cursado: 2026, cuatrimestre: 2, descripcion: '',
-    fecha_parcial1: '', fecha_parcial2: '', fecha_final: '',
-    modalidad_parcial: 'Presencial Escrito', temas_parcial1: '', temas_parcial2: '', temas_final: '',
-    link_programa: '', link_drive: ''
+  const [form, setForm] = useState(() => {
+    if (initialData) {
+      let evals = Array.isArray(initialData.evaluaciones) && initialData.evaluaciones.length > 0
+        ? [...initialData.evaluaciones]
+        : [];
+
+      // Migrar campos heredados si no existían en el array
+      if (evals.length === 0) {
+        if (initialData.fecha_parcial1 || initialData.temas_parcial1) {
+          evals.push({
+            id: 'eval_p1_' + Date.now(),
+            tipo: '1° Parcial',
+            nombre: 'Primer Parcial',
+            fecha: initialData.fecha_parcial1 || '',
+            modalidad: initialData.modalidad_parcial || 'Presencial Escrito',
+            temario: initialData.temas_parcial1 || ''
+          });
+        }
+        if (initialData.fecha_parcial2 || initialData.temas_parcial2) {
+          evals.push({
+            id: 'eval_p2_' + (Date.now() + 1),
+            tipo: '2° Parcial',
+            nombre: 'Segundo Parcial',
+            fecha: initialData.fecha_parcial2 || '',
+            modalidad: initialData.modalidad_parcial || 'Presencial Escrito',
+            temario: initialData.temas_parcial2 || ''
+          });
+        }
+        if (initialData.fecha_final || initialData.temas_final) {
+          evals.push({
+            id: 'eval_fin_' + (Date.now() + 2),
+            tipo: 'Examen Final',
+            nombre: 'Examen Final',
+            fecha: initialData.fecha_final || '',
+            modalidad: 'Presencial Oral/Escrito',
+            temario: initialData.temas_final || ''
+          });
+        }
+      }
+
+      return {
+        ...initialData,
+        evaluaciones: evals
+      };
+    }
+
+    return {
+      nombre: '', abreviatura: '', docente: '', color: '#10B981',
+      año_cursado: 2026, cuatrimestre: 2, descripcion: '',
+      link_programa: '', link_drive: '',
+      evaluaciones: []
+    };
   });
+
+  const handleAddEvaluacion = (tipoPreset) => {
+    const id = 'eval_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+    let nombre = tipoPreset;
+    if (tipoPreset === 'Personalizado') nombre = 'Nueva Instancia Evaluativa';
+    const newEval = {
+      id,
+      tipo: tipoPreset === 'Personalizado' ? 'Evaluación' : tipoPreset,
+      nombre,
+      fecha: '',
+      modalidad: 'Presencial Escrito',
+      temario: ''
+    };
+    setForm(prev => ({
+      ...prev,
+      evaluaciones: [...(prev.evaluaciones || []), newEval]
+    }));
+  };
+
+  const handleUpdateEvaluacion = (index, field, value) => {
+    setForm(prev => {
+      const next = [...(prev.evaluaciones || [])];
+      next[index] = { ...next[index], [field]: value };
+      return { ...prev, evaluaciones: next };
+    });
+  };
+
+  const handleRemoveEvaluacion = (index) => {
+    setForm(prev => ({
+      ...prev,
+      evaluaciones: (prev.evaluaciones || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const evals = form.evaluaciones || [];
+    const p1 = evals.find(e => e.tipo === '1° Parcial' || e.nombre?.includes('1°'));
+    const p2 = evals.find(e => e.tipo === '2° Parcial' || e.nombre?.includes('2°'));
+    const fin = evals.find(e => e.tipo === 'Examen Final' || e.nombre?.toLowerCase().includes('final'));
+
+    const payload = {
+      ...form,
+      fecha_parcial1: p1 ? p1.fecha : (form.fecha_parcial1 || ''),
+      temas_parcial1: p1 ? p1.temario : (form.temas_parcial1 || ''),
+      fecha_parcial2: p2 ? p2.fecha : (form.fecha_parcial2 || ''),
+      temas_parcial2: p2 ? p2.temario : (form.temas_parcial2 || ''),
+      fecha_final: fin ? fin.fecha : (form.fecha_final || ''),
+      temas_final: fin ? fin.temario : (form.temas_final || '')
+    };
+    onSave(payload);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 sm:p-6 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Materia' : 'Nueva Materia'}</h3>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -2914,22 +3170,22 @@ function ModalMateria({ initialData, onClose, onSave }) {
           </button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Nombre</label>
-              <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="Semiosis Social" />
+              <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="Psicología de la Personalidad" />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Sigla / Abreviatura</label>
-              <input value={form.abreviatura} onChange={e => setForm({ ...form, abreviatura: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="SEM" />
+              <input value={form.abreviatura} onChange={e => setForm({ ...form, abreviatura: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="PERSO" />
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Docente / Cátedra</label>
-              <input value={form.docente} onChange={e => setForm({ ...form, docente: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+              <input value={form.docente} onChange={e => setForm({ ...form, docente: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" placeholder="Titular y equipo docente..." />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Cuatrimestre</label>
@@ -2941,23 +3197,153 @@ function ModalMateria({ initialData, onClose, onSave }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Fecha 1° Parcial</label>
-              <input type="date" value={form.fecha_parcial1 || ''} onChange={e => setForm({ ...form, fecha_parcial1: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+          {/* ── SECCIÓN DINÁMICA DE EVALUACIONES ── */}
+          <div className="border-t border-app-border pt-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <label className="block text-xs font-black uppercase text-app-emerald">
+                  Evaluaciones & Exámenes ({form.evaluaciones?.length || 0})
+                </label>
+                <p className="text-[11px] text-app-muted">
+                  Agrega libremente parciales (1, 2, 3), recuperatorios o TPs evaluativos.
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <select
+                  onChange={e => {
+                    if (!e.target.value) return;
+                    handleAddEvaluacion(e.target.value);
+                    e.target.value = '';
+                  }}
+                  className="text-xs font-bold py-1.5 px-3 rounded-xl bg-app-surface border border-app-border text-app-emerald outline-none hover:border-app-emerald cursor-pointer"
+                  defaultValue=""
+                >
+                  <option value="" disabled>+ Agregar Instancia...</option>
+                  <option value="1° Parcial">+ 1° Parcial</option>
+                  <option value="2° Parcial">+ 2° Parcial</option>
+                  <option value="3° Parcial">+ 3° Parcial</option>
+                  <option value="Recuperatorio 1° Parcial">+ Recuperatorio 1° Parcial</option>
+                  <option value="Recuperatorio 2° Parcial">+ Recuperatorio 2° Parcial</option>
+                  <option value="Recuperatorio 3° Parcial">+ Recuperatorio 3° Parcial</option>
+                  <option value="TP Evaluativo">+ TP Evaluativo</option>
+                  <option value="Examen Final">+ Examen Final</option>
+                  <option value="Personalizado">+ Personalizado...</option>
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Fecha 2° Parcial</label>
-              <input type="date" value={form.fecha_parcial2 || ''} onChange={e => setForm({ ...form, fecha_parcial2: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
-            </div>
+
+            {(!form.evaluaciones || form.evaluaciones.length === 0) ? (
+              <div className="p-4 rounded-xl bg-app-surface border border-dashed border-app-border text-center space-y-2">
+                <p className="text-xs text-app-muted font-bold">No hay evaluaciones configuradas. Agrega una rápidamente:</p>
+                <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+                  {[
+                    '1° Parcial',
+                    '2° Parcial',
+                    '3° Parcial',
+                    'Recuperatorio 1° Parcial',
+                    'TP Evaluativo'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleAddEvaluacion(preset)}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg bg-app-card border border-app-border hover:border-app-emerald hover:text-app-emerald text-app-text transition-all"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {form.evaluaciones.map((ev, idx) => (
+                  <div key={ev.id || idx} className="p-3.5 rounded-xl bg-app-surface border border-app-border space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1">
+                        <select
+                          value={ev.tipo}
+                          onChange={e => handleUpdateEvaluacion(idx, 'tipo', e.target.value)}
+                          className="text-[11px] font-extrabold uppercase px-2.5 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30 outline-none"
+                        >
+                          <option value="1° Parcial">1° Parcial</option>
+                          <option value="2° Parcial">2° Parcial</option>
+                          <option value="3° Parcial">3° Parcial</option>
+                          <option value="Recuperatorio 1° Parcial">Recuperatorio 1° Parcial</option>
+                          <option value="Recuperatorio 2° Parcial">Recuperatorio 2° Parcial</option>
+                          <option value="Recuperatorio 3° Parcial">Recuperatorio 3° Parcial</option>
+                          <option value="TP Evaluativo">TP Evaluativo</option>
+                          <option value="Examen Final">Examen Final</option>
+                          <option value="Evaluación">Personalizado</option>
+                        </select>
+                        <input
+                          value={ev.nombre}
+                          onChange={e => handleUpdateEvaluacion(idx, 'nombre', e.target.value)}
+                          placeholder="Nombre de la evaluación"
+                          className="flex-1 p-2 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEvaluacion(idx)}
+                        className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg border border-transparent hover:border-app-ruby/20 transition-all"
+                        title="Eliminar esta evaluación"
+                      >
+                        <Icon name="trash-2" className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Fecha</label>
+                        <input
+                          type="date"
+                          value={ev.fecha || ''}
+                          onChange={e => handleUpdateEvaluacion(idx, 'fecha', e.target.value)}
+                          className="w-full p-2 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Modalidad</label>
+                        <select
+                          value={ev.modalidad || 'Presencial Escrito'}
+                          onChange={e => handleUpdateEvaluacion(idx, 'modalidad', e.target.value)}
+                          className="w-full p-2 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
+                        >
+                          <option value="Presencial Escrito">Presencial Escrito</option>
+                          <option value="Trabajo Domiciliario">Trabajo Domiciliario</option>
+                          <option value="Oral">Oral</option>
+                          <option value="Multiple Choice">Multiple Choice</option>
+                          <option value="Práctico Evaluativo">Práctico Evaluativo</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Temario / Contenidos a evaluar</label>
+                      <textarea
+                        value={ev.temario || ''}
+                        onChange={e => handleUpdateEvaluacion(idx, 'temario', e.target.value)}
+                        placeholder="Unidades, textos y autores evaluados..."
+                        className="w-full p-2 rounded-lg bg-app-card border border-app-border text-xs text-app-text outline-none h-16 leading-relaxed"
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleAddEvaluacion('Evaluación')}
+                    className="text-xs font-bold text-app-emerald hover:underline flex items-center gap-1"
+                  >
+                    <Icon name="plus" className="w-3.5 h-3.5" /> Agregar otra evaluación
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Temario 1° Parcial</label>
-            <textarea value={form.temas_parcial1 || ''} onChange={e => setForm({ ...form, temas_parcial1: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm text-app-text outline-none h-20" placeholder="Unidades y autores..." />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-app-border pt-4">
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Link Programa</label>
               <input type="url" value={form.link_programa || ''} onChange={e => setForm({ ...form, link_programa: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm text-app-text outline-none" placeholder="https://..." />
@@ -2968,8 +3354,8 @@ function ModalMateria({ initialData, onClose, onSave }) {
             </div>
           </div>
 
-          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110">
-            Guardar Materia
+          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2">
+            <Icon name="check-circle" className="w-4 h-4 text-white" /> Guardar Materia
           </button>
         </form>
       </div>
@@ -3170,10 +3556,16 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Instancia / Tipo</label>
               <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none">
-                <option value="Parcial 1">Parcial 1</option>
-                <option value="Parcial 2">Parcial 2</option>
-                <option value="Final">Examen Final</option>
-                <option value="Recuperatorio">Recuperatorio</option>
+                <option value="1° Parcial">1° Parcial</option>
+                <option value="2° Parcial">2° Parcial</option>
+                <option value="3° Parcial">3° Parcial</option>
+                <option value="Recuperatorio 1° Parcial">Recuperatorio 1° Parcial</option>
+                <option value="Recuperatorio 2° Parcial">Recuperatorio 2° Parcial</option>
+                <option value="Recuperatorio 3° Parcial">Recuperatorio 3° Parcial</option>
+                <option value="TP Evaluativo">TP Evaluativo</option>
+                <option value="Examen Final">Examen Final</option>
+                <option value="Coloquio">Coloquio</option>
+                <option value="Evaluación">Otra Evaluación</option>
               </select>
             </div>
           </div>
@@ -3522,6 +3914,48 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
   const [viewMode, setViewMode] = useState('split'); // 'split' | 'double_page'
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const textareaRef = useRef(null);
+  const pdfImportRef = useRef(null);
+
+  const handleImportPDF = (e) => {
+    const file = e.target.files[0];
+    if (!file || file.type !== 'application/pdf') return;
+    if (showToast) showToast('Extrayendo texto del PDF...', 'loader');
+    const cleanName = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
+    const reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        const typedArray = new Uint8Array(this.result);
+        if (window.pdfjsLib) {
+          try {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          } catch(e) {}
+        }
+        const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise;
+        let fullText = `# ${form.titulo || cleanName}\n\n`;
+        const maxPages = Math.min(pdf.numPages, 30);
+        for (let i = 1; i <= maxPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ').trim();
+          if (pageText) {
+            fullText += `### Página ${i}\n${pageText}\n\n`;
+          }
+        }
+        const detectedTitle = extractAcademicTitle(fullText) || cleanName;
+        setForm(prev => ({
+          ...prev,
+          titulo: prev.titulo || detectedTitle,
+          contenido: (prev.contenido ? prev.contenido + '\n\n' : '') + fullText,
+          pdfName: file.name
+        }));
+        if (showToast) showToast(`Texto extraído (${pdf.numPages} págs)`, 'check-circle');
+      } catch (err) {
+        if (showToast) showToast('Error al extraer texto del PDF', 'alert-triangle');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
 
   // Auto-extraer título desde '# Título' si se pega contenido
   const handleContentChange = (newContent) => {
@@ -3611,6 +4045,24 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
               </button>
             </div>
 
+            {/* Import PDF Button */}
+            <input
+              type="file"
+              ref={pdfImportRef}
+              accept="application/pdf"
+              className="hidden"
+              onChange={handleImportPDF}
+            />
+            <button
+              type="button"
+              onClick={() => pdfImportRef.current?.click()}
+              className="px-3 py-2 rounded-lg text-xs font-extrabold border bg-app-surface border-app-border text-app-navy hover:border-app-navy transition-all flex items-center gap-1.5 shadow-sm"
+              title="Importar y extraer texto desde un archivo PDF"
+            >
+              <Icon name="upload-cloud" className="w-4 h-4 text-app-navy" />
+              <span>Importar PDF</span>
+            </button>
+
             {/* Prompt Copy Button */}
             <button
               type="button"
@@ -3642,7 +4094,7 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
         </div>
 
         {/* Form Inputs Header */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
           <input
             value={form.titulo}
             onChange={e => setForm({ ...form, titulo: e.target.value })}
@@ -3667,6 +4119,18 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             placeholder="Unidad (ej: Unidad 1)"
             className="p-2.5 rounded-lg bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
           />
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, va_parcial: !form.va_parcial })}
+            className={`p-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              form.va_parcial
+                ? 'bg-app-amber-bg text-app-amber border-app-amber/40 shadow-sm'
+                : 'bg-app-surface text-app-muted border-app-border hover:text-app-text'
+            }`}
+          >
+            <Icon name="check-circle" className="w-3.5 h-3.5" />
+            <span>{form.va_parcial ? 'Va a Parcial' : 'Para Estudio'}</span>
+          </button>
         </div>
 
         {/* ── 1. SPLIT VIEW MODE ── */}
@@ -3774,6 +4238,451 @@ function ModalApunteSplitView({ initialData, materiaNombre = '', availableUnits 
             Guardar Apunte en Supabase & Local
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalSubirApuntePDF({
+  isOpen,
+  onClose,
+  onSave,
+  onOpenSplitEditor,
+  materias = [],
+  biblio = [],
+  initialMateriaId = null,
+  showToast
+}) {
+  if (!isOpen) return null;
+
+  const [file, setFile] = useState(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [pageCount, setPageCount] = useState(0);
+  const [materiaId, setMateriaId] = useState(initialMateriaId || (materias[0]?.id || ''));
+  const [unidad, setUnidad] = useState('Unidad 1');
+  const [isCustomUnidad, setIsCustomUnidad] = useState(false);
+  const [customUnidad, setCustomUnidad] = useState('');
+  const [titulo, setTitulo] = useState('');
+  const [tipo, setTipo] = useState('Resumen');
+  const [vaParcial, setVaParcial] = useState(false);
+  const [instanciaParcial, setInstanciaParcial] = useState('1° Parcial');
+  const [bibliografiaId, setBibliografiaId] = useState('');
+  const [contenido, setContenido] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const selectedMateria = materias.find(m => m.id === materiaId) || materias[0];
+
+  const materiaBiblio = useMemo(() => {
+    if (!materiaId) return [];
+    return biblio.filter(b => b.materia_id === materiaId || b.materia === selectedMateria?.nombre);
+  }, [biblio, materiaId, selectedMateria]);
+
+  const availableUnits = useMemo(() => {
+    const set = new Set(materiaBiblio.map(b => b.unidad).filter(Boolean));
+    const list = Array.from(set);
+    return list.length > 0 ? list : ['Unidad 1', 'Unidad 2', 'Unidad 3', 'Unidad 4', 'Unidad 5'];
+  }, [materiaBiblio]);
+
+  const availableEvaluaciones = useMemo(() => {
+    const list = [];
+    if (selectedMateria?.evaluaciones && selectedMateria.evaluaciones.length > 0) {
+      selectedMateria.evaluaciones.forEach(ev => {
+        if (ev.nombre || ev.tipo) list.push(ev.nombre || ev.tipo);
+      });
+    }
+    const standard = ['1° Parcial', '2° Parcial', '3° Parcial', 'Recuperatorio 1° Parcial', 'Recuperatorio 2° Parcial', 'Recuperatorio 3° Parcial', 'TP Evaluativo', 'Examen Final'];
+    standard.forEach(s => {
+      if (!list.includes(s)) list.push(s);
+    });
+    return list;
+  }, [selectedMateria]);
+
+  const processPDFFile = (selectedFile) => {
+    if (!selectedFile || selectedFile.type !== 'application/pdf') {
+      if (showToast) showToast('Por favor selecciona un archivo PDF válido', 'alert-circle');
+      return;
+    }
+    setFile(selectedFile);
+    setIsExtracting(true);
+
+    const cleanName = selectedFile.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ').trim();
+    setTitulo(cleanName);
+
+    // Auto-detección de materia si no vino preseleccionada
+    if (!initialMateriaId) {
+      const match = materias.find(m =>
+        selectedFile.name.toLowerCase().includes(m.nombre.toLowerCase()) ||
+        (m.abreviatura && selectedFile.name.toLowerCase().includes(m.abreviatura.toLowerCase()))
+      );
+      if (match) setMateriaId(match.id);
+    }
+
+    // Auto-detección de unidad
+    const unitMatch = selectedFile.name.match(/unidad\s*(\d+)/i) || selectedFile.name.match(/\bu(\d+)\b/i);
+    if (unitMatch) {
+      setUnidad(`Unidad ${unitMatch[1]}`);
+    }
+
+    const reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        const typedArray = new Uint8Array(this.result);
+        if (window.pdfjsLib) {
+          try {
+            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          } catch(e) {}
+        }
+        const pdf = await window.pdfjsLib.getDocument({ data: typedArray }).promise;
+        setPageCount(pdf.numPages);
+
+        let fullText = `# ${cleanName}\n\n`;
+        const maxPages = Math.min(pdf.numPages, 35);
+        for (let i = 1; i <= maxPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ').trim();
+          if (pageText) {
+            fullText += `### Página ${i}\n${pageText}\n\n`;
+          }
+        }
+
+        const detectedTitle = extractAcademicTitle(fullText);
+        if (detectedTitle && detectedTitle.length > 3 && detectedTitle !== cleanName) {
+          setTitulo(detectedTitle);
+        }
+
+        setContenido(fullText);
+        setIsExtracting(false);
+        if (showToast) showToast(`PDF analizado: ${pdf.numPages} páginas extraídas`, 'check-circle');
+      } catch (err) {
+        console.error('Error procesando PDF:', err);
+        setIsExtracting(false);
+        if (showToast) showToast('Texto extraído parcialmente o protegido', 'alert-triangle');
+      }
+    };
+    reader.readAsArrayBuffer(selectedFile);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processPDFFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleSave = (e) => {
+    if (e) e.preventDefault();
+    const finalUnidad = isCustomUnidad ? (customUnidad.trim() || 'Unidad 1') : unidad;
+    const finalMateria = materias.find(m => m.id === materiaId) || selectedMateria;
+
+    const apuntePayload = {
+      materia_id: materiaId,
+      materia: finalMateria ? finalMateria.nombre : 'General',
+      unidad: finalUnidad,
+      titulo: titulo.trim() || file?.name || 'Apunte desde PDF',
+      tipo,
+      va_parcial: vaParcial,
+      nro_parcial: vaParcial ? instanciaParcial : null,
+      bibliografia_ids: bibliografiaId ? [bibliografiaId] : [],
+      contenido: contenido || (file ? `PDF adjunto: ${file.name}` : ''),
+      pdfName: file ? file.name : null,
+      numPages: pageCount
+    };
+
+    onSave(apuntePayload);
+  };
+
+  const handleOpenInEditor = () => {
+    const finalUnidad = isCustomUnidad ? (customUnidad.trim() || 'Unidad 1') : unidad;
+    const finalMateria = materias.find(m => m.id === materiaId) || selectedMateria;
+
+    onOpenSplitEditor({
+      materia_id: materiaId,
+      materia: finalMateria ? finalMateria.nombre : 'General',
+      unidad: finalUnidad,
+      titulo: titulo.trim() || file?.name || 'Apunte desde PDF',
+      tipo,
+      va_parcial: vaParcial,
+      nro_parcial: vaParcial ? instanciaParcial : null,
+      bibliografia_ids: bibliografiaId ? [bibliografiaId] : [],
+      contenido: contenido || (file ? `PDF adjunto: ${file.name}` : '')
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-t-3xl sm:rounded-xl shadow-fluffy overflow-hidden">
+        
+        {/* Header */}
+        <div className="flex justify-between items-center p-4 sm:p-5 border-b border-app-border">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-app-navy-bg text-app-navy flex items-center justify-center border border-app-navy/20">
+              <Icon name="upload-cloud" className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-app-text">Subir Apunte en PDF</h3>
+              <p className="text-xs text-app-muted">Carga tu apunte directamente y completa los datos para filtros y búsquedas.</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text rounded-lg">
+            <Icon name="x" className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Form Body */}
+        <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+          
+          {/* Dropzone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+              isDragging
+                ? 'border-app-emerald bg-app-emerald-bg/30 scale-[0.99]'
+                : file
+                  ? 'border-app-emerald/40 bg-app-emerald-bg/10'
+                  : 'border-app-border bg-app-surface hover:border-app-emerald/50'
+            }`}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="application/pdf"
+              className="hidden"
+              onChange={e => e.target.files[0] && processPDFFile(e.target.files[0])}
+            />
+
+            {isExtracting ? (
+              <div className="py-4 space-y-2">
+                <div className="w-8 h-8 border-2 border-app-emerald border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <p className="text-xs font-bold text-app-emerald">Extrayendo texto y analizando documento...</p>
+              </div>
+            ) : file ? (
+              <div className="flex items-center justify-between gap-3 text-left">
+                <div className="flex items-center gap-3 truncate">
+                  <div className="w-10 h-10 rounded-lg bg-app-emerald-bg text-app-emerald flex items-center justify-center shrink-0">
+                    <Icon name="file-text" className="w-5 h-5" />
+                  </div>
+                  <div className="truncate">
+                    <p className="text-xs font-extrabold text-app-text truncate">{file.name}</p>
+                    <p className="text-[11px] text-app-muted">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB • {pageCount} {pageCount === 1 ? 'página' : 'páginas'} detectadas
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-bold text-app-emerald bg-app-surface px-2.5 py-1 rounded-lg border border-app-border shrink-0">
+                  Cambiar PDF
+                </span>
+              </div>
+            ) : (
+              <div className="py-4 space-y-1.5">
+                <div className="w-12 h-12 rounded-xl bg-app-surface text-app-muted flex items-center justify-center mx-auto border border-app-border">
+                  <Icon name="file-up" className="w-6 h-6 text-app-emerald" />
+                </div>
+                <p className="text-xs font-extrabold text-app-text">
+                  Arrastra tu apunte en PDF aquí o <span className="text-app-emerald underline">explora tus archivos</span>
+                </p>
+                <p className="text-[11px] text-app-muted">Se extraerá el texto automáticamente para lectura y búsquedas</p>
+              </div>
+            )}
+          </div>
+
+          {/* Grid de Metadatos y Filtros */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            
+            {/* Materia */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Materia / Cátedra *</label>
+              <select
+                value={materiaId}
+                onChange={e => setMateriaId(e.target.value)}
+                required
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+              >
+                {materias.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.abreviatura ? `[${m.abreviatura}] ` : ''}{m.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Unidad */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-bold uppercase text-app-emerald">Unidad Temática *</label>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomUnidad(!isCustomUnidad)}
+                  className="text-[10px] font-bold text-app-emerald hover:underline"
+                >
+                  {isCustomUnidad ? 'Seleccionar existente' : '+ Nueva unidad'}
+                </button>
+              </div>
+              {isCustomUnidad ? (
+                <input
+                  value={customUnidad}
+                  onChange={e => setCustomUnidad(e.target.value)}
+                  placeholder="Ej: Unidad 4, Anexo, etc."
+                  required
+                  className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                />
+              ) : (
+                <select
+                  value={unidad}
+                  onChange={e => setUnidad(e.target.value)}
+                  required
+                  className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                >
+                  {availableUnits.map(u => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Título del Apunte */}
+          <div>
+            <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Título del Apunte *</label>
+            <input
+              value={titulo}
+              onChange={e => setTitulo(e.target.value)}
+              required
+              placeholder="Ej: Resumen Completo - Freud: Más allá del principio del placer"
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Tipo de Apunte */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tipo de Apunte</label>
+              <select
+                value={tipo}
+                onChange={e => setTipo(e.target.value)}
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+              >
+                <option value="Resumen">Resumen Completo</option>
+                <option value="Guía de Estudio">Guía de Estudio</option>
+                <option value="Mapa Conceptual">Mapa Conceptual</option>
+                <option value="Fichas de Repaso">Fichas de Repaso</option>
+                <option value="Notas de Clase">Notas de Clase</option>
+                <option value="Transcripción">Transcripción</option>
+              </select>
+            </div>
+
+            {/* Texto Vinculado de la Bibliografía */}
+            <div>
+              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Texto del Programa (Opcional)</label>
+              <select
+                value={bibliografiaId}
+                onChange={e => setBibliografiaId(e.target.value)}
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+              >
+                <option value="">Ninguno / Material general</option>
+                {materiaBiblio.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.unidad} — {b.titulo_texto.slice(0, 30)}...
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Evaluación / Parcial Toggle */}
+          <div className="p-3.5 rounded-xl bg-app-surface border border-app-border space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-xs font-extrabold text-app-text block">¿Este apunte entra en una evaluación o parcial?</span>
+                <span className="text-[11px] text-app-muted">Permite clasificar y simular preguntas para los exámenes.</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={vaParcial}
+                  onChange={e => setVaParcial(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-6 bg-app-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-app-emerald"></div>
+              </label>
+            </div>
+
+            {vaParcial && (
+              <div className="pt-2 border-t border-app-border flex items-center gap-3">
+                <label className="text-xs font-bold text-app-emerald whitespace-nowrap">Instancia / Parcial:</label>
+                <select
+                  value={instanciaParcial}
+                  onChange={e => setInstanciaParcial(e.target.value)}
+                  className="flex-1 p-2 rounded-lg bg-app-card border border-app-border text-xs font-bold text-app-text outline-none"
+                >
+                  {availableEvaluaciones.map(evName => (
+                    <option key={evName} value={evName}>{evName}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Extracted Text Preview Toggle */}
+          {contenido && (
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setShowPreview(!showPreview)}
+                className="text-xs font-bold text-app-emerald flex items-center gap-1 hover:underline"
+              >
+                <Icon name={showPreview ? "chevron-up" : "chevron-down"} className="w-3.5 h-3.5" />
+                {showPreview ? 'Ocultar vista previa del texto extraído' : `Ver / editar texto extraído (${contenido.length} caracteres)`}
+              </button>
+
+              {showPreview && (
+                <textarea
+                  value={contenido}
+                  onChange={e => setContenido(e.target.value)}
+                  rows={6}
+                  className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs font-mono text-app-text outline-none leading-relaxed"
+                  placeholder="Texto extraído del PDF..."
+                />
+              )}
+            </div>
+          )}
+
+          {/* Footer Actions */}
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-app-border">
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-2.5 px-4 bg-app-surface border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
+            >
+              Cancelar
+            </button>
+            {contenido && (
+              <button
+                type="button"
+                onClick={handleOpenInEditor}
+                className="py-2.5 px-3 bg-app-surface border border-app-emerald/40 text-app-emerald font-bold text-xs rounded-xl hover:border-app-emerald flex items-center gap-1.5"
+                title="Editar en el editor Markdown con doble hoja"
+              >
+                <Icon name="columns" className="w-3.5 h-3.5" /> Abrir en Editor Completo
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={isExtracting}
+              className="flex-1 py-2.5 bg-app-emerald text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <Icon name="check-circle" className="w-4 h-4 text-white" />
+              Guardar Apunte
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

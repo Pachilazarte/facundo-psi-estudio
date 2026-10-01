@@ -1,7 +1,7 @@
 {
-  "version": "2.9.0",
-  "buildDate": "2026-09-30T14:05:00.000Z",
+  "version": "2.10.0",
+  "buildDate": "2026-10-01T15:20:00.000Z",
   "name": "PsiEstudio",
   "channel": "production",
-  "notes": "Rediseño Anti-IA Final: Navbar superior oculta en móvil, espacios muertos removidos, perfil circular con badge de cámara, tarjetas rediseñadas con bordes pronunciados y nuevas microanimaciones."
+  "notes": "Evaluaciones dinámicas en Materias (Parciales 1, 2, 3, Recuperatorios, TPs) y subida directa de Apuntes en PDF con metadatos para filtros."
 }
