@@ -1,7 +1,7 @@
 {
-  "version": "2.17.0",
-  "buildDate": "2026-10-02T02:05:00.000Z",
+  "version": "2.18.0",
+  "buildDate": "2026-10-02T02:30:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Auditoría y construcción completa del sistema de carga local a la nube (Local-to-Cloud): Motor de migración masiva idempotente (syncAllLocalDataToCloud), sanitización estricta de esquemas para Postgres/Supabase, cola de deltas resiliente no bloqueante (processSyncQueue con upsert), importador y fusionador de respaldos JSON (handleImportBackupJSON) y panel de observabilidad en Sistema y Mi Perfil."
+  "notes": "Eliminación total del mock de demostración y construcción del motor de transcripción real multicapa: Transcripción en vivo cliente mediante Web Speech API en español argentino/neutro, soporte directo de Whisper Cloud API (Groq/OpenAI) para transcripción instantánea en Netlify y móvil, pipeline local FastAPI Faster-Whisper + DSP EBU R128 y panel de diagnóstico de motores en tiempo real."
 }

@@ -6724,15 +6724,15 @@ function GrabadoraDesgrabadorView({
   const [searchMatches, setSearchMatches] = useState([]);
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
 
-  // Historial Local de Sesiones
-  const [savedSessions, setSavedSessions] = useState(() => {
-    try {
-      const cached = localStorage.getItem('psi_audio_sessions_history');
-      return cached ? JSON.parse(cached) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || '');
+  const speechRecognitionRef = useRef(null);
+  const liveSegmentsRef = useRef([]);
+  const recordingSecondsRef = useRef(0);
+
+  // Mantener recordingSecondsRef sincronizado para timestamps de Web Speech API
+  useEffect(() => {
+    recordingSecondsRef.current = recordingSeconds;
+  }, [recordingSeconds]);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -6758,8 +6758,15 @@ function GrabadoraDesgrabadorView({
         if (!transcriptData) {
           const matObj = materias.find(m => m.id === presetData.materiaId);
           const matName = matObj ? matObj.nombre : 'Clase';
-          const demo = generateDemoTranscript(matName, presetData.claseNum || 1, presetData.tema || 'Audio de Clase');
-          setTranscriptData(demo);
+          const emptyTranscript = {
+            version: '2.0.0',
+            subject: matName,
+            duration_seconds: 0,
+            total_segments: 0,
+            paragraphs: [],
+            segments: []
+          };
+          setTranscriptData(emptyTranscript);
         }
       } else if (presetData.autoStart) {
         setActiveSubTab('record');
@@ -6894,7 +6901,7 @@ function GrabadoraDesgrabadorView({
     }
   };
 
-  // Iniciar Grabación Web
+  // Iniciar Grabación Web + Web Speech API en Vivo
   const handleStartRecording = async () => {
     try {
       triggerHaptic('heavy');
@@ -6905,6 +6912,7 @@ function GrabadoraDesgrabadorView({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
+      liveSegmentsRef.current = [];
 
       const mimeType = getSupportedMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -6912,7 +6920,6 @@ function GrabadoraDesgrabadorView({
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data);
-          // Respaldo de metadatos de emergencia
           try {
             localStorage.setItem('psi_active_recording_backup_meta', JSON.stringify({
               materiaId: targetMateriaId,
@@ -6933,11 +6940,66 @@ function GrabadoraDesgrabadorView({
         cleanAudioContext();
       };
 
-      recorder.start(1000); // Emisión de chunks cada 1000ms
+      recorder.start(1000);
       mediaRecorderRef.current = recorder;
       setRecordingState('recording');
       setRecordingSeconds(0);
       setProcessingError(null);
+
+      // Iniciar Transcriptor en Vivo Web Speech API (Navegador)
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRec) {
+        try {
+          const rec = new SpeechRec();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = 'es-AR';
+
+          let phraseStartTime = 0;
+          rec.onresult = (event) => {
+            const currentSec = recordingSecondsRef.current || 0;
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+              const text = event.results[i][0].transcript.trim();
+              if (event.results[i].isFinal && text) {
+                const segStart = phraseStartTime;
+                const segEnd = currentSec;
+                phraseStartTime = currentSec;
+
+                const words = text.split(/\s+/).map((w, wIdx, arr) => ({
+                  word: w,
+                  start: segStart + (wIdx * ((segEnd - segStart) / Math.max(1, arr.length))),
+                  end: segStart + ((wIdx + 1) * ((segEnd - segStart) / Math.max(1, arr.length)))
+                }));
+
+                liveSegmentsRef.current.push({
+                  id: liveSegmentsRef.current.length + 1,
+                  start: segStart,
+                  end: Math.max(segStart + 1, segEnd),
+                  timestamp: formatTime(segStart),
+                  text,
+                  words
+                });
+              }
+            }
+          };
+
+          rec.onerror = (e) => {
+            console.warn('[WebSpeech] Advertencia:', e.error);
+          };
+
+          rec.onend = () => {
+            // Reiniciar reconocimiento continuo si seguimos grabando
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+              try { rec.start(); } catch (err) {}
+            }
+          };
+
+          rec.start();
+          speechRecognitionRef.current = rec;
+        } catch (e) {
+          console.warn('Web Speech API no pudo inicializarse:', e);
+        }
+      }
 
       startCanvasWaveform(stream);
 
@@ -6946,7 +7008,7 @@ function GrabadoraDesgrabadorView({
         setRecordingSeconds(prev => prev + 1);
       }, 1000);
 
-      showToast('Grabación de clase iniciada', 'mic');
+      showToast('Grabación de clase iniciada (Transcribiendo voz en vivo)', 'mic');
     } catch (e) {
       console.error('Error al iniciar grabación:', e);
       alert('No se pudo acceder al micrófono: ' + e.message);
@@ -6959,6 +7021,9 @@ function GrabadoraDesgrabadorView({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       setRecordingState('paused');
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.stop(); } catch (e) {}
+      }
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
@@ -6973,6 +7038,9 @@ function GrabadoraDesgrabadorView({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
       mediaRecorderRef.current.resume();
       setRecordingState('recording');
+      if (speechRecognitionRef.current) {
+        try { speechRecognitionRef.current.start(); } catch (e) {}
+      }
       recordingTimerRef.current = setInterval(() => {
         setRecordingSeconds(prev => prev + 1);
       }, 1000);
@@ -6988,6 +7056,11 @@ function GrabadoraDesgrabadorView({
       recordingTimerRef.current = null;
     }
 
+    if (speechRecognitionRef.current) {
+      try { speechRecognitionRef.current.stop(); } catch (e) {}
+      speechRecognitionRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -6995,7 +7068,6 @@ function GrabadoraDesgrabadorView({
     cleanAudioContext();
     try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
 
-    // Esperar recolección final de chunks
     setTimeout(async () => {
       if (audioChunksRef.current.length === 0) return;
       const mimeType = getSupportedMimeType() || 'audio/webm';
@@ -7024,11 +7096,64 @@ function GrabadoraDesgrabadorView({
     showToast('Procesamiento cancelado', 'x');
   };
 
-  // Procesar Audio mediante Backend FastAPI con AbortController
+  // Transcribir con Whisper Cloud API (Groq o OpenAI)
+  const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName) => {
+    const formData = new FormData();
+    formData.append('file', audioBlobOrFile);
+    formData.append('model', 'whisper-large-v3');
+    formData.append('response_format', 'verbose_json');
+    formData.append('language', 'es');
+    formData.append('temperature', '0.0');
+
+    const cleanKey = apiKey.trim();
+    const isGroq = cleanKey.startsWith('gsk_') || !cleanKey.startsWith('sk-');
+    const endpoint = isGroq
+      ? 'https://api.groq.com/openai/v1/audio/transcriptions'
+      : 'https://api.openai.com/v1/audio/transcriptions';
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${cleanKey}` },
+      body: formData,
+      signal
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson?.error?.message || `Error en Whisper Cloud (${res.status})`);
+    }
+
+    const data = await res.json();
+    const rawSegments = data.segments || [];
+
+    const segments = rawSegments.map((seg, idx) => ({
+      id: idx + 1,
+      start: seg.start,
+      end: seg.end,
+      timestamp: formatTime(seg.start),
+      text: (seg.text || '').trim(),
+      words: (seg.words || []).map(w => ({
+        word: w.word,
+        start: w.start,
+        end: w.end
+      }))
+    }));
+
+    return {
+      version: '2.0.0',
+      subject: materiaName,
+      duration_seconds: data.duration || recordingSeconds || 0,
+      total_segments: segments.length,
+      paragraphs: data.text ? [data.text] : segments.map(s => s.text),
+      segments
+    };
+  };
+
+  // Procesar Audio con Pipeline Multicapa (FastAPI -> Cloud Whisper -> Web Speech en Vivo)
   const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
     setIsProcessing(true);
     setProcessingProgress(10);
-    setProcessingStep('Conectando con el servidor de audio...');
+    setProcessingStep('Iniciando motor de transcripción...');
     setProcessingError(null);
 
     abortControllerRef.current = new AbortController();
@@ -7037,14 +7162,15 @@ function GrabadoraDesgrabadorView({
     const targetMatObj = materias.find(m => m.id === targetMateriaId);
     const materiaName = targetMatObj ? targetMatObj.nombre : 'Psicología General';
     const cleanServerUrl = serverUrl.replace(/\/$/, '');
+    const activeApiKey = whisperApiKey || localStorage.getItem('psi_whisper_api_key') || '';
 
     try {
       if (serverOnline) {
+        // ── MOTOR 1: SERVIDOR LOCAL FASTAPI (FASTER-WHISPER + DSP EBU R128) ──
         const sessionId = `web_${Date.now()}`;
 
-        // 1. Crear sesión
         setProcessingProgress(20);
-        setProcessingStep('Creando sesión en servidor DSP...');
+        setProcessingStep('Creando sesión en servidor DSP local...');
         const createRes = await fetch(`${cleanServerUrl}/api/sessions/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -7058,7 +7184,6 @@ function GrabadoraDesgrabadorView({
         });
         if (!createRes.ok) throw new Error('Fallo al crear sesión remota.');
 
-        // 2. Subir Audio
         setProcessingProgress(35);
         setProcessingStep('Subiendo audio al motor acústico...');
         const formData = new FormData();
@@ -7071,9 +7196,8 @@ function GrabadoraDesgrabadorView({
         });
         if (!uploadRes.ok) throw new Error('Fallo al subir pista de audio.');
 
-        // 3. Disparar procesamiento asíncrono
         setProcessingProgress(50);
-        setProcessingStep('Iniciando filtrado acústico EBU R128 y Transcripción Verbatim...');
+        setProcessingStep('Filtrado EBU R128 y Faster-Whisper en GPU/CPU...');
         const procRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/process`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -7088,7 +7212,6 @@ function GrabadoraDesgrabadorView({
         const procData = await procRes.json();
         const jobId = procData.job_id;
 
-        // 4. Polling de progreso
         let completed = false;
         let pollCount = 0;
 
@@ -7101,7 +7224,7 @@ function GrabadoraDesgrabadorView({
           if (jobRes.ok) {
             const jobData = await jobRes.json();
             setProcessingProgress(jobData.progress_pct || 50);
-            setProcessingStep(jobData.step_detail || jobData.step || 'Procesando...');
+            setProcessingStep(jobData.step_detail || jobData.step || 'Procesando con Faster-Whisper...');
 
             if (jobData.status === 'completed') {
               completed = true;
@@ -7112,31 +7235,75 @@ function GrabadoraDesgrabadorView({
           }
         }
 
-        // 5. Descargar desgrabación JSON
         setProcessingProgress(95);
-        setProcessingStep('Descargando transcripción textual...');
+        setProcessingStep('Descargando desgrabación verbatim...');
         const transcriptRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/transcript`, { signal });
         if (!transcriptRes.ok) throw new Error('No se pudo recuperar la desgrabación generada.');
         const transcriptJson = await transcriptRes.json();
 
-        // Asignar audio final limpio para streaming
         setAudioUrl(`${cleanServerUrl}/api/sessions/${sessionId}/audio`);
         setTranscriptData(transcriptJson);
         saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio`);
-      } else {
-        // MODO AUTÓNOMO LOCAL (Fallback si el backend no está corriendo en la máquina)
-        setProcessingProgress(60);
-        setProcessingStep('Generando transcripción estructurada en modo local...');
-        await new Promise(r => setTimeout(r, 1200));
+      } else if (activeApiKey.trim()) {
+        // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
+        setProcessingProgress(40);
+        setProcessingStep('Transcribiendo con Whisper Cloud API...');
+        const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName);
+        setTranscriptData(cloudTranscript);
+        saveSessionToHistory(`cloud_${Date.now()}`, materiaName, targetClaseNum, temaClase, cloudTranscript, audioUrl);
+      } else if (liveSegmentsRef.current && liveSegmentsRef.current.length > 0) {
+        // ── MOTOR 3: TRANSCRIPCIÓN EN VIVO DEL NAVEGADOR (WEB SPEECH API) ──
+        setProcessingProgress(70);
+        setProcessingStep('Estructurando transcripción de voz capturada en vivo...');
+        await new Promise(r => setTimeout(r, 600));
 
-        const demoTranscript = generateDemoTranscript(materiaName, targetClaseNum, temaClase || 'Conceptos Fundamentales');
-        setTranscriptData(demoTranscript);
-        saveSessionToHistory(`local_${Date.now()}`, materiaName, targetClaseNum, temaClase, demoTranscript, audioUrl);
+        const liveSegs = liveSegmentsRef.current;
+        const totalDuration = recordingSeconds || liveSegs[liveSegs.length - 1]?.end || 60;
+        const fullText = liveSegs.map(s => s.text).join(' ');
+
+        const realLiveTranscript = {
+          version: '2.0.0',
+          subject: materiaName,
+          duration_seconds: totalDuration,
+          total_segments: liveSegs.length,
+          paragraphs: [fullText],
+          segments: liveSegs
+        };
+
+        setTranscriptData(realLiveTranscript);
+        saveSessionToHistory(`live_${Date.now()}`, materiaName, targetClaseNum, temaClase, realLiveTranscript, audioUrl);
+      } else {
+        // ── MOTOR 4: AUDIO REGISTRADO SIN MOTOR DE TEXTO ACTIVO (FORMATO EDITABLE REAL) ──
+        setProcessingProgress(80);
+        setProcessingStep('Guardando pista de audio para reproducción...');
+        await new Promise(r => setTimeout(r, 400));
+
+        const fallbackTranscript = {
+          version: '2.0.0',
+          subject: materiaName,
+          duration_seconds: recordingSeconds || 0,
+          total_segments: 1,
+          paragraphs: ['[Audio de clase grabado listo para escucha. Conecta el servidor Python o ingresa una API Key de Whisper en Ajustes para transcripción automática].'],
+          segments: [
+            {
+              id: 1,
+              start: 0.0,
+              end: recordingSeconds || 60.0,
+              timestamp: '00:00:00',
+              text: '[Audio de clase grabado y disponible para reproducción]',
+              words: []
+            }
+          ]
+        };
+
+        setTranscriptData(fallbackTranscript);
+        saveSessionToHistory(`audio_${Date.now()}`, materiaName, targetClaseNum, temaClase, fallbackTranscript, audioUrl);
+        showToast('Audio listo en reproductor', 'headphones');
       }
 
       setProcessingProgress(100);
       setProcessingStep('¡Desgrabación completada con éxito!');
-      showToast('Transcripción lista', 'sparkles');
+      showToast('Transcripción procesada', 'sparkles');
       setTimeout(() => {
         setIsProcessing(false);
         setActiveSubTab('player');
@@ -7172,28 +7339,6 @@ function GrabadoraDesgrabadorView({
     } catch (e) {}
   };
 
-  // Demo Transcript Generator para pruebas inmediatas
-  const generateDemoTranscript = (materia, claseNum, tema) => {
-    return {
-      version: '2.0.0',
-      subject: materia,
-      duration_seconds: 180.0,
-      total_segments: 4,
-      paragraphs: [
-        `En esta clase número ${claseNum} de ${materia} vamos a profundizar en ${tema}. Es fundamental comprender cómo la estructura conceptual delimita el campo de intervención clínica y psicométrica.`,
-        'Como señalaba la cátedra, cuando abordamos los instrumentos diagnósticos no debemos evaluarlos como meros números aislados, sino integrados en una comprensión dialéctica del sujeto.',
-        'Recuerden que para el parcial entra toda la bibliografía de la unidad. Revisen los textos obligatorios y los cuadros comparativos de autores clásicos.',
-        'La próxima semana continuaremos con el análisis de casos prácticos y aplicación de baremos actualizados.'
-      ],
-      segments: [
-        { id: 1, start: 0.0, end: 45.0, timestamp: '00:00:00', text: `En esta clase número ${claseNum} de ${materia} vamos a profundizar en ${tema}. Es fundamental comprender cómo la estructura conceptual delimita el campo de intervención clínica y psicométrica.` },
-        { id: 2, start: 45.0, end: 95.0, timestamp: '00:00:45', text: 'Como señalaba la cátedra, cuando abordamos los instrumentos diagnósticos no debemos evaluarlos como meros números aislados, sino integrados en una comprensión dialéctica del sujeto.' },
-        { id: 3, start: 95.0, end: 140.0, timestamp: '00:01:35', text: 'Recuerden que para el parcial entra toda la bibliografía de la unidad. Revisen los textos obligatorios y los cuadros comparativos de autores clásicos.' },
-        { id: 4, start: 140.0, end: 180.0, timestamp: '00:02:20', text: 'La próxima semana continuaremos con el análisis de casos prácticos y aplicación de baremos actualizados.' }
-      ]
-    };
-  };
-
   // Sincronización del Reproductor de Audio (Apartado 4.2)
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
@@ -7218,6 +7363,13 @@ function GrabadoraDesgrabadorView({
     if (audioRef.current) {
       audioRef.current.currentTime = Math.max(0, Math.min(seconds, duration || 99999));
       if (!isPlaying) {
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }
+    }
+  };
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise.then(() => setIsPlaying(true)).catch(() => {});
@@ -7628,33 +7780,119 @@ function GrabadoraDesgrabadorView({
         </div>
       </div>
 
-      {/* ── PANEL DE CONFIGURACIÓN DEL SERVIDOR (DESPLEGABLE) ── */}
+      {/* ── PANEL DE CONFIGURACIÓN DEL SERVIDOR & MOTORES DE TRANSCRIPCIÓN (DESPLEGABLE) ── */}
       {showConfig && (
-        <div className="bg-app-surface border border-app-border p-4 rounded-xl shadow-card space-y-3 animate-fade-in">
-          <h4 className="text-xs font-black uppercase text-app-emerald flex items-center gap-1.5">
-            <Icon name="server" className="w-4 h-4" /> Configuración de Conexión con Pipeline de Inferencia
-          </h4>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              value={serverUrl}
-              onChange={(e) => {
-                setServerUrl(e.target.value);
-                localStorage.setItem('psi_audio_server_url', e.target.value);
-              }}
-              placeholder="http://localhost:8000"
-              className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs font-mono text-app-text outline-none focus:border-app-emerald"
-            />
-            <button
-              onClick={() => checkServerStatus(serverUrl)}
-              className="px-4 py-2 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-1.5"
-            >
-              <Icon name="refresh-cw" className="w-3.5 h-3.5" /> Probar Conexión
-            </button>
+        <div className="bg-app-surface border border-app-border p-5 rounded-2xl shadow-card space-y-4 animate-fade-in">
+          <div className="flex justify-between items-center border-b border-app-border pb-2.5">
+            <h4 className="text-xs font-black uppercase text-app-emerald flex items-center gap-1.5">
+              <Icon name="sliders" className="w-4 h-4 text-app-emerald" /> Motores de Transcripción & Pipeline
+            </h4>
+            <span className="text-[11px] text-app-muted font-bold">Tres capas de transcripción automática</span>
           </div>
-          <p className="text-[11px] text-app-muted">
-            Ejecuta <code>python server.py</code> en el directorio <code>audio_pipeline/</code> para habilitar el motor Whisper local de máxima precisión.
-          </p>
+
+          {/* Diagnóstico de Motores Disponibles */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="p-3 rounded-xl bg-app-card border border-app-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon name="mic" className="w-4 h-4 text-app-emerald" />
+                <div>
+                  <div className="text-xs font-bold text-app-text">Web Speech (Navegador)</div>
+                  <div className="text-[10px] text-app-muted">Transcripción en vivo cliente</div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                (typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window))
+                  ? 'bg-app-emerald-bg text-app-emerald border border-app-emerald/30'
+                  : 'bg-app-ruby-bg text-app-ruby border border-app-ruby/30'
+              }`}>
+                {(typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) ? 'ACTIVO' : 'NO SOPORTADO'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-app-card border border-app-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon name="server" className="w-4 h-4 text-app-navy" />
+                <div>
+                  <div className="text-xs font-bold text-app-text">Servidor Python DSP</div>
+                  <div className="text-[10px] text-app-muted">Faster-Whisper + EBU R128</div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                serverOnline
+                  ? 'bg-app-emerald-bg text-app-emerald border border-app-emerald/30'
+                  : 'bg-app-amber-bg text-app-amber border border-app-amber/30'
+              }`}>
+                {serverOnline ? 'ONLINE' : 'OFFLINE'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-app-card border border-app-border flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Icon name="cloud-lightning" className="w-4 h-4 text-app-amber" />
+                <div>
+                  <div className="text-xs font-bold text-app-text">Whisper Cloud API</div>
+                  <div className="text-[10px] text-app-muted">Groq / OpenAI (Netlify/Móvil)</div>
+                </div>
+              </div>
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
+                whisperApiKey.trim().length > 0
+                  ? 'bg-app-emerald-bg text-app-emerald border border-app-emerald/30'
+                  : 'bg-app-surface text-app-muted border border-app-border'
+              }`}>
+                {whisperApiKey.trim().length > 0 ? 'LISTO' : 'OPCIONAL'}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            {/* Config Servidor Local */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">
+                URL del Servidor Python FastAPI (Local / Túnel)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={serverUrl}
+                  onChange={(e) => {
+                    setServerUrl(e.target.value);
+                    localStorage.setItem('psi_audio_server_url', e.target.value);
+                  }}
+                  placeholder="http://localhost:8000"
+                  className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs font-mono text-app-text outline-none focus:border-app-emerald"
+                />
+                <button
+                  onClick={() => checkServerStatus(serverUrl)}
+                  className="px-3.5 py-2 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-1"
+                >
+                  <Icon name="refresh-cw" className="w-3.5 h-3.5" /> Probar
+                </button>
+              </div>
+              <p className="text-[10px] text-app-muted mt-1">
+                Ejecuta <code>python server.py</code> en <code>audio_pipeline/</code> para inferencia local offline.
+              </p>
+            </div>
+
+            {/* Config Cloud Whisper Key */}
+            <div>
+              <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">
+                API Key de Whisper Cloud (Groq / OpenAI)
+              </label>
+              <input
+                type="password"
+                value={whisperApiKey}
+                onChange={(e) => {
+                  setWhisperApiKey(e.target.value);
+                  localStorage.setItem('psi_whisper_api_key', e.target.value);
+                }}
+                placeholder="gsk_... o sk-..."
+                className="w-full p-2.5 rounded-xl bg-app-card border border-app-border text-xs font-mono text-app-text outline-none focus:border-app-emerald"
+              />
+              <p className="text-[10px] text-app-muted mt-1">
+                Permite transcribir archivos grabados o subidos desde Netlify/Celular a máxima velocidad sin encender la terminal.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
