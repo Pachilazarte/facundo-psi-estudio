@@ -1569,7 +1569,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.25.0';
+  const currentVersion = 'v2.26.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8043,6 +8043,7 @@ function GrabadoraDesgrabadorView({
   // Búsqueda interactiva no destructiva con navegación
   const [searchTerm, setSearchTerm] = useState('');
   const [searchMatches, setSearchMatches] = useState([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   // Historial de sesiones guardadas localmente
   const [savedSessions, setSavedSessions] = useState(() => safeGetLocalStorage('psi_audio_sessions_history', []));
 

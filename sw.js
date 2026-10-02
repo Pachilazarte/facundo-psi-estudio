@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-v2.25.0';
+const CACHE_NAME = 'psiestudio-v2.26.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
