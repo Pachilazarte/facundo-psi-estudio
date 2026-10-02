@@ -1183,6 +1183,19 @@ function App() {
     localStorage.setItem('psi_first_run', 'done');
     const initialMats = [
       {
+        id: 'mat_personalidad',
+        nombre: 'Psicología de la Personalidad',
+        abreviatura: 'PERS',
+        docente: 'Cátedra de Psicología de la Personalidad',
+        color: '#8B5CF6',
+        año_cursado: 2026,
+        cuatrimestre: 2,
+        descripcion: 'Modelos de rasgos, teorías psicodinámicas, fenomenológicas, cognitivas y evaluación de la personalidad.',
+        fecha_parcial1: '2026-11-05',
+        modalidad_parcial: 'Presencial Escrito',
+        temas_parcial1: 'Unidad 1: Modelos de Rasgos y Factores (Big Five / Costa & McCrae). Unidad 2: Enfoques Fenomenológicos y Conductuales.'
+      },
+      {
         id: 'mat_semiosis',
         nombre: 'Semiosis Social',
         abreviatura: 'SEM',
@@ -1211,6 +1224,21 @@ function App() {
     ];
 
     const initialBib = [
+      {
+        id: 'bib_personalidad_u1',
+        materia_id: 'mat_personalidad',
+        materia: 'Psicología de la Personalidad',
+        unidad: 'Unidad 1',
+        nro_texto: 1,
+        titulo_texto: 'Teorías de la Personalidad: Modelos Factoriales y del Big Five',
+        autores: 'Costa, P. T. & McCrae, R. R. / Cloninger, S.',
+        caracter: 'Obligatorio',
+        estado: 'Pendiente',
+        va_parcial: true,
+        nro_parcial: 1,
+        link_resumen: '',
+        notas: 'Cinco grandes factores: Neuroticismo, Extraversión, Apertura, Amabilidad y Responsabilidad.'
+      },
       {
         id: 'bib_saussure',
         materia_id: 'mat_semiosis',
@@ -1260,6 +1288,19 @@ function App() {
 
     const initialExams = [
       {
+        id: 'ex_personalidad_p1',
+        materia_id: 'mat_personalidad',
+        materia: 'Psicología de la Personalidad',
+        nombre: 'Primer Parcial Teórico',
+        tipo: 'Parcial 1',
+        fecha: '2026-11-05',
+        modalidad: 'Presencial Escrito',
+        unidades_incluidas: ['Unidad 1', 'Unidad 2'],
+        textos_vinculados: ['bib_personalidad_u1'],
+        temas: 'Modelos de Rasgos, Estabilidad y Cambio, Big Five y Factores Biológicos.',
+        finalizado: false
+      },
+      {
         id: 'ex_semiosis_p1',
         materia_id: 'mat_semiosis',
         materia: 'Semiosis Social',
@@ -1288,7 +1329,7 @@ function App() {
   const saveToIndexedDB = async (tableName, items) => {
     if (psiDB && psiDB[tableName] && Array.isArray(items)) {
       try {
-        await psiDB[tableName].clear();
+        // MERGE DEFENSIVO: Guardado no destructivo (sin .clear()) para preservar binarios y datos locales
         await psiDB[tableName].bulkPut(items);
       } catch (e) {
         console.warn(`IndexedDB save error (${tableName}):`, e);
@@ -1380,35 +1421,73 @@ function App() {
         supabaseClient.from('examenes').select('*').order('fecha')
       ]);
 
-      if (matsRes.status === 'fulfilled' && matsRes.value.data?.length) {
-        setMaterias(matsRes.value.data);
-        safeSetLocalStorage('psi_materias_cache', matsRes.value.data);
-        saveToIndexedDB('materias', matsRes.value.data);
+      if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data) && matsRes.value.data.length > 0) {
+        setMaterias(prev => {
+          const merged = [...matsRes.value.data];
+          prev.forEach(p => {
+            if (!merged.find(m => m.id === p.id)) merged.push(p);
+          });
+          safeSetLocalStorage('psi_materias_cache', merged);
+          saveToIndexedDB('materias', merged);
+          return merged;
+        });
       }
-      if (bibRes.status === 'fulfilled' && bibRes.value.data) {
-        setBiblio(bibRes.value.data);
-        safeSetLocalStorage('psi_biblio_cache', bibRes.value.data);
-        saveToIndexedDB('bibliografia', bibRes.value.data);
+      if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data) && bibRes.value.data.length > 0) {
+        setBiblio(prev => {
+          const merged = [...bibRes.value.data];
+          prev.forEach(p => {
+            if (!merged.find(b => b.id === p.id)) merged.push(p);
+          });
+          safeSetLocalStorage('psi_biblio_cache', merged);
+          saveToIndexedDB('bibliografia', merged);
+          return merged;
+        });
       }
-      if (claRes.status === 'fulfilled' && claRes.value.data) {
-        setClases(claRes.value.data);
-        safeSetLocalStorage('psi_clases_cache', claRes.value.data);
-        saveToIndexedDB('clases', claRes.value.data);
+      if (claRes.status === 'fulfilled' && Array.isArray(claRes.value.data) && claRes.value.data.length > 0) {
+        setClases(prev => {
+          const merged = [...claRes.value.data];
+          prev.forEach(p => {
+            if (!merged.find(c => c.id === p.id)) merged.push(p);
+          });
+          safeSetLocalStorage('psi_clases_cache', merged);
+          saveToIndexedDB('clases', merged);
+          return merged;
+        });
       }
-      if (apuRes.status === 'fulfilled' && apuRes.value.data) {
-        setApuntes(apuRes.value.data);
-        safeSetLocalStorage('psi_apuntes_cache', apuRes.value.data);
-        saveToIndexedDB('apuntes', apuRes.value.data);
+      if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data) && apuRes.value.data.length > 0) {
+        setApuntes(prev => {
+          const merged = [...apuRes.value.data];
+          prev.forEach(p => {
+            if (!merged.find(a => a.id === p.id)) merged.push(p);
+          });
+          safeSetLocalStorage('psi_apuntes_cache', merged);
+          saveToIndexedDB('apuntes', merged);
+          return merged;
+        });
       }
-      if (pdfRes.status === 'fulfilled' && pdfRes.value.data) {
-        setPdfs(pdfRes.value.data);
-        safeSetLocalStorage('psi_pdfs_cache', pdfRes.value.data);
-        saveToIndexedDB('documentos_pdf', pdfRes.value.data);
+      if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data) && pdfRes.value.data.length > 0) {
+        setPdfs(prev => {
+          const merged = [...pdfRes.value.data];
+          prev.forEach(p => {
+            const match = merged.find(m => m.id === p.id);
+            if (!match) merged.push(p);
+            else if (p.pdfData && !match.pdfData) match.pdfData = p.pdfData;
+          });
+          safeSetLocalStorage('psi_pdfs_cache', merged);
+          saveToIndexedDB('documentos_pdf', merged);
+          return merged;
+        });
       }
-      if (exRes.status === 'fulfilled' && exRes.value.data) {
-        setExamenes(exRes.value.data);
-        safeSetLocalStorage('psi_examenes_cache', exRes.value.data);
-        saveToIndexedDB('examenes', exRes.value.data);
+      if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data) && exRes.value.data.length > 0) {
+        setExamenes(prev => {
+          const merged = [...exRes.value.data];
+          prev.forEach(p => {
+            if (!merged.find(e => e.id === p.id)) merged.push(p);
+          });
+          safeSetLocalStorage('psi_examenes_cache', merged);
+          saveToIndexedDB('examenes', merged);
+          return merged;
+        });
       }
     } catch (err) {
       console.warn('Sync error:', err);
