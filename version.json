@@ -1,7 +1,7 @@
 {
-  "version": "2.12.5",
-  "buildDate": "2026-10-01T20:20:00.000Z",
-  "name": "PsiEstudio",
+  "version": "2.16.0",
+  "buildDate": "2026-10-02T01:15:00.000Z",
+  "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Subida directa de audios desde el celular/dispositivo con reproductor integrado, botón para copiar Prompt IA de extracción textual de diapositivas, y soporte para compartir archivos de audio e imágenes vía PWA Web Share Target."
+  "notes": "Auditoría y construcción completa de la Etapa 2 (PsiVoice Mobile): Captura de audio con persistencia atómica y rotación programada (AudioRecorderService), salvaguarda ante llamadas e interrupciones nativas (InterruptionHandler), sincronización tolerante a fallos con reintentos exponenciales y sondeo adaptativo (SyncService), e interfaz React Native con selector de presets acústicos y ajustes de servidor (App.tsx)."
 }

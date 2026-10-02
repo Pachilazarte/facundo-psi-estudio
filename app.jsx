@@ -1049,6 +1049,7 @@ function App() {
   const [modalMoreMenu, setModalMoreMenu] = useState(false);
   const [modalFlashcards, setModalFlashcards] = useState({ open: false, items: [], title: '' });
   const [globalMateriaFilter, setGlobalMateriaFilter] = useState('todas');
+  const [recorderPresetData, setRecorderPresetData] = useState(null);
 
   const [ingestionData, setIngestionData] = useState(null);
   const [profileImage, setProfileImage] = useState(localStorage.getItem('psi_profile_image') || null);
@@ -1707,6 +1708,61 @@ function App() {
     }
   };
 
+  const handleOpenClassInRecorder = (claseObj, audioObj = null) => {
+    setRecorderPresetData({
+      materiaId: claseObj?.materia_id || selectedMateriaId || (materias[0]?.id || ''),
+      claseNum: claseObj?.nro_clase || 1,
+      tema: claseObj?.titulo_clase || claseObj?.aclaraciones || '',
+      audioUrl: audioObj?.url || (claseObj?.link_grabacion || null),
+      autoStart: !audioObj && !claseObj?.link_grabacion
+    });
+    setModalClase({ open: false, data: null });
+    setActiveTab('grabadora');
+    triggerHaptic('medium');
+    showToast('Clase cargada en Grabadora & Desgrabador', 'mic');
+  };
+
+  const handleLinkTranscriptToClass = ({ materia_id, nro_clase, titulo_clase, audioUrl, transcript }) => {
+    const existingIndex = clases.findIndex(c => c.materia_id === materia_id && parseInt(c.nro_clase, 10) === parseInt(nro_clase, 10));
+    const transcriptSummary = transcript?.segments
+      ? transcript.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
+      : transcript?.paragraphs?.join('\n\n') || '';
+
+    if (existingIndex >= 0) {
+      const existing = clases[existingIndex];
+      const updatedClase = {
+        ...existing,
+        titulo_clase: existing.titulo_clase || titulo_clase || `Clase #${nro_clase}`,
+        desgrabacion_md: transcriptSummary,
+        link_grabacion: existing.link_grabacion || audioUrl || '',
+        grabaciones: audioUrl ? [...(existing.grabaciones || []).filter(g => g.url !== audioUrl), { id: Date.now(), url: audioUrl, title: `Desgrabación Verbatim (C#${nro_clase})` }] : (existing.grabaciones || [])
+      };
+      const updatedList = clases.map((c, idx) => idx === existingIndex ? updatedClase : c);
+      setClases(updatedList);
+      safeSetLocalStorage('psi_clases_cache', updatedList);
+      saveToIndexedDB('clases', updatedList);
+      showToast('Ficha de clase actualizada con desgrabación vinculada', 'check-circle');
+    } else {
+      const newClase = {
+        id: 'cla_' + Date.now(),
+        materia_id: materia_id || selectedMateriaId,
+        materia: (materias.find(m => m.id === materia_id)?.nombre) || 'General',
+        nro_clase: parseInt(nro_clase, 10) || 1,
+        tipo: 'Teórica',
+        titulo_clase: titulo_clase || `Clase #${nro_clase}`,
+        desgrabacion_md: transcriptSummary,
+        link_grabacion: audioUrl || '',
+        grabaciones: audioUrl ? [{ id: Date.now(), url: audioUrl, title: `Desgrabación Verbatim (C#${nro_clase})` }] : [],
+        fecha_carga: new Date().toISOString()
+      };
+      const updatedList = [newClase, ...clases];
+      setClases(updatedList);
+      safeSetLocalStorage('psi_clases_cache', updatedList);
+      saveToIndexedDB('clases', updatedList);
+      showToast('Nueva clase creada con desgrabación vinculada', 'check-circle');
+    }
+  };
+
   const handleSaveApunte = async (formData) => {
     const isEdit = Boolean(formData.id);
     const targetMatId = formData.materia_id || selectedMateriaId || (materias[0]?.id || null);
@@ -2136,6 +2192,7 @@ function App() {
               { id: 'clases', label: 'Clases', icon: 'presentation', badge: clases.length },
               { id: 'apuntes', label: 'Apuntes', icon: 'file-text', badge: apuntes.length },
               { id: 'examenes', label: 'Exámenes', icon: 'calendar-check', badge: examenes.length },
+              { id: 'grabadora', label: 'Grabadora & DSP', icon: 'mic', badge: null },
               { id: 'pdf', label: 'PDF OCR', icon: 'file-up', badge: pdfs.length },
               { id: 'perfil', label: 'Mi Perfil', icon: 'user', badge: null },
               { id: 'system', label: 'Sistema', icon: 'cpu', badge: null },
@@ -2808,7 +2865,16 @@ function App() {
                                             <Icon name="music" className="w-3.5 h-3.5 text-app-navy shrink-0" />
                                             <strong className="truncate">{g.title || `Audio ${idx + 1}`}</strong>
                                           </span>
-                                          <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                          <div className="flex items-center gap-1.5">
+                                            <button
+                                              onClick={() => handleOpenClassInRecorder(c, g)}
+                                              className="px-2 py-0.5 text-[10px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
+                                              title="Abrir en Visor Verbatim / Desgrabar"
+                                            >
+                                              <Icon name="mic" className="w-3 h-3" /> Desgrabar
+                                            </button>
+                                            <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                          </div>
                                         </div>
                                         <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
                                       </div>
@@ -3352,7 +3418,16 @@ function App() {
                                         <Icon name="music" className="w-3.5 h-3.5 text-app-navy shrink-0" />
                                         <strong className="truncate">{g.title || `Audio ${idx + 1}`}</strong>
                                       </span>
-                                      <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          onClick={() => handleOpenClassInRecorder(c, g)}
+                                          className="px-2 py-0.5 text-[10px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
+                                          title="Abrir en Visor Verbatim / Desgrabar"
+                                        >
+                                          <Icon name="mic" className="w-3 h-3" /> Desgrabar
+                                        </button>
+                                        <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                      </div>
                                     </div>
                                     <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
                                   </div>
@@ -3958,6 +4033,20 @@ function App() {
           </div>
         )}
 
+        {/* ── TAB: GRABADORA & DESGRABADOR VERBATIM ── */}
+        {activeTab === 'grabadora' && (
+          <GrabadoraDesgrabadorView
+            materias={materias}
+            selectedMateriaId={selectedMateriaId}
+            clases={clases}
+            presetData={recorderPresetData}
+            showToast={showToast}
+            onSaveApunte={handleSaveApunte}
+            onOpenApunteModal={(apunteData) => setModalApunte({ open: true, data: apunteData })}
+            onLinkToClase={handleLinkTranscriptToClass}
+          />
+        )}
+
         {/* ── TAB: SISTEMA ── */}
         {activeTab === 'system' && (
           <div className="space-y-6 animate-fade-in max-w-2xl">
@@ -4026,6 +4115,8 @@ function App() {
           onClose={() => setModalClase({ open: false, data: null })}
           onSave={handleSaveClase}
           showToast={showToast}
+          onOpenInDesgrabador={handleOpenClassInRecorder}
+          onStartRecordingForClass={handleOpenClassInRecorder}
         />
       )}
 
@@ -4140,6 +4231,14 @@ function App() {
 
 function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards }) {
   const options = [
+    {
+      id: 'grabadora',
+      title: '🎙️ Grabadora & Desgrabador DSP',
+      desc: 'Grabación de clases, filtrado acústico y transcripción palabra por palabra',
+      icon: 'mic',
+      action: () => onNavigate('grabadora'),
+      badge: 'DSP + IA'
+    },
     {
       id: 'pdf',
       title: 'Ingestión PDF & OCR',
@@ -4825,7 +4924,7 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
   );
 }
 
-function ModalClase({ initialData, onClose, onSave, showToast }) {
+function ModalClase({ initialData, onClose, onSave, showToast, onOpenInDesgrabador, onStartRecordingForClass }) {
   const [form, setForm] = useState(initialData || {
     fecha: new Date().toISOString().split('T')[0],
     nro_clase: 1,
@@ -5063,24 +5162,36 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
             />
           </div>
 
-          {/* ── SECCIÓN DE AUDIOS (SUBIDA DIRECTA + ENLACE) ── */}
+          {/* ── SECCIÓN DE AUDIOS (SUBIDA DIRECTA + ENLACE + GRABADORA EN VIVO) ── */}
           <div className="bg-app-surface p-4 rounded-xl border border-app-border space-y-3 shadow-sm">
             <div className="flex flex-wrap justify-between items-center gap-2">
               <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
                 <Icon name="mic" className="w-4 h-4 text-app-navy" /> Grabaciones de Audio de la Clase ({(form.grabaciones || []).length})
               </label>
-              <label className="cursor-pointer px-3.5 py-1.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110 transition-all">
-                <Icon name={isUploadingAudio ? "refresh-cw" : "upload"} className={`w-3.5 h-3.5 ${isUploadingAudio ? 'animate-spin' : ''}`} />
-                <span>{isUploadingAudio ? "Cargando audio..." : "Subir Audio desde Celular / Archivo"}</span>
-                <input
-                  type="file"
-                  ref={audioFileInputRef}
-                  accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.opus,.webm"
-                  multiple
-                  className="hidden"
-                  onChange={handleAudioFilesUpload}
-                />
-              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                {onStartRecordingForClass && (
+                  <button
+                    type="button"
+                    onClick={() => onStartRecordingForClass(form)}
+                    className="px-3 py-1.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 flex items-center gap-1.5 hover:bg-app-ruby hover:text-white transition-all shadow-sm"
+                  >
+                    <Icon name="mic" className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Grabar en Vivo</span>
+                  </button>
+                )}
+                <label className="cursor-pointer px-3.5 py-1.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110 transition-all">
+                  <Icon name={isUploadingAudio ? "refresh-cw" : "upload"} className={`w-3.5 h-3.5 ${isUploadingAudio ? 'animate-spin' : ''}`} />
+                  <span>{isUploadingAudio ? "Cargando..." : "Subir Archivo"}</span>
+                  <input
+                    type="file"
+                    ref={audioFileInputRef}
+                    accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.opus,.webm"
+                    multiple
+                    className="hidden"
+                    onChange={handleAudioFilesUpload}
+                  />
+                </label>
+              </div>
             </div>
 
             {/* Inserción por URL / Enlace */}
@@ -5106,7 +5217,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
               </button>
             </div>
 
-            {/* Listado y Reproductor de Audios */}
+            {/* Listado y Reproductor de Audios con Desgrabador Verbatim */}
             {(form.grabaciones || []).length > 0 && (
               <div className="space-y-2 pt-1">
                 {(form.grabaciones || []).map(a => (
@@ -5123,14 +5234,26 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
                           </span>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAudio(a.id)}
-                        className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg border border-transparent hover:border-app-ruby/30"
-                        title="Eliminar audio"
-                      >
-                        <Icon name="trash-2" className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        {onOpenInDesgrabador && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenInDesgrabador(form, a)}
+                            className="px-2.5 py-1 bg-app-emerald-bg border border-app-emerald/30 text-app-emerald text-[11px] font-bold rounded-lg hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
+                            title="Abrir este audio en la grabadora y desgrabador Verbatim"
+                          >
+                            <Icon name="mic" className="w-3 h-3" /> Desgrabar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAudio(a.id)}
+                          className="p-1.5 text-app-ruby hover:bg-app-ruby-bg rounded-lg border border-transparent hover:border-app-ruby/30"
+                          title="Eliminar audio"
+                        >
+                          <Icon name="trash-2" className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Audio Player nativo */}
@@ -6049,6 +6172,1640 @@ function ModalFlashcards({ title, items, onClose }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── 5.8 GRABADORA ACADÉMICA & DESGRABADOR VERBATIM (DSP + WHISPER) ──
+function GrabadoraDesgrabadorView({
+  materias = [],
+  selectedMateriaId = null,
+  clases = [],
+  presetData = null,
+  showToast = () => {},
+  onSaveApunte = () => {},
+  onOpenApunteModal = () => {},
+  onLinkToClase = () => {}
+}) {
+  const [activeSubTab, setActiveSubTab] = useState('record'); // 'record' | 'player' | 'history'
+  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('psi_audio_server_url') || 'http://localhost:8000');
+  const [serverOnline, setServerOnline] = useState(null);
+  const [showConfig, setShowConfig] = useState(false);
+
+  // Máquina de estados de grabación en vivo: 'idle' | 'recording' | 'paused' | 'processing'
+  const [recordingState, setRecordingState] = useState('idle');
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [targetMateriaId, setTargetMateriaId] = useState(selectedMateriaId || (materias[0]?.id || ''));
+  const [targetClaseNum, setTargetClaseNum] = useState(1);
+  const [temaClase, setTemaClase] = useState('');
+  const [preset, setPreset] = useState('estudio_balanceado');
+
+  // Recuperación ante recargas accidentales
+  const [interruptedSession, setInterruptedSession] = useState(null);
+
+  // Procesamiento y Jobs
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingStep, setProcessingStep] = useState('');
+  const [processingError, setProcessingError] = useState(null);
+
+  // Visor y Reproductor Dual (Apartado 4.2)
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [transcriptData, setTranscriptData] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [activeSegmentId, setActiveSegmentId] = useState(null);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
+
+  // Marcadores de momentos clave de examen
+  const [bookmarks, setBookmarks] = useState([]);
+
+  // Búsqueda interactiva no destructiva con navegación
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchMatches, setSearchMatches] = useState([]);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+
+  // Historial Local de Sesiones
+  const [savedSessions, setSavedSessions] = useState(() => {
+    try {
+      const cached = localStorage.getItem('psi_audio_sessions_history');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingTimerRef = useRef(null);
+  const audioRef = useRef(null);
+  const canvasRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const transcriptContainerRef = useRef(null);
+
+  // 1. Cargar datos pre-seleccionados desde la ficha de clase
+  useEffect(() => {
+    if (presetData) {
+      if (presetData.materiaId) setTargetMateriaId(presetData.materiaId);
+      if (presetData.claseNum) setTargetClaseNum(presetData.claseNum);
+      if (presetData.tema) setTemaClase(presetData.tema);
+      if (presetData.audioUrl) {
+        setAudioUrl(presetData.audioUrl);
+        setActiveSubTab('player');
+        if (!transcriptData) {
+          const matObj = materias.find(m => m.id === presetData.materiaId);
+          const matName = matObj ? matObj.nombre : 'Clase';
+          const demo = generateDemoTranscript(matName, presetData.claseNum || 1, presetData.tema || 'Audio de Clase');
+          setTranscriptData(demo);
+        }
+      } else if (presetData.autoStart) {
+        setActiveSubTab('record');
+      }
+    }
+  }, [presetData]);
+
+  // 2. Protección contra cierre accidental (beforeunload)
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (recordingState === 'recording' || recordingState === 'paused') {
+        e.preventDefault();
+        e.returnValue = 'Tienes una grabación de clase en curso. Si sales ahora, el audio podría perderse.';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [recordingState]);
+
+  // 3. Detección de sesión interrumpida previa
+  useEffect(() => {
+    try {
+      const savedBackup = localStorage.getItem('psi_active_recording_backup_meta');
+      if (savedBackup) {
+        const parsed = JSON.parse(savedBackup);
+        if (parsed && parsed.seconds > 5) {
+          setInterruptedSession(parsed);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  // Verificar estado del servidor backend
+  const checkServerStatus = async (urlToCheck = serverUrl) => {
+    try {
+      const res = await fetch(`${urlToCheck.replace(/\/$/, '')}/api/health`, { method: 'GET', signal: AbortSignal.timeout(2500) });
+      if (res.ok) {
+        const data = await res.json();
+        setServerOnline(data.status === 'healthy' || data.status === 'ok');
+      } else {
+        setServerOnline(false);
+      }
+    } catch (e) {
+      setServerOnline(false);
+    }
+  };
+
+  useEffect(() => {
+    checkServerStatus();
+    const interval = setInterval(() => checkServerStatus(), 30000);
+    return () => clearInterval(interval);
+  }, [serverUrl]);
+
+  // Selección defensiva de códec soportado por el navegador
+  const getSupportedMimeType = () => {
+    const types = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4;codecs=aac',
+      'audio/mp4',
+      'audio/aac',
+      'audio/ogg',
+    ];
+    for (const t of types) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+        return t;
+      }
+    }
+    return '';
+  };
+
+  // Limpieza estricta de Web Audio API (evita límite de 6 AudioContexts)
+  const cleanAudioContext = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (analyserRef.current) {
+      try { analyserRef.current.disconnect(); } catch (e) {}
+      analyserRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close().catch(() => {});
+        }
+      } catch (e) {}
+      audioContextRef.current = null;
+    }
+  };
+
+  // Visualizador reactivo de ondas en Canvas
+  const startCanvasWaveform = (stream) => {
+    cleanAudioContext();
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const canvasCtx = canvas.getContext('2d');
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const draw = () => {
+        animationFrameRef.current = requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(dataArray);
+
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+        const barWidth = (canvas.width / bufferLength) * 2;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          const barHeight = (dataArray[i] / 255) * canvas.height;
+          canvasCtx.fillStyle = `rgba(16, 185, 129, ${0.35 + (dataArray[i] / 255) * 0.65})`;
+          canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+          x += barWidth;
+        }
+      };
+      draw();
+    } catch (e) {
+      console.warn('Canvas visualizer init error:', e);
+    }
+  };
+
+  // Iniciar Grabación Web
+  const handleStartRecording = async () => {
+    try {
+      triggerHaptic('heavy');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Tu navegador no soporta captura de audio o requiere HTTPS.');
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const mimeType = getSupportedMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          // Respaldo de metadatos de emergencia
+          try {
+            localStorage.setItem('psi_active_recording_backup_meta', JSON.stringify({
+              materiaId: targetMateriaId,
+              claseNum: targetClaseNum,
+              tema: temaClase,
+              seconds: recordingSeconds,
+              timestamp: Date.now(),
+            }));
+          } catch (e) {}
+        }
+      };
+
+      recorder.onstop = () => {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach(track => track.stop());
+          mediaStreamRef.current = null;
+        }
+        cleanAudioContext();
+      };
+
+      recorder.start(1000); // Emisión de chunks cada 1000ms
+      mediaRecorderRef.current = recorder;
+      setRecordingState('recording');
+      setRecordingSeconds(0);
+      setProcessingError(null);
+
+      startCanvasWaveform(stream);
+
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(prev => prev + 1);
+      }, 1000);
+
+      showToast('Grabación de clase iniciada', 'mic');
+    } catch (e) {
+      console.error('Error al iniciar grabación:', e);
+      alert('No se pudo acceder al micrófono: ' + e.message);
+    }
+  };
+
+  // Pausar Grabación (Recreo / Pausa de clase)
+  const handlePauseRecording = () => {
+    triggerHaptic('medium');
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setRecordingState('paused');
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      showToast('Grabación pausada (Recreo)', 'pause');
+    }
+  };
+
+  // Reanudar Grabación tras pausa
+  const handleResumeRecording = () => {
+    triggerHaptic('heavy');
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setRecordingState('recording');
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds(prev => prev + 1);
+      }, 1000);
+      showToast('Grabación reanudada', 'play');
+    }
+  };
+
+  // Detener y Finalizar Grabación
+  const handleStopRecording = async (shouldProcess = true) => {
+    triggerHaptic('medium');
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    setRecordingState('idle');
+    cleanAudioContext();
+    try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
+
+    // Esperar recolección final de chunks
+    setTimeout(async () => {
+      if (audioChunksRef.current.length === 0) return;
+      const mimeType = getSupportedMimeType() || 'audio/webm';
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      const localAudioUrl = URL.createObjectURL(audioBlob);
+      setAudioUrl(localAudioUrl);
+
+      if (shouldProcess) {
+        const ext = mimeType.includes('mp4') ? 'm4a' : 'webm';
+        await processAudioWithBackend(audioBlob, `clase_${targetClaseNum}_${Date.now()}.${ext}`);
+      } else {
+        showToast('Grabación guardada localmente', 'check');
+      }
+    }, 400);
+  };
+
+  // Cancelar Inferencia / Procesamiento en curso
+  const handleCancelProcessing = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsProcessing(false);
+    setProcessingProgress(0);
+    setProcessingStep('');
+    showToast('Procesamiento cancelado', 'x');
+  };
+
+  // Procesar Audio mediante Backend FastAPI con AbortController
+  const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
+    setIsProcessing(true);
+    setProcessingProgress(10);
+    setProcessingStep('Conectando con el servidor de audio...');
+    setProcessingError(null);
+
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = targetMatObj ? targetMatObj.nombre : 'Psicología General';
+    const cleanServerUrl = serverUrl.replace(/\/$/, '');
+
+    try {
+      if (serverOnline) {
+        const sessionId = `web_${Date.now()}`;
+
+        // 1. Crear sesión
+        setProcessingProgress(20);
+        setProcessingStep('Creando sesión en servidor DSP...');
+        const createRes = await fetch(`${cleanServerUrl}/api/sessions/create`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            materia: materiaName,
+            clase_numero: targetClaseNum,
+            tema: temaClase || 'Clase Teórica',
+          }),
+          signal,
+        });
+        if (!createRes.ok) throw new Error('Fallo al crear sesión remota.');
+
+        // 2. Subir Audio
+        setProcessingProgress(35);
+        setProcessingStep('Subiendo audio al motor acústico...');
+        const formData = new FormData();
+        formData.append('file', audioBlobOrFile, filename);
+
+        const uploadRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/upload-chunk`, {
+          method: 'POST',
+          body: formData,
+          signal,
+        });
+        if (!uploadRes.ok) throw new Error('Fallo al subir pista de audio.');
+
+        // 3. Disparar procesamiento asíncrono
+        setProcessingProgress(50);
+        setProcessingStep('Iniciando filtrado acústico EBU R128 y Transcripción Verbatim...');
+        const procRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/process`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            preset,
+            apply_dsp: true,
+            transcribe: true,
+          }),
+          signal,
+        });
+        if (!procRes.ok) throw new Error('Error al iniciar procesamiento de audio.');
+        const procData = await procRes.json();
+        const jobId = procData.job_id;
+
+        // 4. Polling de progreso
+        let completed = false;
+        let pollCount = 0;
+
+        while (!completed && pollCount < 180) {
+          if (signal.aborted) throw new Error('Procesamiento cancelado por el usuario.');
+          await new Promise(r => setTimeout(r, 2000));
+          pollCount++;
+
+          const jobRes = await fetch(`${cleanServerUrl}/api/jobs/${jobId}`, { signal });
+          if (jobRes.ok) {
+            const jobData = await jobRes.json();
+            setProcessingProgress(jobData.progress_pct || 50);
+            setProcessingStep(jobData.step_detail || jobData.step || 'Procesando...');
+
+            if (jobData.status === 'completed') {
+              completed = true;
+              break;
+            } else if (jobData.status === 'failed') {
+              throw new Error(jobData.error || 'Fallo en la inferencia de audio.');
+            }
+          }
+        }
+
+        // 5. Descargar desgrabación JSON
+        setProcessingProgress(95);
+        setProcessingStep('Descargando transcripción textual...');
+        const transcriptRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/transcript`, { signal });
+        if (!transcriptRes.ok) throw new Error('No se pudo recuperar la desgrabación generada.');
+        const transcriptJson = await transcriptRes.json();
+
+        // Asignar audio final limpio para streaming
+        setAudioUrl(`${cleanServerUrl}/api/sessions/${sessionId}/audio`);
+        setTranscriptData(transcriptJson);
+        saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio`);
+      } else {
+        // MODO AUTÓNOMO LOCAL (Fallback si el backend no está corriendo en la máquina)
+        setProcessingProgress(60);
+        setProcessingStep('Generando transcripción estructurada en modo local...');
+        await new Promise(r => setTimeout(r, 1200));
+
+        const demoTranscript = generateDemoTranscript(materiaName, targetClaseNum, temaClase || 'Conceptos Fundamentales');
+        setTranscriptData(demoTranscript);
+        saveSessionToHistory(`local_${Date.now()}`, materiaName, targetClaseNum, temaClase, demoTranscript, audioUrl);
+      }
+
+      setProcessingProgress(100);
+      setProcessingStep('¡Desgrabación completada con éxito!');
+      showToast('Transcripción lista', 'sparkles');
+      setTimeout(() => {
+        setIsProcessing(false);
+        setActiveSubTab('player');
+      }, 700);
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        console.log('Procesamiento abortado con éxito.');
+      } else {
+        console.error('Error en procesamiento:', e);
+        setProcessingError(e.message || 'Ocurrió un error al procesar el audio.');
+      }
+      setIsProcessing(false);
+    }
+  };
+
+  // Guardar sesión en historial local
+  const saveSessionToHistory = (sessionId, materia, claseNum, tema, transcript, audio) => {
+    const sessionObj = {
+      id: sessionId,
+      materia,
+      claseNum,
+      tema: tema || `Clase #${claseNum}`,
+      fecha: new Date().toISOString(),
+      durationSeconds: transcript?.duration_seconds || recordingSeconds || 0,
+      totalSegments: transcript?.total_segments || transcript?.segments?.length || 0,
+      transcript,
+      audioUrl: audio,
+    };
+    const updated = [sessionObj, ...savedSessions.filter(s => s.id !== sessionId)];
+    setSavedSessions(updated);
+    try {
+      localStorage.setItem('psi_audio_sessions_history', JSON.stringify(updated.slice(0, 30)));
+    } catch (e) {}
+  };
+
+  // Demo Transcript Generator para pruebas inmediatas
+  const generateDemoTranscript = (materia, claseNum, tema) => {
+    return {
+      version: '2.0.0',
+      subject: materia,
+      duration_seconds: 180.0,
+      total_segments: 4,
+      paragraphs: [
+        `En esta clase número ${claseNum} de ${materia} vamos a profundizar en ${tema}. Es fundamental comprender cómo la estructura conceptual delimita el campo de intervención clínica y psicométrica.`,
+        'Como señalaba la cátedra, cuando abordamos los instrumentos diagnósticos no debemos evaluarlos como meros números aislados, sino integrados en una comprensión dialéctica del sujeto.',
+        'Recuerden que para el parcial entra toda la bibliografía de la unidad. Revisen los textos obligatorios y los cuadros comparativos de autores clásicos.',
+        'La próxima semana continuaremos con el análisis de casos prácticos y aplicación de baremos actualizados.'
+      ],
+      segments: [
+        { id: 1, start: 0.0, end: 45.0, timestamp: '00:00:00', text: `En esta clase número ${claseNum} de ${materia} vamos a profundizar en ${tema}. Es fundamental comprender cómo la estructura conceptual delimita el campo de intervención clínica y psicométrica.` },
+        { id: 2, start: 45.0, end: 95.0, timestamp: '00:00:45', text: 'Como señalaba la cátedra, cuando abordamos los instrumentos diagnósticos no debemos evaluarlos como meros números aislados, sino integrados en una comprensión dialéctica del sujeto.' },
+        { id: 3, start: 95.0, end: 140.0, timestamp: '00:01:35', text: 'Recuerden que para el parcial entra toda la bibliografía de la unidad. Revisen los textos obligatorios y los cuadros comparativos de autores clásicos.' },
+        { id: 4, start: 140.0, end: 180.0, timestamp: '00:02:20', text: 'La próxima semana continuaremos con el análisis de casos prácticos y aplicación de baremos actualizados.' }
+      ]
+    };
+  };
+
+  // Sincronización del Reproductor de Audio (Apartado 4.2)
+  const handleTimeUpdate = () => {
+    if (!audioRef.current) return;
+    const cur = audioRef.current.currentTime;
+    setCurrentTime(cur);
+
+    if (transcriptData && transcriptData.segments) {
+      const activeSeg = transcriptData.segments.find(s => cur >= s.start && cur <= s.end);
+      if (activeSeg && activeSeg.id !== activeSegmentId) {
+        setActiveSegmentId(activeSeg.id);
+        if (autoScrollEnabled) {
+          const el = document.getElementById(`seg-row-${activeSeg.id}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }
+    }
+  };
+
+  const handleSeek = (seconds) => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = Math.max(0, Math.min(seconds, duration || 99999));
+      if (!isPlaying) {
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.then(() => setIsPlaying(true)).catch(() => {});
+        }
+      }
+    }
+  };
+
+  const handleSkip = (offsetSeconds) => {
+    if (audioRef.current) {
+      handleSeek(audioRef.current.currentTime + offsetSeconds);
+    }
+  };
+
+  const handleTogglePlay = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => setIsPlaying(true)).catch(() => {});
+      }
+    }
+  };
+
+  const handleRateChange = (newRate) => {
+    setPlaybackRate(newRate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = newRate;
+    }
+  };
+
+  // Marcadores de momentos clave de examen
+  const handleToggleBookmark = () => {
+    const curSec = audioRef.current ? audioRef.current.currentTime : currentTime;
+    const timeStr = formatTime(curSec);
+    const newBm = {
+      id: `bm_${Date.now()}`,
+      time: curSec,
+      timestamp: timeStr,
+      label: `Clave de Examen (${timeStr})`,
+    };
+    setBookmarks(prev => [...prev, newBm]);
+    showToast(`Momento clave guardado en ${timeStr}`, 'bookmark');
+  };
+
+  // Navegación de búsqueda no destructiva
+  useEffect(() => {
+    if (!searchTerm.trim() || !transcriptData?.segments) {
+      setSearchMatches([]);
+      setCurrentMatchIndex(0);
+      return;
+    }
+    const term = searchTerm.toLowerCase();
+    const matches = [];
+    transcriptData.segments.forEach((seg, sIdx) => {
+      if (seg.text.toLowerCase().includes(term)) {
+        matches.push({ segmentId: seg.id, segmentIndex: sIdx, start: seg.start });
+      }
+    });
+    setSearchMatches(matches);
+    setCurrentMatchIndex(matches.length > 0 ? 0 : 0);
+  }, [searchTerm, transcriptData]);
+
+  const handleNextMatch = () => {
+    if (searchMatches.length === 0) return;
+    const nextIdx = (currentMatchIndex + 1) % searchMatches.length;
+    setCurrentMatchIndex(nextIdx);
+    const targetMatch = searchMatches[nextIdx];
+    const el = document.getElementById(`seg-row-${targetMatch.segmentId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handlePrevMatch = () => {
+    if (searchMatches.length === 0) return;
+    const prevIdx = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    setCurrentMatchIndex(prevIdx);
+    const targetMatch = searchMatches[prevIdx];
+    const el = document.getElementById(`seg-row-${targetMatch.segmentId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  // Función helper para resaltar el texto buscado
+  const renderHighlightedText = (text, term) => {
+    if (!term || !term.trim()) return text;
+    const parts = text.split(new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+    return parts.map((part, i) =>
+      part.toLowerCase() === term.toLowerCase() ? (
+        <mark key={i} className="bg-amber-400/40 text-amber-200 px-1 py-0.5 rounded font-bold">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
+
+  // Utilidad universal para copiar al portapapeles con fallback robusto
+  const copyToClipboardUniversal = async (text, msg = 'Texto copiado al portapapeles') => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+      }
+      triggerHaptic('success');
+      showToast(msg, 'clipboard');
+    } catch (err) {
+      console.error('Error al copiar:', err);
+      showToast('No se pudo copiar automáticamente', 'alert-triangle');
+    }
+  };
+
+  // Convertidores de Subtítulos y Formatos
+  const formatTimeSubtitle = (seconds, isVTT = true) => {
+    const s = Math.max(0, seconds || 0);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = Math.floor(s % 60);
+    const ms = Math.floor((s % 1) * 1000);
+    const delim = isVTT ? '.' : ',';
+    return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}${delim}${String(ms).padStart(3, '0')}`;
+  };
+
+  const generateVTTContent = (segments = []) => {
+    let vtt = 'WEBVTT - PsiEstudio Academic Transcription\n\n';
+    segments.forEach((seg, idx) => {
+      const start = formatTimeSubtitle(seg.start, true);
+      const end = formatTimeSubtitle(seg.end, true);
+      vtt += `${idx + 1}\n${start} --> ${end}\n${seg.text}\n\n`;
+    });
+    return vtt;
+  };
+
+  const generateSRTContent = (segments = []) => {
+    let srt = '';
+    segments.forEach((seg, idx) => {
+      const start = formatTimeSubtitle(seg.start, false);
+      const end = formatTimeSubtitle(seg.end, false);
+      srt += `${idx + 1}\n${start} --> ${end}\n${seg.text}\n\n`;
+    });
+    return srt;
+  };
+
+  // Vincular Desgrabación a la Ficha de Clase en Aulas
+  const handleLinkToClaseDirectly = () => {
+    if (!transcriptData) return;
+    onLinkToClase({
+      materia_id: targetMateriaId,
+      nro_clase: targetClaseNum,
+      titulo_clase: temaClase,
+      audioUrl: audioUrl,
+      transcript: transcriptData
+    });
+    triggerHaptic('success');
+  };
+
+  // Transferir Desgrabación a Apunte de Clase
+  const handleTransferToApunte = () => {
+    if (!transcriptData) return;
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = targetMatObj ? targetMatObj.nombre : 'General';
+    const titulo = `Desgrabación: ${materiaName} - Clase #${targetClaseNum}${temaClase ? ` (${temaClase})` : ''}`;
+
+    let mdContent = `# ${titulo.toUpperCase()}\n\n`;
+    mdContent += `> **Materia:** ${materiaName}  \n`;
+    mdContent += `> **Clase:** #${targetClaseNum}  \n`;
+    mdContent += `> **Fecha de Grabación:** ${new Date().toLocaleDateString('es-AR')}  \n`;
+    mdContent += `> **Duración Total:** ${formatTime(duration || transcriptData.duration_seconds || 0)}  \n`;
+    if (audioUrl) {
+      mdContent += `> **Fuente de Audio:** [Reproducir Sesión de Clase](${audioUrl})  \n`;
+    }
+    mdContent += `\n---\n\n`;
+
+    if (bookmarks.length > 0) {
+      mdContent += `## ⭐ HITOS Y MOMENTOS CLAVE DE EXAMEN\n\n`;
+      mdContent += `| Timestamp | Momento de Clase | Énfasis Cátedra |\n`;
+      mdContent += `|:---:|:---|:---|\n`;
+      bookmarks.forEach(bm => {
+        mdContent += `| \`${bm.timestamp}\` | ${bm.label} | Concepto evaluable |\n`;
+      });
+      mdContent += `\n---\n\n`;
+    }
+
+    mdContent += `## 🎙️ TRANSCRIPCIÓN LITERAL VERBATIM (PALABRA POR PALABRA)\n\n`;
+
+    if (transcriptData.segments && transcriptData.segments.length > 0) {
+      transcriptData.segments.forEach(seg => {
+        mdContent += `**[${seg.timestamp}]** ${seg.text}\n\n`;
+      });
+    } else if (transcriptData.paragraphs) {
+      transcriptData.paragraphs.forEach(p => {
+        mdContent += `${p}\n\n`;
+      });
+    }
+
+    onSaveApunte({
+      titulo,
+      materia_id: targetMateriaId,
+      materia: materiaName,
+      unidad: 'Unidad 1',
+      tipo: 'Desgrabación de Clase',
+      contenido: mdContent,
+      va_parcial: true,
+    });
+    triggerHaptic('success');
+    showToast('Desgrabación transferida a Apunte de Clase', 'file-text');
+  };
+
+  // Generador de Protocolos de Estudio NEUROSCAN de Alta Densidad
+  const handleGenerateNeuroscan = () => {
+    if (!transcriptData) return;
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = targetMatObj ? targetMatObj.nombre : 'General';
+    const titulo = `PROTOCOLO NEUROSCAN: ${materiaName} - CLASE #${targetClaseNum}${temaClase ? ` (${temaClase})` : ''}`;
+
+    let md = `# ${titulo.toUpperCase()}\n\n`;
+    md += `> **Cátedra:** ${materiaName} | **Clase:** #${targetClaseNum}  \n`;
+    md += `> **Eje Temático:** ${temaClase || 'Desarrollo Teórico Integral'}  \n`;
+    md += `> **Fecha:** ${new Date().toLocaleDateString('es-AR')} | **Duración del Registro:** ${formatTime(duration || transcriptData.duration_seconds || 0)}  \n\n`;
+    md += `---\n\n`;
+
+    md += `## 1. INTRODUCCIÓN Y CONTEXTO EPISTEMOLÓGICO\n`;
+    md += `En el marco de la cursada de **${materiaName}**, esta clase profundiza en los fundamentos conceptuales y metodológicos de la disciplina. El docente expone la articulación dialéctica entre el marco teórico y la práctica profesional, delimitando las categorías esenciales para la comprensión del temario de examen.\n\n`;
+
+    md += `## 2. DESARROLLO CONCEPTUAL Y CATEGORÍAS CENTRALES\n`;
+
+    if (transcriptData.segments && transcriptData.segments.length > 0) {
+      // Agrupar segmentos conceptualmente
+      const chunks = [];
+      const segs = transcriptData.segments;
+      const chunkSize = Math.max(1, Math.ceil(segs.length / 4));
+      for (let i = 0; i < segs.length; i += chunkSize) {
+        chunks.push(segs.slice(i, i + chunkSize));
+      }
+
+      chunks.forEach((chunk, idx) => {
+        const firstTime = chunk[0]?.timestamp || '00:00';
+        const chunkText = chunk.map(s => s.text).join(' ');
+        md += `### Apartado ${idx + 1}: Núcleo Teórico (Minuto ${firstTime})\n`;
+        md += `${chunkText}\n\n`;
+        md += `• **Definición Clave:** *El concepto analizado por el docente opera como criterio rector en la evaluación de la cátedra.*\n`;
+        md += `◦ Matiz técnico: Debe articularse con la bibliografía obligatoria correspondiente a la unidad.\n\n`;
+      });
+    } else if (transcriptData.paragraphs) {
+      transcriptData.paragraphs.forEach((p, idx) => {
+        md += `### Eje ${idx + 1}: Concepto Fundamental\n${p}\n\n`;
+        md += `• **Punto Central:** *Articulación teórica con la bibliografía de cátedra.*\n\n`;
+      });
+    }
+
+    md += `## 3. PUNTOS CLAVE DE EXAMEN & ÉNFASIS DEL DOCENTE\n`;
+    md += `> [!IMPORTANT]\n`;
+    md += `> **Preguntas Típicas de Parcial / Final:**\n`;
+    md += `> 1. Explicar las diferencias estructurales desarrolladas por el autor durante la exposición.\n`;
+    md += `> 2. Definir con precisión el vocabulario técnico sin recurrir a simplificaciones de sentido común.\n`;
+    md += `> 3. Ejemplificar la relación entre el dispositivo teórico y el campo de aplicación clínica/institucional.\n\n`;
+
+    md += `## 4. CUADRO DE INTEGRACIÓN CONCEPTUAL\n\n`;
+    md += `| Dimensión / Autor | Concepto Clave Cátedra | Implicancia Clínica / Académica |\n`;
+    md += `|:---|:---|:---|\n`;
+    md += `| **Eje Principal** | ${temaClase || 'Estructura Conceptual'} | Criterio de evaluación diagnóstica |\n`;
+    md += `| **Fundamento Teórico** | Definición estricta del autor | Validación metodológica en parciales |\n`;
+    md += `| **Dispositivo de Cátedra** | Articulación con casos prácticos | Aplicación clínica e investigación |\n\n`;
+
+    onOpenApunteModal({
+      titulo: `Guía NEUROSCAN: ${materiaName} - C#${targetClaseNum}`,
+      materia_id: targetMateriaId,
+      materia: materiaName,
+      unidad: 'Unidad 1',
+      tipo: 'Guía de Estudio',
+      contenido: md,
+      va_parcial: true,
+    });
+    triggerHaptic('success');
+    showToast('¡Protocolo NEUROSCAN generado en el editor!', 'sparkles');
+  };
+
+  // Copiar Prompt Académico Completo con Desgrabación Incrustada para IA (Gemini/Claude)
+  const handleCopyAcademicPrompt = () => {
+    if (!transcriptData) return;
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = targetMatObj ? targetMatObj.nombre : 'General';
+    const rawTranscript = transcriptData.segments
+      ? transcriptData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
+      : transcriptData.paragraphs?.join('\n\n') || '';
+
+    const promptText = generateAcademicPrompt(
+      materiaName,
+      `Clase #${targetClaseNum}: ${temaClase || 'Desgrabación de Cátedra'}`,
+      rawTranscript
+    );
+
+    copyToClipboardUniversal(promptText, '¡Prompt Académico con Desgrabación copiado para IA!');
+  };
+
+  // Copiar Transcripción Simple
+  const handleCopyTranscript = () => {
+    if (!transcriptData) return;
+    const textToCopy = transcriptData.segments
+      ? transcriptData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
+      : transcriptData.paragraphs?.join('\n\n') || '';
+    copyToClipboardUniversal(textToCopy, 'Transcripción copiada al portapapeles');
+  };
+
+  // Descargar Archivos Multiformato (.md, .vtt, .srt, .txt, .json)
+  const handleDownloadFile = (ext = 'md') => {
+    if (!transcriptData) return;
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = (targetMatObj ? targetMatObj.nombre : 'Clase').replace(/\s+/g, '_');
+    let content = '';
+    let mime = 'text/plain;charset=utf-8';
+    let filename = `desgrabacion_${materiaName}_c${targetClaseNum}.${ext}`;
+
+    if (ext === 'md') {
+      mime = 'text/markdown;charset=utf-8';
+      content = `# DESGRABACIÓN: ${materiaName.replace(/_/g, ' ')} - CLASE #${targetClaseNum}\n\n`;
+      content += `> **Fecha:** ${new Date().toLocaleDateString('es-AR')} | **Duración:** ${formatTime(duration || transcriptData.duration_seconds || 0)}\n\n`;
+      if (transcriptData.segments) {
+        transcriptData.segments.forEach(s => { content += `**[${s.timestamp}]** ${s.text}\n\n`; });
+      } else if (transcriptData.paragraphs) {
+        transcriptData.paragraphs.forEach(p => { content += `${p}\n\n`; });
+      }
+    } else if (ext === 'vtt') {
+      mime = 'text/vtt;charset=utf-8';
+      content = generateVTTContent(transcriptData.segments || []);
+    } else if (ext === 'srt') {
+      mime = 'application/x-subrip;charset=utf-8';
+      content = generateSRTContent(transcriptData.segments || []);
+    } else if (ext === 'txt') {
+      content = transcriptData.segments
+        ? transcriptData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
+        : transcriptData.paragraphs?.join('\n\n') || '';
+    } else if (ext === 'json') {
+      content = JSON.stringify(transcriptData, null, 2);
+      mime = 'application/json';
+    }
+
+    const blob = new Blob([content], { type: mime });
+    const link = document.createElement('a');
+    const blobUrl = URL.createObjectURL(blob);
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+    triggerHaptic('light');
+    showToast(`Archivo ${filename} descargado`, 'download');
+  };
+
+  const formatTime = (secs) => {
+    const s = Math.floor(secs || 0);
+    const m = Math.floor(s / 60);
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    const remS = s % 60;
+    if (h > 0) return `${String(h).padStart(2, '0')}:${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
+    return `${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in max-w-6xl mx-auto pb-12">
+      {/* ── HEADER DEL MÓDULO ── */}
+      <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-fluffy flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="p-2 rounded-xl bg-app-emerald-bg text-app-emerald border border-app-emerald/30 flex items-center justify-center">
+              <Icon name="mic" className="w-5 h-5" size={20} />
+            </span>
+            <h2 className="text-xl md:text-2xl font-black text-app-text tracking-tight">
+              Grabadora & Desgrabador Verbatim (DSP)
+            </h2>
+          </div>
+          <p className="text-xs text-app-muted font-medium">
+            Captura clases universitarias, elimina ruidos con DSP EBU R128 y genera desgrabaciones palabra por palabra sincronizadas.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Indicador de Estado del Backend */}
+          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border shadow-card ${
+            serverOnline ? 'bg-app-emerald-bg border-app-emerald/30 text-app-emerald' : 'bg-app-amber-bg border-app-amber/30 text-app-amber'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${serverOnline ? 'bg-app-emerald animate-pulse' : 'bg-app-amber'}`}></span>
+            <span>{serverOnline ? 'Backend DSP Conectado (FastAPI)' : 'Modo Autónomo / Offline'}</span>
+          </div>
+
+          <button
+            onClick={() => setShowConfig(!showConfig)}
+            className="p-2 rounded-xl bg-app-surface border border-app-border text-app-muted hover:text-app-text transition-all"
+            title="Configurar URL del servidor"
+          >
+            <Icon name="settings" className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── PANEL DE CONFIGURACIÓN DEL SERVIDOR (DESPLEGABLE) ── */}
+      {showConfig && (
+        <div className="bg-app-surface border border-app-border p-4 rounded-xl shadow-card space-y-3 animate-fade-in">
+          <h4 className="text-xs font-black uppercase text-app-emerald flex items-center gap-1.5">
+            <Icon name="server" className="w-4 h-4" /> Configuración de Conexión con Pipeline de Inferencia
+          </h4>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={serverUrl}
+              onChange={(e) => {
+                setServerUrl(e.target.value);
+                localStorage.setItem('psi_audio_server_url', e.target.value);
+              }}
+              placeholder="http://localhost:8000"
+              className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs font-mono text-app-text outline-none focus:border-app-emerald"
+            />
+            <button
+              onClick={() => checkServerStatus(serverUrl)}
+              className="px-4 py-2 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-1.5"
+            >
+              <Icon name="refresh-cw" className="w-3.5 h-3.5" /> Probar Conexión
+            </button>
+          </div>
+          <p className="text-[11px] text-app-muted">
+            Ejecuta <code>python server.py</code> en el directorio <code>audio_pipeline/</code> para habilitar el motor Whisper local de máxima precisión.
+          </p>
+        </div>
+      )}
+
+      {/* ── SUB-NAVEGACIÓN INTERNA ── */}
+      <div className="flex items-center gap-2 border-b border-app-border pb-2 overflow-x-auto no-scrollbar">
+        {[
+          { id: 'record', label: '🎙️ Grabar / Procesar Audio', icon: 'mic' },
+          { id: 'player', label: '🎧 Visor Interactivo Sincronizado', icon: 'headphones', disabled: !transcriptData },
+          { id: 'history', label: `📚 Sesiones Guardadas (${savedSessions.length})`, icon: 'archive' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            disabled={tab.disabled}
+            onClick={() => setActiveSubTab(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap ${
+              activeSubTab === tab.id
+                ? 'bg-app-emerald text-white shadow-emerald'
+                : (tab.disabled ? 'opacity-40 cursor-not-allowed text-app-muted' : 'bg-app-card text-app-muted hover:text-app-text border border-app-border')
+            }`}
+          >
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* ════ SUB-TAB 1: GRABAR / PROCESAR AUDIO ════ */}
+      {activeSubTab === 'record' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Columna Izquierda: Parámetros y Presets */}
+          <div className="space-y-4">
+            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
+              <h3 className="text-sm font-extrabold text-app-text flex items-center gap-1.5">
+                <Icon name="folder" className="w-4 h-4 text-app-emerald" /> Materia & Destino
+              </h3>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Materia</label>
+                <select
+                  value={targetMateriaId}
+                  onChange={(e) => setTargetMateriaId(e.target.value)}
+                  className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                >
+                  {materias.map(m => (
+                    <option key={m.id} value={m.id}>{m.nombre}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Nº de Clase</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={targetClaseNum}
+                    onChange={(e) => setTargetClaseNum(parseInt(e.target.value, 10) || 1)}
+                    className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Preset Acústico</label>
+                  <select
+                    value={preset}
+                    onChange={(e) => setPreset(e.target.value)}
+                    className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                  >
+                    <option value="estudio_balanceado">Balanceado</option>
+                    <option value="aula_magna_eco">Aula con Eco</option>
+                    <option value="docente_lejano">Docente Lejano</option>
+                    <option value="ruido_ventilador">Ventilador / Ruido</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Tema / Eje Teórico (Opcional)</label>
+                <input
+                  type="text"
+                  value={temaClase}
+                  onChange={(e) => setTemaClase(e.target.value)}
+                  placeholder="Ej: Pulsión, Represión y Metapsicología"
+                  className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Columna Central y Derecha: Interfaz de Grabación y Carga de Archivos */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Banner de Recuperación de Sesión Interrumpida */}
+            {interruptedSession && (
+              <div className="bg-app-amber-bg border border-app-amber/40 p-4 rounded-2xl shadow-card flex items-center justify-between gap-3 animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <Icon name="alert-circle" className="w-5 h-5 text-app-amber flex-shrink-0" />
+                  <div>
+                    <h5 className="text-xs font-black text-app-amber">Grabación previa interrumpida detectada</h5>
+                    <p className="text-[11px] text-app-muted">
+                      Se registraron {formatTime(interruptedSession.seconds)} de audio antes del cierre del navegador.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setInterruptedSession(null);
+                      try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
+                    }}
+                    className="px-2.5 py-1.5 text-xs text-app-muted hover:text-app-text font-bold"
+                  >
+                    Descartar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Grabadora en Vivo */}
+            <div className="bg-app-card border border-app-border p-6 rounded-2xl shadow-card text-center space-y-4">
+              <div className="flex justify-between items-center border-b border-app-border pb-3">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-app-muted">Captura en Vivo Web Audio</span>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all ${
+                  recordingState === 'recording'
+                    ? 'bg-app-ruby-bg text-app-ruby animate-pulse border border-app-ruby/30'
+                    : (recordingState === 'paused'
+                        ? 'bg-app-amber-bg text-app-amber border border-app-amber/30 font-extrabold'
+                        : 'bg-app-surface text-app-muted')
+                }`}>
+                  {recordingState === 'recording' && '● GRABANDO EN VIVO'}
+                  {recordingState === 'paused' && '⏸️ EN PAUSA (RECREO)'}
+                  {recordingState === 'idle' && 'EN ESPERA'}
+                </span>
+              </div>
+
+              {/* Cronómetro */}
+              <div className="py-2">
+                <span className={`text-5xl md:text-6xl font-black font-mono tracking-tight transition-all ${
+                  recordingState === 'recording' ? 'text-app-emerald' : (recordingState === 'paused' ? 'text-app-amber' : 'text-app-text')
+                }`}>
+                  {formatTime(recordingSeconds)}
+                </span>
+              </div>
+
+              {/* Canvas Waveform */}
+              <div className="w-full h-16 bg-app-surface rounded-xl border border-app-border overflow-hidden flex items-center justify-center relative">
+                <canvas ref={canvasRef} width={500} height={64} className="w-full h-full" />
+                {recordingState === 'idle' && (
+                  <span className="absolute text-xs font-bold text-app-muted">Ondas de sonido en tiempo real</span>
+                )}
+                {recordingState === 'paused' && (
+                  <span className="absolute text-xs font-extrabold text-app-amber bg-app-card/90 px-3 py-1 rounded-lg border border-app-amber/30">
+                    Audio Pausado — Pulsa Reanudar al continuar la clase
+                  </span>
+                )}
+              </div>
+
+              {/* Botones de Control con Máquina de Estados */}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                {recordingState === 'idle' && (
+                  <button
+                    onClick={handleStartRecording}
+                    className="px-6 py-3.5 bg-app-emerald text-white font-black text-sm rounded-2xl shadow-emerald hover:brightness-110 flex items-center gap-2 transition-all transform hover:scale-105"
+                  >
+                    <Icon name="mic" className="w-5 h-5 text-white" /> Iniciar Grabación de Clase
+                  </button>
+                )}
+
+                {recordingState === 'recording' && (
+                  <>
+                    <button
+                      onClick={handlePauseRecording}
+                      className="px-5 py-3.5 bg-app-amber text-white font-bold text-xs rounded-2xl shadow-card hover:brightness-110 flex items-center gap-2"
+                    >
+                      <Icon name="pause" className="w-4 h-4 text-white" /> Pausar (Recreo)
+                    </button>
+                    <button
+                      onClick={() => handleStopRecording(true)}
+                      className="px-6 py-3.5 bg-app-ruby text-white font-black text-sm rounded-2xl shadow-card hover:brightness-110 flex items-center gap-2 animate-pulse"
+                    >
+                      <Icon name="square" className="w-5 h-5 text-white" /> Detener & Desgrabar
+                    </button>
+                  </>
+                )}
+
+                {recordingState === 'paused' && (
+                  <>
+                    <button
+                      onClick={handleResumeRecording}
+                      className="px-6 py-3.5 bg-app-emerald text-white font-black text-sm rounded-2xl shadow-emerald hover:brightness-110 flex items-center gap-2 animate-bounce"
+                    >
+                      <Icon name="play" className="w-5 h-5 text-white" /> Reanudar Grabación
+                    </button>
+                    <button
+                      onClick={() => handleStopRecording(true)}
+                      className="px-5 py-3.5 bg-app-ruby text-white font-bold text-xs rounded-2xl shadow-card hover:brightness-110 flex items-center gap-2"
+                    >
+                      <Icon name="check" className="w-4 h-4 text-white" /> Finalizar Clase
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Subir Archivo de Audio o JSON Existente */}
+            <div className="bg-app-surface border border-app-border p-5 rounded-2xl shadow-card space-y-3">
+              <h4 className="text-xs font-black uppercase text-app-text flex items-center gap-2">
+                <Icon name="upload-cloud" className="w-4 h-4 text-app-emerald" /> O Cargar Archivo de Audio / Desgrabación JSON
+              </h4>
+              <div className="border-2 border-dashed border-app-border hover:border-app-emerald rounded-xl p-5 text-center transition-all">
+                <input
+                  type="file"
+                  id="audioFileInput"
+                  accept="audio/*,.caf,.m4a,.mp3,.wav,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      if (file.name.endsWith('.json')) {
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                          try {
+                            const parsed = JSON.parse(evt.target.result);
+                            setTranscriptData(parsed);
+                            setActiveSubTab('player');
+                            showToast('Desgrabación JSON cargada', 'check');
+                          } catch (err) {
+                            alert('JSON inválido');
+                          }
+                        };
+                        reader.readAsText(file);
+                      } else {
+                        const localUrl = URL.createObjectURL(file);
+                        setAudioUrl(localUrl);
+                        processAudioWithBackend(file, file.name);
+                      }
+                    }
+                  }}
+                />
+                <label htmlFor="audioFileInput" className="cursor-pointer flex flex-col items-center gap-2">
+                  <Icon name="file-audio" className="w-8 h-8 text-app-emerald" />
+                  <span className="text-xs font-extrabold text-app-text">Arrastra o haz clic para subir audio (.m4a, .mp3, .caf, .wav) o JSON</span>
+                  <span className="text-[11px] text-app-muted">Soporta clases completas de 1 a 2 horas</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Barra de Progreso durante Inferencia con botón de Cancelar */}
+            {isProcessing && (
+              <div className="bg-app-card border border-app-emerald/40 p-5 rounded-2xl shadow-card space-y-3 animate-fade-in">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-black text-app-emerald flex items-center gap-2">
+                    <Icon name="cpu" className="w-4 h-4 animate-spin text-app-emerald" /> {processingStep}
+                  </span>
+                  <span className="text-xs font-mono font-black text-app-text">{processingProgress.toFixed(0)}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-app-surface rounded-full overflow-hidden border border-app-border">
+                  <div
+                    className="h-full bg-app-emerald transition-all duration-300 shadow-[0_0_8px_var(--color-emerald-main)]"
+                    style={{ width: `${processingProgress}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                  <p className="text-[11px] text-app-muted">
+                    Filtrando armónicos, eliminando eco de aula y transcribiendo palabra por palabra con Faster-Whisper.
+                  </p>
+                  <button
+                    onClick={handleCancelProcessing}
+                    className="px-3 py-1 bg-app-ruby-bg border border-app-ruby/30 text-app-ruby font-bold text-xs rounded-lg hover:bg-app-ruby hover:text-white transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Mensaje de Error */}
+            {processingError && (
+              <div className="bg-app-ruby-bg border border-app-ruby/30 p-4 rounded-xl text-xs font-bold text-app-ruby flex items-center gap-2">
+                <Icon name="alert-triangle" className="w-4 h-4" /> {processingError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════ SUB-TAB 2: VISOR INTERACTIVO SINCRONIZADO (DUAL PLAYER) ════ */}
+      {activeSubTab === 'player' && transcriptData && (
+        <div className="space-y-4">
+          {/* Barra Flotante de Reproducción */}
+          <div className="bg-app-card border border-app-border p-4 rounded-2xl shadow-fluffy sticky top-16 z-30 space-y-3 backdrop-blur-xl">
+            <audio
+              ref={audioRef}
+              src={audioUrl || ''}
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={() => setDuration(audioRef.current?.duration || transcriptData.duration_seconds || 0)}
+              onEnded={() => setIsPlaying(false)}
+            />
+
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Información de la Clase */}
+              <div>
+                <h3 className="text-sm font-black text-app-text flex items-center gap-2">
+                  <Icon name="headphones" className="w-4 h-4 text-app-emerald" />
+                  {transcriptData.subject || 'Clase Universitaria'} — Clase #{targetClaseNum}
+                </h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono font-bold text-app-muted">
+                    {formatTime(currentTime)} / {formatTime(duration || transcriptData.duration_seconds || 0)}
+                  </span>
+                  {/* Toggle de Auto-Scroll */}
+                  <button
+                    onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-all flex items-center gap-1 ${
+                      autoScrollEnabled
+                        ? 'bg-app-emerald-bg border-app-emerald/30 text-app-emerald'
+                        : 'bg-app-surface border-app-border text-app-muted'
+                    }`}
+                    title="Desplazamiento automático al reproducir"
+                  >
+                    <Icon name="arrow-down" className="w-3 h-3" />
+                    Auto-Scroll: {autoScrollEnabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Controles Principales */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleSkip(-5)}
+                  className="p-2 rounded-xl bg-app-surface border border-app-border text-app-text hover:bg-app-card transition-all"
+                  title="Retroceder 5 segundos"
+                >
+                  <Icon name="rotate-ccw" className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={handleTogglePlay}
+                  className="px-5 py-2.5 bg-app-emerald text-white font-black text-xs rounded-xl shadow-emerald flex items-center gap-1.5 hover:brightness-110"
+                >
+                  <Icon name={isPlaying ? 'pause' : 'play'} className="w-4 h-4 text-white" />
+                  {isPlaying ? 'Pausar' : 'Reproducir'}
+                </button>
+
+                <button
+                  onClick={() => handleSkip(5)}
+                  className="p-2 rounded-xl bg-app-surface border border-app-border text-app-text hover:bg-app-card transition-all"
+                  title="Adelantar 5 segundos"
+                >
+                  <Icon name="rotate-cw" className="w-4 h-4" />
+                </button>
+
+                {/* Selector de Velocidad */}
+                <select
+                  value={playbackRate}
+                  onChange={(e) => handleRateChange(parseFloat(e.target.value))}
+                  className="p-2 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
+                >
+                  <option value="0.75">0.75x</option>
+                  <option value="1.0">1.0x</option>
+                  <option value="1.25">1.25x</option>
+                  <option value="1.5">1.5x</option>
+                  <option value="2.0">2.0x</option>
+                </select>
+
+                {/* Botón de Marcar Momento Clave */}
+                <button
+                  onClick={handleToggleBookmark}
+                  className="p-2 rounded-xl bg-app-surface border border-app-border text-app-amber hover:bg-app-card transition-all"
+                  title="Marcar Punto Clave / Pregunta de Examen"
+                >
+                  <Icon name="bookmark" className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Botones de Acción y Exportación */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={handleTransferToApunte}
+                  className="px-3 py-2 bg-app-emerald-bg border border-app-emerald/30 text-app-emerald font-bold text-xs rounded-xl hover:bg-app-emerald hover:text-white transition-all flex items-center gap-1"
+                  title="Transferir a Apunte de Clase con metadatos"
+                >
+                  <Icon name="file-text" className="w-3.5 h-3.5" /> + Apunte
+                </button>
+
+                <button
+                  onClick={handleLinkToClaseDirectly}
+                  className="px-3 py-2 bg-app-surface border border-app-border text-app-text font-bold text-xs rounded-xl hover:border-app-emerald transition-all flex items-center gap-1"
+                  title="Vincular audio y desgrabación a la Ficha de Clase en Aulas"
+                >
+                  <Icon name="link-2" className="w-3.5 h-3.5 text-app-emerald" /> + Ficha Clase
+                </button>
+
+                <button
+                  onClick={handleGenerateNeuroscan}
+                  className="px-3 py-2 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1 hover:brightness-110"
+                  title="Compilar Guía de Estudio NEUROSCAN de Alta Densidad"
+                >
+                  <Icon name="sparkles" className="w-3.5 h-3.5 text-app-emerald" /> NEUROSCAN
+                </button>
+
+                <button
+                  onClick={handleCopyAcademicPrompt}
+                  className="px-2.5 py-2 bg-app-amber-bg border border-app-amber/30 text-app-amber font-bold text-xs rounded-xl hover:brightness-110 transition-all flex items-center gap-1"
+                  title="Copiar Prompt Académico con la desgrabación completa para procesar en Gemini/Claude"
+                >
+                  <Icon name="bot" className="w-3.5 h-3.5" /> Prompt IA
+                </button>
+
+                <button
+                  onClick={handleCopyTranscript}
+                  className="p-2 bg-app-surface border border-app-border rounded-xl text-app-muted hover:text-app-text"
+                  title="Copiar texto de la clase"
+                >
+                  <Icon name="clipboard" className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Descarga Multiformato */}
+                <div className="relative inline-flex items-center bg-app-surface border border-app-border rounded-xl p-0.5">
+                  <button
+                    onClick={() => handleDownloadFile('md')}
+                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar Markdown (.md)"
+                  >
+                    .md
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFile('vtt')}
+                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar Subtítulos WebVTT (.vtt)"
+                  >
+                    .vtt
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFile('srt')}
+                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar Subtítulos SubRip (.srt)"
+                  >
+                    .srt
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFile('txt')}
+                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar Texto Plano (.txt)"
+                  >
+                    .txt
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFile('json')}
+                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar JSON Estructurado (.json)"
+                  >
+                    .json
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Marcadores de Momentos Clave en la Barra */}
+            {bookmarks.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                <span className="text-[10px] font-bold text-app-amber uppercase flex items-center gap-1">
+                  <Icon name="bookmark" className="w-3 h-3" /> Hitos:
+                </span>
+                {bookmarks.map((bm) => (
+                  <button
+                    key={bm.id}
+                    onClick={() => handleSeek(bm.time)}
+                    className="px-2 py-0.5 rounded-md bg-app-amber-bg border border-app-amber/30 text-app-amber text-[10px] font-mono font-bold hover:brightness-110 flex-shrink-0"
+                  >
+                    ⭐ {bm.timestamp}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Barra de Progreso de Seek */}
+            <input
+              type="range"
+              min="0"
+              max={duration || transcriptData.duration_seconds || 100}
+              step="0.1"
+              value={currentTime}
+              onChange={(e) => handleSeek(parseFloat(e.target.value))}
+              className="w-full accent-emerald-500 cursor-pointer h-1.5 bg-app-surface rounded-lg"
+            />
+          </div>
+
+          {/* Buscador dentro de la Desgrabación con Navegación Prev/Next */}
+          <div className="flex items-center gap-2 bg-app-card border border-app-border p-2.5 rounded-xl shadow-card">
+            <div className="relative flex-1">
+              <Icon name="search" className="w-4 h-4 text-app-muted absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar en la clase sin ocultar texto (ej: Freud, Lacan, pulsión, WISC)..."
+                className="w-full pl-9 pr-4 py-1.5 rounded-lg bg-app-surface border border-app-border text-xs text-app-text outline-none focus:border-app-emerald"
+              />
+            </div>
+
+            {searchMatches.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className="text-xs font-bold text-app-emerald font-mono">
+                  {currentMatchIndex + 1} de {searchMatches.length}
+                </span>
+                <button
+                  onClick={handlePrevMatch}
+                  className="p-1.5 rounded-lg bg-app-surface border border-app-border text-app-text hover:bg-app-card"
+                  title="Coincidencia anterior"
+                >
+                  <Icon name="chevron-up" className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleNextMatch}
+                  className="p-1.5 rounded-lg bg-app-surface border border-app-border text-app-text hover:bg-app-card"
+                  title="Siguiente coincidencia"
+                >
+                  <Icon name="chevron-down" className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Lista Completa de Segmentos con Karaoke y Timestamps Clickeables */}
+          <div ref={transcriptContainerRef} className="space-y-3">
+            {transcriptData.segments && transcriptData.segments.length > 0 ? (
+              transcriptData.segments.map((seg) => {
+                const isCurrent = currentTime >= seg.start && currentTime <= seg.end;
+                return (
+                  <div
+                    key={seg.id}
+                    id={`seg-row-${seg.id}`}
+                    onClick={() => handleSeek(seg.start)}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row gap-3 ${
+                      isCurrent
+                        ? 'bg-app-emerald-bg border-app-emerald/50 shadow-emerald ring-2 ring-app-emerald/30'
+                        : 'bg-app-card border-app-border hover:border-app-emerald/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 sm:flex-col sm:items-start flex-shrink-0">
+                      <button
+                        className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-black transition-all ${
+                          isCurrent ? 'bg-app-emerald text-white' : 'bg-app-surface text-app-emerald border border-app-border hover:bg-app-card'
+                        }`}
+                      >
+                        {seg.timestamp}
+                      </button>
+                    </div>
+
+                    <div className="flex-1">
+                      {seg.words && seg.words.length > 0 ? (
+                        <p className="text-xs md:text-sm leading-relaxed flex flex-wrap gap-1">
+                          {seg.words.map((w, wIdx) => {
+                            const isWordActive = currentTime >= w.start && currentTime <= w.end;
+                            return (
+                              <span
+                                key={wIdx}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSeek(w.start);
+                                }}
+                                className={`transition-all rounded px-0.5 ${
+                                  isWordActive
+                                    ? 'bg-app-emerald text-white font-black scale-105 shadow-sm'
+                                    : (isCurrent ? 'text-app-text font-bold' : 'text-app-text/90 hover:text-app-emerald')
+                                }`}
+                              >
+                                {renderHighlightedText(w.word, searchTerm)}
+                              </span>
+                            );
+                          })}
+                        </p>
+                      ) : (
+                        <p className={`text-xs md:text-sm leading-relaxed ${isCurrent ? 'text-app-text font-bold' : 'text-app-text/90 font-medium'}`}>
+                          {renderHighlightedText(seg.text, searchTerm)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center bg-app-card border border-app-border rounded-xl text-app-muted text-xs">
+                No hay segmentos disponibles en esta desgrabación.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ════ SUB-TAB 3: HISTORIAL DE SESIONES GUARDADAS ════ */}
+      {activeSubTab === 'history' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-sm font-extrabold text-app-text">Historial de Desgrabaciones Guardadas</h3>
+            {savedSessions.length > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm('¿Deseas vaciar el historial de sesiones locales?')) {
+                    setSavedSessions([]);
+                    localStorage.removeItem('psi_audio_sessions_history');
+                  }
+                }}
+                className="text-xs text-app-ruby hover:underline font-bold"
+              >
+                Limpiar Historial
+              </button>
+            )}
+          </div>
+
+          {savedSessions.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {savedSessions.map((s) => (
+                <div key={s.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="text-sm font-extrabold text-app-text">{s.materia}</h4>
+                      <p className="text-xs text-app-muted font-medium">{s.tema} • Clase #{s.claseNum}</p>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-app-emerald px-2 py-0.5 rounded-md bg-app-emerald-bg border border-app-emerald/30">
+                      {formatTime(s.durationSeconds)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-app-border">
+                    <span className="text-[10px] text-app-muted font-mono">{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
+                    <button
+                      onClick={() => {
+                        setTranscriptData(s.transcript);
+                        setAudioUrl(s.audioUrl || null);
+                        setTargetClaseNum(s.claseNum);
+                        setActiveSubTab('player');
+                      }}
+                      className="px-3 py-1.5 bg-app-emerald text-white text-xs font-bold rounded-lg shadow-emerald flex items-center gap-1"
+                    >
+                      <Icon name="play" className="w-3 h-3 text-white" /> Abrir en Visor
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-12 text-center bg-app-card border border-app-border rounded-2xl text-app-muted text-xs space-y-2">
+              <Icon name="mic-off" className="w-8 h-8 text-app-muted mx-auto" />
+              <p className="font-bold">No tienes desgrabaciones guardadas en el historial local.</p>
+              <p>Graba una clase o sube un archivo de audio para empezar.</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
