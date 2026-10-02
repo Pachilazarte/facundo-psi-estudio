@@ -1032,7 +1032,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.12.5';
+  const currentVersion = 'v2.18.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -5857,6 +5857,441 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
 }
 
 
+// ── 4.8 MODAL APUNTE / GUÍA DE ESTUDIO SPLIT-VIEW CON GENERADOR PDF ──
+function ModalApunteSplitView({
+  initialData = null,
+  materiaNombre = '',
+  availableUnits = [],
+  showToast = () => {},
+  onClose = () => {},
+  onSave = () => {}
+}) {
+  const [form, setForm] = useState(() => ({
+    id: initialData?.id || null,
+    titulo: initialData?.titulo || '',
+    unidad: initialData?.unidad || (availableUnits?.[0] || 'Unidad 1'),
+    tipo: initialData?.tipo || 'Resumen',
+    va_parcial: Boolean(initialData?.va_parcial),
+    nro_parcial: initialData?.nro_parcial || '1° Parcial',
+    contenido: initialData?.contenido || '',
+    pdfData: initialData?.pdfData || null,
+    pdfName: initialData?.pdfName || null,
+    created_at: initialData?.created_at || new Date().toISOString()
+  }));
+
+  const [activeViewTab, setActiveViewTab] = useState('editor'); // 'editor' | 'preview' | 'pdf'
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [compiledPDF, setCompiledPDF] = useState(null);
+  const textareaRef = useRef(null);
+
+  const unitsList = useMemo(() => {
+    const std = ['Unidad 1', 'Unidad 2', 'Unidad 3', 'Unidad 4', 'Unidad 5', 'Unidad 6', 'Unidad 7', 'Unidad 8'];
+    const combined = Array.from(new Set([...(availableUnits || []), ...std]));
+    return combined;
+  }, [availableUnits]);
+
+  // Autocompletar título si comienza con # Encabezado
+  const handleContentChange = (val) => {
+    let updated = { ...form, contenido: val };
+    if (!form.titulo.trim()) {
+      const extracted = extractAcademicTitle(val);
+      if (extracted) updated.titulo = extracted;
+    }
+    setForm(updated);
+  };
+
+  const handlePaste = (e) => {
+    const text = e.clipboardData?.getData('text');
+    if (text && !form.titulo.trim()) {
+      const extracted = extractAcademicTitle(text);
+      if (extracted) {
+        setForm(prev => ({ ...prev, titulo: extracted }));
+      }
+    }
+  };
+
+  const insertSyntax = (before, after = '') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = form.contenido || '';
+    const selected = current.substring(start, end);
+    const replacement = before + selected + after;
+    const newContent = current.substring(0, start) + replacement + current.substring(end);
+    setForm(prev => ({ ...prev, contenido: newContent }));
+    triggerHaptic('light');
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + before.length, end + before.length);
+    }, 50);
+  };
+
+  const handleInsertTemplate = () => {
+    const cleanTit = form.titulo || 'TÍTULO DEL TEXTO ACADÉMICO';
+    const template = `# ${cleanTit}\n\n## Introducción\nEl presente texto aborda de manera sistemática...\n\n## Primer Núcleo Temático\nExplicación fiel, desarrollada y extensa de cada punto conceptual...\n\n• Concepto clave de primer nivel.\n  ◦ Subclasificación o matiz teórico específico.\n\n[imagen 1: Esquema de articulación conceptual]\n`;
+    setForm(prev => ({ ...prev, contenido: (prev.contenido ? prev.contenido + '\n\n' : '') + template }));
+    triggerHaptic('light');
+    if (showToast) showToast('Plantilla académica insertada', 'sparkles');
+  };
+
+  const handleCompilePDF = async (forDownload = false, twoColumns = false) => {
+    if (!form.contenido.trim() && !form.pdfData) {
+      if (showToast) showToast('Escribe o pega contenido Markdown para compilar el PDF', 'alert-triangle');
+      return;
+    }
+    setIsGeneratingPDF(true);
+    triggerHaptic('medium');
+    try {
+      if (form.pdfData) {
+        await downloadPDFHelper({
+          pdfData: form.pdfData,
+          fileName: form.pdfName || `${materiaNombre} - ${form.titulo}.pdf`,
+          twoColumns,
+          showToast
+        });
+      } else {
+        const result = await generateAcademicPDFBlob({
+          materia: materiaNombre,
+          unidad: form.unidad,
+          titulo: form.titulo || 'Apunte Académico',
+          contenido: form.contenido
+        });
+
+        if (forDownload) {
+          if (twoColumns) {
+            const bookletBlob = await convertPDFToTwoColumns(result.blob);
+            const bookletUrl = URL.createObjectURL(bookletBlob);
+            const a = document.createElement('a');
+            a.href = bookletUrl;
+            a.download = `${materiaNombre} - ${form.titulo || 'Apunte'} (2_Pags_Hoja).pdf`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(bookletUrl), 10000);
+            if (showToast) showToast('Descargando cuadernillo de 2 páginas...', 'book-open');
+          } else {
+            const a = document.createElement('a');
+            a.href = result.blobUrl;
+            a.download = result.fileName;
+            a.click();
+            if (showToast) showToast('Descargando PDF A4...', 'download');
+          }
+        } else {
+          setCompiledPDF(result);
+          setActiveViewTab('pdf');
+          if (showToast) showToast(`PDF generado (${result.pageCount} páginas)`, 'check-circle');
+        }
+      }
+    } catch (e) {
+      console.error('Error al generar PDF:', e);
+      if (showToast) showToast(`Error al compilar PDF: ${e.message}`, 'alert-circle');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    if (e) e.preventDefault();
+    if (!form.titulo.trim()) {
+      if (showToast) showToast('Por favor ingresa un título para el apunte', 'alert-triangle');
+      return;
+    }
+    triggerHaptic('success');
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-[94vh] flex flex-col rounded-2xl shadow-fluffy overflow-hidden">
+        
+        {/* Header Modal */}
+        <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-b border-app-border bg-app-surface gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center border border-app-emerald/20">
+              <Icon name="file-text" className="w-4 h-4 text-app-emerald" />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-black text-app-text">
+                {form.id ? 'Editar Guía / Apunte de Estudio' : 'Nuevo Apunte Académico'}
+              </h3>
+              <span className="text-[11px] text-app-muted font-bold">
+                {materiaNombre || 'Cátedra'} • {form.unidad}
+              </span>
+            </div>
+          </div>
+
+          {/* View Tab Selectors */}
+          <div className="flex items-center gap-1 bg-app-card p-1 rounded-xl border border-app-border text-xs">
+            <button
+              type="button"
+              onClick={() => setActiveViewTab('editor')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                activeViewTab === 'editor'
+                  ? 'bg-app-emerald text-white shadow-emerald'
+                  : 'text-app-muted hover:text-app-text'
+              }`}
+            >
+              <Icon name="edit-3" className="w-3.5 h-3.5" />
+              <span>Editor Markdown</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveViewTab('preview')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                activeViewTab === 'preview'
+                  ? 'bg-app-emerald text-white shadow-emerald'
+                  : 'text-app-muted hover:text-app-text'
+              }`}
+            >
+              <Icon name="eye" className="w-3.5 h-3.5" />
+              <span>Vista Previa</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleCompilePDF(false)}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                activeViewTab === 'pdf'
+                  ? 'bg-app-navy text-white shadow-card'
+                  : 'text-app-muted hover:text-app-text'
+              }`}
+            >
+              <Icon name="book-open" className="w-3.5 h-3.5" />
+              <span>PDF Hoja Doble</span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-app-muted hover:text-app-text rounded-xl bg-app-card border border-app-border"
+              title="Cerrar modal"
+            >
+              <Icon name="x" className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Top Form Controls Bar */}
+        <div className="px-4 sm:px-6 py-2.5 bg-app-card border-b border-app-border grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+          <div className="sm:col-span-6">
+            <input
+              type="text"
+              value={form.titulo}
+              onChange={e => setForm({ ...form, titulo: e.target.value })}
+              placeholder="Título del Apunte (ej: Saussure - El Signo y el Valor Lingüístico)"
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm font-black text-app-text outline-none focus:border-app-emerald"
+              required
+            />
+          </div>
+          <div className="sm:col-span-3">
+            <select
+              value={form.unidad}
+              onChange={e => setForm({ ...form, unidad: e.target.value })}
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+            >
+              {unitsList.map(u => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-3">
+            <select
+              value={form.tipo}
+              onChange={e => setForm({ ...form, tipo: e.target.value })}
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+            >
+              <option value="Resumen">Resumen de Estudio</option>
+              <option value="Guía de Cátedra">Guía de Cátedra</option>
+              <option value="Mapa Conceptual">Mapa Conceptual</option>
+              <option value="Fichas de Examen">Fichas de Examen</option>
+              <option value="Notas de Clase">Notas de Clase</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Tab 1: Split-View Editor & Preview */}
+        {activeViewTab === 'editor' && (
+          <div className="flex-1 flex flex-col overflow-hidden p-3 sm:p-4 space-y-3">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 p-2 rounded-xl bg-app-surface border border-app-border text-xs font-bold">
+              <div className="flex flex-wrap items-center gap-1">
+                <button type="button" onClick={() => insertSyntax('**', '**')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text font-black" title="Negrita">B</button>
+                <button type="button" onClick={() => insertSyntax('*', '*')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text italic" title="Cursiva">I</button>
+                <button type="button" onClick={() => insertSyntax('# ')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text font-extrabold" title="Título H1">H1</button>
+                <button type="button" onClick={() => insertSyntax('## ')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text font-bold" title="Título H2">H2</button>
+                <button type="button" onClick={() => insertSyntax('### ')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text" title="Título H3">H3</button>
+                <span className="w-px h-4 bg-app-border mx-1"></span>
+                <button type="button" onClick={() => insertSyntax('• ')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text" title="Viñeta">Lista •</button>
+                <button type="button" onClick={() => insertSyntax('  ◦ ')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text" title="Subviñeta">Sublista ◦</button>
+                <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text" title="Cita textual">Cita &gt;</button>
+                <button type="button" onClick={() => insertSyntax('$', '$')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-navy text-app-navy font-mono" title="LaTeX inline">$f(x)$</button>
+                <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-navy text-app-navy font-mono" title="LaTeX display">$$...$$</button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleInsertTemplate}
+                className="px-3 py-1 bg-app-emerald-bg text-app-emerald font-extrabold text-[11px] rounded-lg border border-app-emerald/30 hover:brightness-110 flex items-center gap-1"
+              >
+                <Icon name="sparkles" className="w-3.5 h-3.5 text-app-emerald" /> Plantilla IA
+              </button>
+            </div>
+
+            {/* Side-by-Side Editor & Live Preview */}
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden min-h-0">
+              <div className="flex flex-col h-full overflow-hidden">
+                <textarea
+                  ref={textareaRef}
+                  value={form.contenido}
+                  onPaste={handlePaste}
+                  onChange={e => handleContentChange(e.target.value)}
+                  placeholder="Pega o redacta aquí el apunte en Markdown (compatible con KaTeX math, tablas y formato académico)..."
+                  className="w-full flex-1 p-4 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none leading-relaxed overflow-y-auto focus:border-app-emerald"
+                />
+              </div>
+
+              <div className="hidden md:flex flex-col h-full bg-app-card border border-app-border rounded-xl p-4 overflow-y-auto">
+                <div className="text-[10px] uppercase font-black tracking-wider text-app-emerald mb-2 flex items-center gap-1">
+                  <Icon name="eye" className="w-3 h-3" /> Vista Previa en Vivo
+                </div>
+                <div
+                  className="flex-1 text-xs sm:text-sm text-app-text leading-relaxed overflow-y-auto"
+                  dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<span class="text-app-muted italic">La vista previa en tiempo real aparecerá aquí...</span>' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Full Preview on Mobile / Desktop */}
+        {activeViewTab === 'preview' && (
+          <div className="flex-1 overflow-y-auto p-5 sm:p-8 bg-app-card space-y-4">
+            <div className="max-w-3xl mx-auto space-y-4">
+              <div className="border-b border-app-border pb-3">
+                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                  {materiaNombre} • {form.unidad}
+                </span>
+                <h1 className="text-xl sm:text-2xl font-black text-app-text mt-2">{form.titulo || 'Apunte sin título'}</h1>
+              </div>
+              <div
+                className="text-xs sm:text-sm text-app-text leading-relaxed space-y-2"
+                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="text-app-muted italic">No hay contenido escrito en este apunte.</p>' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 3: Vector PDF Print & Booklet Mode */}
+        {activeViewTab === 'pdf' && (
+          <div className="flex-1 flex flex-col p-3 sm:p-4 space-y-3 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-app-surface border border-app-border rounded-xl">
+              <div className="flex items-center gap-2 text-xs font-bold text-app-muted">
+                <Icon name="book-open" className="w-4 h-4 text-app-emerald" />
+                <span>{compiledPDF ? `PDF compilado (${compiledPDF.pageCount} páginas)` : 'Listo para exportar'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(true, false)}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-surface border border-app-border text-app-navy hover:border-app-navy font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
+                >
+                  <Icon name="download" className="w-3.5 h-3.5 text-app-navy" /> ⬇ A4
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(true, true)}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110"
+                >
+                  <Icon name="book-open" className="w-3.5 h-3.5 text-white" /> 📖 2 Págs / Hoja
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 w-full bg-slate-900/60 rounded-xl border border-app-border overflow-hidden flex flex-col items-center justify-center">
+              {compiledPDF ? (
+                <iframe
+                  src={compiledPDF.blobUrl}
+                  className="w-full h-full border-0 bg-white"
+                  title="Visor PDF Académico"
+                />
+              ) : (
+                <div className="p-8 text-center space-y-3 max-w-md">
+                  <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald mx-auto flex items-center justify-center border border-app-emerald/20">
+                    <Icon name="file-text" className="w-6 h-6 text-app-emerald" />
+                  </div>
+                  <h4 className="text-sm font-black text-app-text">Generador Vectorial de PDF</h4>
+                  <p className="text-xs text-app-muted">
+                    Compila tu apunte en PDF de alta fidelidad con encabezados de cátedra y formato de doble columna para impresión.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleCompilePDF(false)}
+                    disabled={isGeneratingPDF}
+                    className="px-5 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-2 mx-auto"
+                  >
+                    <Icon name={isGeneratingPDF ? "refresh-cw" : "sparkles"} className={`w-4 h-4 ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingPDF ? "Generando PDF..." : "Generar Vista Previa PDF"}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Footer Actions */}
+        <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-t border-app-border bg-app-surface gap-3">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-app-amber">
+              <input
+                type="checkbox"
+                checked={form.va_parcial}
+                onChange={e => setForm({ ...form, va_parcial: e.target.checked })}
+                className="w-4 h-4 accent-emerald-500 rounded"
+              />
+              <span>Entra al Parcial</span>
+            </label>
+            {form.va_parcial && (
+              <select
+                value={form.nro_parcial}
+                onChange={e => setForm({ ...form, nro_parcial: e.target.value })}
+                className="p-1.5 rounded-lg bg-app-card border border-app-border text-[11px] font-bold text-app-text outline-none"
+              >
+                <option value="1° Parcial">1° Parcial</option>
+                <option value="2° Parcial">2° Parcial</option>
+                <option value="3° Parcial">3° Parcial</option>
+                <option value="Recuperatorio">Recuperatorio</option>
+                <option value="Final">Examen Final</option>
+              </select>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 bg-app-card border border-app-border font-bold text-xs rounded-xl text-app-muted hover:text-app-text"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className="px-6 py-2 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5"
+            >
+              <Icon name="check" className="w-4 h-4 text-white" />
+              <span>Guardar Apunte</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 // ── 5. MODAL: SUBIR DOCUMENTO PDF DIRECTO (SIN OCR / SIN DESTRUCTURAR) ──
 function ModalSubirDocumentoPDF({
   isOpen,
@@ -7363,13 +7798,6 @@ function GrabadoraDesgrabadorView({
     if (audioRef.current) {
       audioRef.current.currentTime = Math.max(0, Math.min(seconds, duration || 99999));
       if (!isPlaying) {
-        const playPromise = audioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => setIsPlaying(true)).catch(() => {});
-        }
-      }
-    }
-  };
         const playPromise = audioRef.current.play();
         if (playPromise !== undefined) {
           playPromise.then(() => setIsPlaying(true)).catch(() => {});
