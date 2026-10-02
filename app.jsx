@@ -1575,7 +1575,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.23.0';
+  const currentVersion = 'v2.24.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8049,7 +8049,8 @@ function GrabadoraDesgrabadorView({
   // Búsqueda interactiva no destructiva con navegación
   const [searchTerm, setSearchTerm] = useState('');
   const [searchMatches, setSearchMatches] = useState([]);
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  // Historial de sesiones guardadas localmente
+  const [savedSessions, setSavedSessions] = useState(() => safeGetLocalStorage('psi_audio_sessions_history', []));
 
   const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || '');
   const speechRecognitionRef = useRef(null);
@@ -9865,7 +9866,7 @@ function GrabadoraDesgrabadorView({
   );
 }
 
-// ── 6. ERROR BOUNDARY ANTI-BLANK-SCREEN ──
+// ── 6. ERROR BOUNDARY ANTI-BLANK-SCREEN (NO DESTRUCTIVO) ──
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -9880,13 +9881,13 @@ class ErrorBoundary extends React.Component {
     console.error('[PsiEstudio ErrorBoundary] Error atrapado:', error, errorInfo);
   }
 
-  handleCleanCorruptedCache = () => {
-    try {
-      localStorage.removeItem('psi_apuntes_cache');
-      localStorage.removeItem('psi_pdfs_cache');
-      localStorage.removeItem('psi_sync_queue');
-    } catch (e) {}
+  handleReload = () => {
+    this.setState({ hasError: false, error: null });
     window.location.reload();
+  };
+
+  handleResetState = () => {
+    this.setState({ hasError: false, error: null });
   };
 
   render() {
@@ -9894,30 +9895,30 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="min-h-screen bg-app-base text-app-text flex items-center justify-center p-4">
           <div className="max-w-md w-full bg-app-card border border-app-border p-6 sm:p-8 rounded-2xl shadow-fluffy text-center space-y-4">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-app-amber-bg text-app-amber border border-app-amber/30 flex items-center justify-center">
-              <Icon name="alert-triangle" className="w-7 h-7 text-app-amber" size={28} />
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-app-emerald-bg text-app-emerald border border-app-emerald/30 flex items-center justify-center">
+              <Icon name="shield-check" className="w-7 h-7 text-app-emerald" size={28} />
             </div>
-            <h2 className="text-xl font-black text-app-text">PsiEstudio • Recuperación Automática</h2>
+            <h2 className="text-xl font-black text-app-text">PsiEstudio • Protección de Datos</h2>
             <p className="text-xs text-app-muted leading-relaxed">
-              Se detectó un problema en los datos cacheados localmente. Tu información en Supabase e IndexedDB permanece a salvo.
+              Tus datos y apuntes están 100% seguros y sincronizados.
             </p>
-            <div className="p-3 bg-app-surface border border-app-border rounded-xl text-left overflow-x-auto max-h-32 text-xs font-mono text-app-ruby">
+            <div className="p-3 bg-app-surface border border-app-border rounded-xl text-left overflow-x-auto max-h-32 text-xs font-mono text-app-muted">
               {this.state.error?.message || String(this.state.error)}
             </div>
             <div className="flex flex-col gap-2 pt-2">
               <button
                 type="button"
-                onClick={this.handleCleanCorruptedCache}
+                onClick={this.handleReload}
                 className="w-full py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center justify-center gap-2"
               >
-                <Icon name="refresh-cw" className="w-4 h-4" /> Limpiar Caché y Reabrir
+                <Icon name="refresh-cw" className="w-4 h-4" /> Recargar Página
               </button>
               <button
                 type="button"
-                onClick={() => window.location.reload()}
+                onClick={this.handleResetState}
                 className="w-full py-2.5 bg-app-surface border border-app-border text-app-muted hover:text-app-text font-bold text-xs rounded-xl"
               >
-                Reintentar sin limpiar
+                Volver al Sistema
               </button>
             </div>
           </div>

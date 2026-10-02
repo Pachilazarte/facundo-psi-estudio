@@ -1,7 +1,7 @@
 {
-  "version": "2.23.0",
-  "buildDate": "2026-10-02T04:00:00.000Z",
+  "version": "2.24.0",
+  "buildDate": "2026-10-02T04:05:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Módulo interactivo de variables de prompts para Gemini, reemplazo automático de prompts por imágenes renderizadas en Markdown y compilador de PDF con soporte integrado de gráficos."
+  "notes": "Corrección definitiva del estado de sesiones en Grabadora (savedSessions is not defined) y blindaje no destructivo de ErrorBoundary."
 }
