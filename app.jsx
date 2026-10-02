@@ -1011,6 +1011,394 @@ async function generateAcademicPDFBlob({ materia = '', unidad = '', titulo = '',
   };
 }
 
+// ── MASTER SEED DATA (PERMANENTE ANTI-PÉRDIDA DE DATOS ACADÉMICOS) ──
+const ACADEMIC_MASTER_SEEDS = {
+  materias: [
+    {
+      id: 'mat_evaluacion_infantojuvenil',
+      nombre: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      abreviatura: 'EVAL-IJ',
+      docente: 'Cátedra de Evaluación y Diagnóstico Infanto-Juvenil',
+      color: '#059669',
+      año_cursado: 2026,
+      cuatrimestre: 2,
+      descripcion: 'Evaluación psicométrica de la inteligencia infantil (WISC-IV), modelo CHC, puntuación, baremos, administración y análisis cualitativo clínico.',
+      fecha_parcial1: '2026-10-20',
+      modalidad_parcial: 'Presencial Escrito',
+      temas_parcial1: 'WISC-IV: Fundamentos CHC, Subtests principales y optativos, Baremos, Discontinuación e Interpretación Clínica.'
+    },
+    {
+      id: 'mat_personalidad',
+      nombre: 'Psicología de la Personalidad',
+      abreviatura: 'PERS',
+      docente: 'Cátedra de Psicología de la Personalidad',
+      color: '#8B5CF6',
+      año_cursado: 2026,
+      cuatrimestre: 2,
+      descripcion: 'Modelos de rasgos, teorías psicodinámicas, fenomenológicas, cognitivas y evaluación de la personalidad.',
+      fecha_parcial1: '2026-11-05',
+      modalidad_parcial: 'Presencial Escrito',
+      temas_parcial1: 'Unidad 1: Modelos de Rasgos y Factores (Big Five / Costa & McCrae). Unidad 2: Enfoques Fenomenológicos y Conductuales.'
+    },
+    {
+      id: 'mat_semiosis',
+      nombre: 'Semiosis Social',
+      abreviatura: 'SEM',
+      docente: 'Cátedra A (Prof. González)',
+      color: '#10B981',
+      año_cursado: 2026,
+      cuatrimestre: 2,
+      descripcion: 'Teoría de la significación, discursos sociales y semiótica.',
+      fecha_parcial1: '2026-10-15',
+      modalidad_parcial: 'Presencial Escrito',
+      temas_parcial1: 'Unidad 1: Saussure y Peirce. Unidad 2: Verón y discursos sociales.'
+    },
+    {
+      id: 'mat_psicopatologia',
+      nombre: 'Psicopatología I',
+      abreviatura: 'PSICOPAT',
+      docente: 'Cátedra Única (Prof. Martínez)',
+      color: '#2563EB',
+      año_cursado: 2026,
+      cuatrimestre: 2,
+      descripcion: 'Estructuras clínicas: neurosis, psicosis y perversión.',
+      fecha_parcial1: '2026-10-28',
+      modalidad_parcial: 'Presencial Escrito',
+      temas_parcial1: 'Neurosis obsesiva e histeria en Freud y Lacan.'
+    }
+  ],
+  bibliografia: [
+    {
+      id: 'bib_wisc_manual_admin',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      unidad: 'Unidad 1',
+      nro_texto: 1,
+      titulo_texto: 'Manual de Administración y Puntuación WISC-IV',
+      autores: 'Wechsler, D. (2011)',
+      caracter: 'Obligatorio',
+      estado: 'Leído',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Consignas textuales, reglas de comienzo, retorno e interrupción para los 15 subtests.'
+    },
+    {
+      id: 'bib_wisc_fundamentos_chc',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      unidad: 'Unidad 1',
+      nro_texto: 2,
+      titulo_texto: 'Estructura CHC, Índices y Análisis Clínico Cualitativo WISC-IV',
+      autores: 'Flanagan, D. P. & Kaufman, A. S.',
+      caracter: 'Obligatorio',
+      estado: 'Leído',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'ICV, IRP, IMT, IVP, CIT, ICG y discrepancias clínicas significativas.'
+    },
+    {
+      id: 'bib_wisc_protocolo_baremos',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      unidad: 'Unidad 1',
+      nro_texto: 3,
+      titulo_texto: 'Protocolo de Registro, Cálculo de Edades y Baremos Argentinos WISC-IV',
+      autores: 'Cátedra Evaluación Infanto-Juvenil / Tabin',
+      caracter: 'Obligatorio',
+      estado: 'Leído',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Conversión de puntuaciones directas a escalares, sumas compuestas, percentiles e intervalos de confianza.'
+    },
+    {
+      id: 'bib_personalidad_u1',
+      materia_id: 'mat_personalidad',
+      materia: 'Psicología de la Personalidad',
+      unidad: 'Unidad 1',
+      nro_texto: 1,
+      titulo_texto: 'Teorías de la Personalidad: Modelos Factoriales y del Big Five',
+      autores: 'Costa, P. T. & McCrae, R. R. / Cloninger, S.',
+      caracter: 'Obligatorio',
+      estado: 'Leído',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Cinco grandes factores: Neuroticismo, Extraversión, Apertura, Amabilidad y Responsabilidad.'
+    },
+    {
+      id: 'bib_personalidad_u2',
+      materia_id: 'mat_personalidad',
+      materia: 'Psicología de la Personalidad',
+      unidad: 'Unidad 2',
+      nro_texto: 2,
+      titulo_texto: 'Personalidad, Estabilidad y Dinámica del Cambio',
+      autores: 'Bandura, A. / Cloninger, S.',
+      caracter: 'Obligatorio',
+      estado: 'Pendiente',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Determinismo recíproco triádico, autoeficacia y autorregulación.'
+    },
+    {
+      id: 'bib_saussure',
+      materia_id: 'mat_semiosis',
+      materia: 'Semiosis Social',
+      unidad: 'Unidad 1',
+      nro_texto: 1,
+      titulo_texto: 'Curso de Lingüística General (Cap. 1 a 4)',
+      autores: 'Saussure, F. (1916)',
+      caracter: 'Obligatorio',
+      estado: 'Leído',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: 'https://docs.google.com',
+      notas: 'Signo lingüístico, significante/significado, arbitrariedad y valor.'
+    },
+    {
+      id: 'bib_peirce',
+      materia_id: 'mat_semiosis',
+      materia: 'Semiosis Social',
+      unidad: 'Unidad 1',
+      nro_texto: 2,
+      titulo_texto: 'La Ciencia de la Semiótica',
+      autores: 'Peirce, C. S. (1931)',
+      caracter: 'Obligatorio',
+      estado: 'Pendiente',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Representamen, Objeto e Interpretante. Semiosis infinita.'
+    },
+    {
+      id: 'bib_veron',
+      materia_id: 'mat_semiosis',
+      materia: 'Semiosis Social',
+      unidad: 'Unidad 2',
+      nro_texto: 3,
+      titulo_texto: 'La Semiosis Social: Fragmentos de una Teoría de la Discursividad',
+      autores: 'Verón, E. (1987)',
+      caracter: 'Obligatorio',
+      estado: 'Pendiente',
+      va_parcial: true,
+      nro_parcial: 1,
+      link_resumen: '',
+      notas: 'Condiciones de producción y de reconocimiento. Gramática discursiva.'
+    }
+  ],
+  apuntes: [
+    {
+      id: 'apu_wisc_resumen_integral',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      unidad: 'Unidad 1',
+      titulo: 'Resumen Completo WISC-IV: Fundamentos Teóricos, Estructura CHC y Análisis Clínico',
+      tipo: 'Resumen',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      pdfName: 'Resumen_Completo_WISC_IV_Catedra_Evaluacion_Infanto_Juvenil.pdf',
+      contenido: `# RESUMEN COMPLETO WISC-IV: FUNDAMENTOS TEÓRICOS, ESTRUCTURA CHC Y ANÁLISIS CLÍNICO CUALITATIVO
+
+## Introducción y Modelo Psicométrico CHC
+La Escala de Inteligencia de Wechsler para Niños - Cuarta Edición (WISC-IV) es un instrumento clínico de administración individual diseñado para evaluar la capacidad cognitiva de niños y adolescentes de 6 años 0 meses a 16 años 11 meses. Su diseño abandona la antigua dicotomía de CI Verbal / CI de Ejecución para alinearse con la teoría **Cattell-Horn-Carroll (CHC)** sobre las aptitudes cognitivas humanas.
+
+El WISC-IV proporciona una medida de la capacidad intelectual general (**Coeficiente Intelectual Total - CIT**) y cuatro puntuaciones compuestas principales que representan dominios cognitivos discretos:
+- **Índice de Comprensión Verbal (ICV):** Mide la inteligencia cristalizada ($Gc$), el razonamiento verbal, la formación de conceptos y el conocimiento léxico adquirido en el entorno sociocultural.
+- **Índice de Razonamiento Perceptivo (IRP):** Evalúa la inteligencia fluida ($Gf$) y el procesamiento visual ($Gv$), la integración visomotora y la capacidad de resolver problemas novedosos sin mediación verbal predominante.
+- **Índice de Memoria de Trabajo (IMT):** Mide la memoria a corto plazo ($Gsm$), la atención sostenida, la concentración y la capacidad de retener y manipular mentalmente información cuantitativa o secuencial.
+- **Índice de Velocidad de Procesamiento (IVP):** Evalúa la velocidad de procesamiento cognitivo ($Gs$), la coordinación visomotora fina, la rapidez mental y la discriminación visual bajo presión de tiempo.
+
+## Estructura de los 15 Subtests (10 Principales y 5 Optativos)
+
+### 1. Comprensión Verbal (ICV)
+• **Semejanzas (S - Principal):** El niño debe explicar en qué se parecen dos conceptos o palabras. Evalúa formación de conceptos verbales, pensamiento abstracto y categorización lógica ($Gc$). Puntuación de 0, 1 o 2 puntos según nivel de abstracción.
+• **Vocabulario (V - Principal):** Para ítems gráficos, nombrar el dibujo; para ítems verbales, definir palabras. Evalúa riqueza de vocabulario, aprendizaje formal y desarrollo del lenguaje ($Gc$).
+• **Comprensión (C - Principal):** Responder a preguntas sobre principios sociales, normas de conducta, situaciones cotidianas y juicios morales. Evalúa juicio social, sentido común y madurez práctica.
+• **Información (I - Optativo):** Responder a preguntas de conocimiento general y cultura general adquirida.
+• **Adivinanzas (Ad - Optativo):** Identificar conceptos a partir de pistas sucesivas.
+
+### 2. Razonamiento Perceptivo (IRP)
+• **Construcción con Cubos (CC - Principal):** Reproducir modelos geométricos bidimensionales utilizando cubos bicolores (rojo y blanco) con límite de tiempo. Evalúa organización perceptual, visualización espacial ($Gv$) y coordinación motriz. Bonificación por tiempo.
+• **Conceptos (Co - Principal):** El evaluado debe elegir entre dos o tres filas de ilustraciones aquellas que comparten una característica común. Evalúa razonamiento abstracto no verbal y categorización sin lenguaje ($Gf$).
+• **Matrices (M - Principal):** Completar una matriz lógica eligiendo la opción correcta entre cinco alternativas. Evalúa razonamiento inductivo e inteligencia fluida clásica ($Gf$).
+• **Figuras Incompletas (FI - Optativo):** Identificar la parte esencial que falta en un dibujo dentro de un límite de tiempo de 20 segundos por ítem.
+
+### 3. Memoria de Trabajo (IMT)
+• **Dígitos (D - Principal):** Consta de Dígitos Directos (repetición en el mismo orden, evalúa memoria inmediata y span atencional) y Dígitos Inversos (repetición en orden inverso, evalúa manipulación ejecutiva y memoria de trabajo activa).
+• **Letras y Números (LN - Principal):** El evaluador lee una secuencia desordenada de letras y números; el niño debe reorganizarla diciendo primero los números en orden ascendente y luego las letras en orden alfabético.
+• **Aritmética (A - Optativo):** Resolver mentalmente problemas matemáticos presentados oralmente dentro de un límite de tiempo estricto.
+
+### 4. Velocidad de Procesamiento (IVP)
+• **Claves (CL - Principal):** Copiar símbolos emparejados con números o figuras geométricas sencillas dentro de un límite de 120 segundos. Evalúa memoria visual a corto plazo, velocidad psicomotriz y capacidad de aprendizaje asociativo.
+• **Búsqueda de Símbolos (BS - Principal):** Indicar si uno o dos símbolos modelo aparecen en un grupo de búsqueda dentro de 120 segundos. Evalúa velocidad de rastreo visual y discriminación perceptual.
+• **Animales (An - Optativo):** Marcar animales en una lámina estructurada o desordenada (cancelación).
+
+## Normas de Administración, Retorno y Discontinuación
+- **Cálculo de la Edad Cronológica Exacta:** Restar Fecha de Evaluación menos Fecha de Nacimiento en formato [Año - Mes - Día], realizando los préstamos de 30 días y 12 meses cuando sea necesario.
+- **Punto de Comienzo por Edad:** Cada subtest indica en el protocolo el ítem de inicio según la edad del sujeto.
+- **Criterio de Retorno:** Si el niño no obtiene puntuación perfecta en los dos primeros ítems correspondientes a su edad, se debe administrar los ítems anteriores en orden inverso hasta obtener dos aciertos consecutivos con puntuación máxima (criterio de base).
+- **Criterio de Discontinuación (Suspensión):** Interrumpir la administración tras un número determinado de fallos consecutivos especificados en cada subtest (generalmente 3, 4 o 5 ceros consecutivos).
+
+## Cálculo de Puntuaciones y Diagnóstico Clínico
+1. **Puntuaciones Directas (PD):** Suma simple de los puntos obtenidos en cada ítem.
+2. **Puntuaciones Escalares (PE):** Se obtienen transformando la PD según el baremo de la edad cronológica correspondiente (Tabla A.1). Media = 10, Desvío Estándar = 3.
+3. **Puntuaciones Compuestas e Índices:** Se suman las PE de los subtests principales correspondientes a cada índice y se busca en las tablas de conversión para obtener ICV, IRP, IMT, IVP y CIT (Media = 100, DE = 15).
+4. **Índice de Capacidad General (ICG):** Cálculo alternativo que combina exclusivamente ICV + IRP, recomendado cuando existen discrepancias significativas e inusuales entre memoria de trabajo o velocidad de procesamiento respecto a la capacidad de razonamiento.`
+    },
+    {
+      id: 'apu_wisc_consignas',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      unidad: 'Unidad 1',
+      titulo: 'Resumen Completo de Consignas y Criterios Subtest por Subtest WISC-IV',
+      tipo: 'Guía de Cátedra',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      pdfName: 'Resumen_Completo_Consignas_WISC_IV.pdf',
+      contenido: `# CONSIGNAS TEXTUALES Y CRITERIOS DE PUNTUACIÓN SUBTEST POR SUBTEST (WISC-IV)
+
+## 1. Construcción con Cubos (CC)
+• **Materiales:** 9 cubos rojo/blanco, Libreta de Estímulos y Cronómetro.
+• **Consigna Ítem 1 (4 cubos):** *"Mira estos cubos. Todos son iguales. En algunos lados son todos rojos, en otros todos blancos, y en otros tienen rojo y blanco. Voy a juntar estos cubos para hacer una figura. Mira bien."*
+• **Criterio de Suspensión:** Tras 3 puntuaciones consecutivas de 0.
+• **Regla de Puntuación:** Ítems 1-3 con 0, 1 o 2 puntos según intentos. Ítems 4-14 con bonificación por tiempo de ejecución rápido.
+
+## 2. Semejanzas (S)
+• **Consigna Ítem de Muestra:** *"¿En qué se parecen el rojo y el azul?"* (Si no responde correctamente: *"El rojo y el azul son colores"*).
+• **Consigna Ítems de Prueba:** *"¿En qué se parecen un gato y un ratón?"*, *"¿En qué se parecen una manzana y una banana?"*.
+• **Criterio de Suspensión:** Tras 3 puntuaciones consecutivas de 0.
+• **Criterio de Puntuación:** 
+  ◦ 2 puntos: Concepto supraordenado universal y abstracto (ej: "Ambos son mamíferos / animales").
+  ◦ 1 punto: Propiedad común o función secundaria (ej: "Los dos tienen cuatro patas / tienen cola").
+  ◦ 0 puntos: Diferencias o respuestas incorrectas (ej: "Uno caza al otro").
+
+## 3. Dígitos (D)
+• **Consigna Dígitos Directos:** *"Voy a decir unos números. Escucha con atención y cuando termine, repítelos exactamente igual a como yo los dije."* Ritmo de 1 dígito por segundo.
+• **Consigna Dígitos Inversos:** *"Ahora voy a decir otros números, pero esta vez, cuando termine, debes decírmelos al revés, de atrás hacia adelante. Si digo 8-2, ¿qué tendrías que decir?"*
+• **Criterio de Suspensión:** Discontinuar cada parte tras puntuar 0 en ambos ensayos de un mismo ítem.
+
+## 4. Conceptos (Co)
+• **Consigna:** *"Mira esta fila (señalar) y mira esta otra fila (señalar). Elige uno de aquí que vaya con uno de aquí para formar un grupo que tenga algo en común."*
+• **Criterio de Suspensión:** Tras 5 puntuaciones consecutivas de 0.
+
+## 5. Claves (CL)
+• **Consigna Claves A (6-7 años):** *"Mira aquí. Cada figura tiene una marca adentro. Tienes que dibujar en cada figura vacía la misma marca que le corresponde arriba."*
+• **Consigna Claves B (8-16 años):** *"Mira estas casillas. Cada número tiene un signo especial debajo. Llena tantas casillas como puedas en orden sin saltarte ninguna hasta que te diga basta."*
+• **Tiempo límite:** 120 segundos cronometrados con precisión.`
+    },
+    {
+      id: 'apu_personalidad_bigfive',
+      materia_id: 'mat_personalidad',
+      materia: 'Psicología de la Personalidad',
+      unidad: 'Unidad 1',
+      titulo: 'Resumen Completo: Modelos Factoriales y Dimensiones del Big Five',
+      tipo: 'Resumen',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      pdfName: 'Teorias_Personalidad_BigFive_Costa_McCrae.pdf',
+      contenido: `# MODELO DE LOS CINCO GRANDES FACTORES DE LA PERSONALIDAD (BIG FIVE)
+
+## 1. Fundamentos Teóricos de Costa & McCrae
+El Modelo de los Cinco Grandes Factores (Five-Factor Model - FFM) representa el consenso contemporáneo más sólido en psicometría de la personalidad. Postula que la estructura de la personalidad humana se organiza jerárquicamente en cinco dimensiones bipolares de base biológica y universalidad transcultural.
+
+## 2. Las Cinco Dimensiones y sus Facetas
+• **Neuroticismo (N) vs. Estabilidad Emocional:** Tendencia general a experimentar afecto negativo, vulnerabilidad al estrés, ansiedad, hostilidad, depresión y autocrítica.
+• **Extraversión (E) vs. Introversión:** Orientación hacia el mundo exterior, sociabilidad, asertividad, búsqueda de sensaciones y nivel de actividad física.
+• **Apertura a la Experiencia (O) vs. Convencionalismo:** Curiosidad intelectual, imaginación activa, sensibilidad estética, interés por ideas no convencionales y valores flexibles.
+• **Amabilidad / Cordialidad (A) vs. Antagonismo:** Tendencias interpersonales altruistas, empatía, confianza en los demás, franqueza y cooperación.
+• **Responsabilidad / Meticulosidad (C) vs. Falta de Dirección:** Control de impulsos orientados a metas, organización, disciplina, perseverancia y sentido del deber.
+
+## 3. Evaluación Psicométrica (NEO-PI-R / NEO-FFI)
+El inventario NEO-PI-R evalúa las 5 dimensiones mayores mediante 30 facetas específicas (6 facetas por factor), proporcionando un perfil dimensional de alta estabilidad temporal en la adultez.`
+    }
+  ],
+  documentos_pdf: [
+    {
+      id: 'pdf_wisc_resumen_integral',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      nombre_archivo: 'Resumen_Completo_WISC_IV_Catedra_Evaluacion_Infanto_Juvenil.pdf',
+      titulo: 'Resumen Completo WISC-IV Cátedra Evaluación Infanto Juvenil',
+      unidad: 'Unidad 1',
+      tipo: 'Resumen',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      num_paginas: 8,
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'pdf_wisc_consignas',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      nombre_archivo: 'Resumen_Completo_Consignas_WISC_IV.pdf',
+      titulo: 'Resumen Completo Consignas WISC-IV',
+      unidad: 'Unidad 1',
+      tipo: 'Guía de Cátedra',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      num_paginas: 12,
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'pdf_personalidad_bigfive',
+      materia_id: 'mat_personalidad',
+      materia: 'Psicología de la Personalidad',
+      nombre_archivo: 'Teorias_Personalidad_BigFive_Costa_McCrae.pdf',
+      titulo: 'Teorías de la Personalidad - Modelo Big Five',
+      unidad: 'Unidad 1',
+      tipo: 'Resumen',
+      va_parcial: true,
+      nro_parcial: '1° Parcial',
+      num_paginas: 6,
+      created_at: new Date().toISOString()
+    }
+  ],
+  examenes: [
+    {
+      id: 'ex_wisc_p1',
+      materia_id: 'mat_evaluacion_infantojuvenil',
+      materia: 'Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil)',
+      nombre: 'Primer Parcial: Evaluación de la Inteligencia Infantil (WISC-IV)',
+      tipo: '1° Parcial',
+      fecha: '2026-10-20',
+      modalidad: 'Presencial Escrito',
+      unidades_incluidas: ['Unidad 1', 'Unidad 2'],
+      textos_vinculados: ['bib_wisc_manual_admin', 'bib_wisc_fundamentos_chc', 'bib_wisc_protocolo_baremos'],
+      temas: 'Fundamentos psicométricos del WISC-IV, modelo CHC, administración de los 15 subtests, criterios de retorno y discontinuación, cálculo de baremos e interpretación diagnóstica.',
+      finalizado: false
+    },
+    {
+      id: 'ex_personalidad_p1',
+      materia_id: 'mat_personalidad',
+      materia: 'Psicología de la Personalidad',
+      nombre: 'Primer Parcial Teórico: Modelos de Rasgos y Big Five',
+      tipo: '1° Parcial',
+      fecha: '2026-11-05',
+      modalidad: 'Presencial Escrito',
+      unidades_incluidas: ['Unidad 1', 'Unidad 2'],
+      textos_vinculados: ['bib_personalidad_u1', 'bib_personalidad_u2'],
+      temas: 'Modelos factoriales, dimensiones Big Five (Costa & McCrae), estabilidad de rasgos y determinismo recíproco.',
+      finalizado: false
+    },
+    {
+      id: 'ex_semiosis_p1',
+      materia_id: 'mat_semiosis',
+      materia: 'Semiosis Social',
+      nombre: 'Primer Parcial Presencial',
+      tipo: 'Parcial 1',
+      fecha: '2026-10-15',
+      modalidad: 'Presencial Escrito',
+      unidades_incluidas: ['Unidad 1', 'Unidad 2'],
+      textos_vinculados: ['bib_saussure', 'bib_peirce', 'bib_veron'],
+      temas: 'Unidad 1 y Unidad 2 completas. Autores: Saussure, Peirce, Verón.',
+      finalizado: false
+    }
+  ]
+};
+
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('psi_theme') || 'light');
   const [activeTab, setActiveTab] = useState('materias'); // 'materias', 'pdf', 'perfil', 'system'
@@ -1018,13 +1406,58 @@ function App() {
   const [innerTab, setInnerTab] = useState('params');
   const [biblioFilter, setBiblioFilter] = useState('todos');
 
-  // Academic State (con safe storage anti-crash)
-  const [materias, setMaterias] = useState(() => safeGetLocalStorage('psi_materias_cache', []));
-  const [biblio, setBiblio] = useState(() => safeGetLocalStorage('psi_biblio_cache', []));
+  // Academic State (con safe storage anti-crash y auto-fusión de seeds)
+  const [materias, setMaterias] = useState(() => {
+    const cached = safeGetLocalStorage('psi_materias_cache', []);
+    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.materias;
+    const merged = [...cached];
+    ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
+      if (!merged.find(x => x.id === m.id)) merged.push(m);
+    });
+    return merged;
+  });
+
+  const [biblio, setBiblio] = useState(() => {
+    const cached = safeGetLocalStorage('psi_biblio_cache', []);
+    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.bibliografia;
+    const merged = [...cached];
+    ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
+      if (!merged.find(x => x.id === b.id)) merged.push(b);
+    });
+    return merged;
+  });
+
   const [clases, setClases] = useState(() => safeGetLocalStorage('psi_clases_cache', []));
-  const [apuntes, setApuntes] = useState(() => safeGetLocalStorage('psi_apuntes_cache', []));
-  const [pdfs, setPdfs] = useState(() => safeGetLocalStorage('psi_pdfs_cache', []));
-  const [examenes, setExamenes] = useState(() => safeGetLocalStorage('psi_examenes_cache', []));
+
+  const [apuntes, setApuntes] = useState(() => {
+    const cached = safeGetLocalStorage('psi_apuntes_cache', []);
+    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.apuntes;
+    const merged = [...cached];
+    ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
+      if (!merged.find(x => x.id === a.id)) merged.push(a);
+    });
+    return merged;
+  });
+
+  const [pdfs, setPdfs] = useState(() => {
+    const cached = safeGetLocalStorage('psi_pdfs_cache', []);
+    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.documentos_pdf;
+    const merged = [...cached];
+    ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
+      if (!merged.find(x => x.id === p.id)) merged.push(p);
+    });
+    return merged;
+  });
+
+  const [examenes, setExamenes] = useState(() => {
+    const cached = safeGetLocalStorage('psi_examenes_cache', []);
+    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.examenes;
+    const merged = [...cached];
+    ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
+      if (!merged.find(x => x.id === e.id)) merged.push(e);
+    });
+    return merged;
+  });
 
   // Connectivity & Modals
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1165,9 +1598,8 @@ function App() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    if (materias.length === 0 && localStorage.getItem('psi_first_run') !== 'done') {
-      seedInitialData();
-    }
+    // Auto-seed garantizado
+    seedInitialData();
     fetchAllData();
 
     return () => {
@@ -1181,153 +1613,6 @@ function App() {
     setTimeout(() => setToast({ show: false, msg: '', iconName: 'check-circle' }), 3200);
   };
 
-  const seedInitialData = () => {
-    localStorage.setItem('psi_first_run', 'done');
-    const initialMats = [
-      {
-        id: 'mat_personalidad',
-        nombre: 'Psicología de la Personalidad',
-        abreviatura: 'PERS',
-        docente: 'Cátedra de Psicología de la Personalidad',
-        color: '#8B5CF6',
-        año_cursado: 2026,
-        cuatrimestre: 2,
-        descripcion: 'Modelos de rasgos, teorías psicodinámicas, fenomenológicas, cognitivas y evaluación de la personalidad.',
-        fecha_parcial1: '2026-11-05',
-        modalidad_parcial: 'Presencial Escrito',
-        temas_parcial1: 'Unidad 1: Modelos de Rasgos y Factores (Big Five / Costa & McCrae). Unidad 2: Enfoques Fenomenológicos y Conductuales.'
-      },
-      {
-        id: 'mat_semiosis',
-        nombre: 'Semiosis Social',
-        abreviatura: 'SEM',
-        docente: 'Cátedra A (Prof. González)',
-        color: '#10B981',
-        año_cursado: 2026,
-        cuatrimestre: 2,
-        descripcion: 'Teoría de la significación, discursos sociales y semiótica.',
-        fecha_parcial1: '2026-10-15',
-        modalidad_parcial: 'Presencial Escrito',
-        temas_parcial1: 'Unidad 1: Saussure y Peirce. Unidad 2: Verón y discursos sociales.'
-      },
-      {
-        id: 'mat_psicopatologia',
-        nombre: 'Psicopatología I',
-        abreviatura: 'PSICOPAT',
-        docente: 'Cátedra Única (Prof. Martínez)',
-        color: '#2563EB',
-        año_cursado: 2026,
-        cuatrimestre: 2,
-        descripcion: 'Estructuras clínicas: neurosis, psicosis y perversión.',
-        fecha_parcial1: '2026-10-28',
-        modalidad_parcial: 'Presencial Escrito',
-        temas_parcial1: 'Neurosis obsesiva e histeria en Freud y Lacan.'
-      }
-    ];
-
-    const initialBib = [
-      {
-        id: 'bib_personalidad_u1',
-        materia_id: 'mat_personalidad',
-        materia: 'Psicología de la Personalidad',
-        unidad: 'Unidad 1',
-        nro_texto: 1,
-        titulo_texto: 'Teorías de la Personalidad: Modelos Factoriales y del Big Five',
-        autores: 'Costa, P. T. & McCrae, R. R. / Cloninger, S.',
-        caracter: 'Obligatorio',
-        estado: 'Pendiente',
-        va_parcial: true,
-        nro_parcial: 1,
-        link_resumen: '',
-        notas: 'Cinco grandes factores: Neuroticismo, Extraversión, Apertura, Amabilidad y Responsabilidad.'
-      },
-      {
-        id: 'bib_saussure',
-        materia_id: 'mat_semiosis',
-        materia: 'Semiosis Social',
-        unidad: 'Unidad 1',
-        nro_texto: 1,
-        titulo_texto: 'Curso de Lingüística General (Cap. 1 a 4)',
-        autores: 'Saussure, F. (1916)',
-        caracter: 'Obligatorio',
-        estado: 'Leído',
-        va_parcial: true,
-        nro_parcial: 1,
-        link_resumen: 'https://docs.google.com',
-        notas: 'Signo lingüístico, significante/significado, arbitrariedad y valor.'
-      },
-      {
-        id: 'bib_peirce',
-        materia_id: 'mat_semiosis',
-        materia: 'Semiosis Social',
-        unidad: 'Unidad 1',
-        nro_texto: 2,
-        titulo_texto: 'La Ciencia de la Semiótica',
-        autores: 'Peirce, C. S. (1931)',
-        caracter: 'Obligatorio',
-        estado: 'Pendiente',
-        va_parcial: true,
-        nro_parcial: 1,
-        link_resumen: '',
-        notas: 'Representamen, Objeto e Interpretante. Semiosis infinita.'
-      },
-      {
-        id: 'bib_veron',
-        materia_id: 'mat_semiosis',
-        materia: 'Semiosis Social',
-        unidad: 'Unidad 2',
-        nro_texto: 3,
-        titulo_texto: 'La Semiosis Social: Fragmentos de una Teoría de la Discursividad',
-        autores: 'Verón, E. (1987)',
-        caracter: 'Obligatorio',
-        estado: 'Pendiente',
-        va_parcial: true,
-        nro_parcial: 1,
-        link_resumen: '',
-        notas: 'Condiciones de producción y de reconocimiento. Gramática discursiva.'
-      }
-    ];
-
-    const initialExams = [
-      {
-        id: 'ex_personalidad_p1',
-        materia_id: 'mat_personalidad',
-        materia: 'Psicología de la Personalidad',
-        nombre: 'Primer Parcial Teórico',
-        tipo: 'Parcial 1',
-        fecha: '2026-11-05',
-        modalidad: 'Presencial Escrito',
-        unidades_incluidas: ['Unidad 1', 'Unidad 2'],
-        textos_vinculados: ['bib_personalidad_u1'],
-        temas: 'Modelos de Rasgos, Estabilidad y Cambio, Big Five y Factores Biológicos.',
-        finalizado: false
-      },
-      {
-        id: 'ex_semiosis_p1',
-        materia_id: 'mat_semiosis',
-        materia: 'Semiosis Social',
-        nombre: 'Primer Parcial Presencial',
-        tipo: 'Parcial 1',
-        fecha: '2026-10-15',
-        modalidad: 'Presencial Escrito',
-        unidades_incluidas: ['Unidad 1', 'Unidad 2'],
-        textos_vinculados: ['bib_saussure', 'bib_peirce', 'bib_veron'],
-        temas: 'Unidad 1 y Unidad 2 completas. Autores: Saussure, Peirce, Verón.',
-        finalizado: false
-      }
-    ];
-
-    setMaterias(initialMats);
-    setBiblio(initialBib);
-    setExamenes(initialExams);
-    safeSetLocalStorage('psi_materias_cache', initialMats);
-    safeSetLocalStorage('psi_biblio_cache', initialBib);
-    safeSetLocalStorage('psi_examenes_cache', initialExams);
-    saveToIndexedDB('materias', initialMats);
-    saveToIndexedDB('bibliografia', initialBib);
-    saveToIndexedDB('examenes', initialExams);
-  };
-
   const saveToIndexedDB = async (tableName, items) => {
     if (psiDB && psiDB[tableName] && Array.isArray(items)) {
       try {
@@ -1337,6 +1622,58 @@ function App() {
         console.warn(`IndexedDB save error (${tableName}):`, e);
       }
     }
+  };
+
+  const seedInitialData = () => {
+    setMaterias(prev => {
+      const merged = [...prev];
+      ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
+        if (!merged.find(x => x.id === m.id)) merged.push(m);
+      });
+      safeSetLocalStorage('psi_materias_cache', merged);
+      saveToIndexedDB('materias', merged);
+      return merged;
+    });
+
+    setBiblio(prev => {
+      const merged = [...prev];
+      ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
+        if (!merged.find(x => x.id === b.id)) merged.push(b);
+      });
+      safeSetLocalStorage('psi_biblio_cache', merged);
+      saveToIndexedDB('bibliografia', merged);
+      return merged;
+    });
+
+    setApuntes(prev => {
+      const merged = [...prev];
+      ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
+        if (!merged.find(x => x.id === a.id)) merged.push(a);
+      });
+      safeSetLocalStorage('psi_apuntes_cache', merged);
+      saveToIndexedDB('apuntes', merged);
+      return merged;
+    });
+
+    setPdfs(prev => {
+      const merged = [...prev];
+      ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
+        if (!merged.find(x => x.id === p.id)) merged.push(p);
+      });
+      safeSetLocalStorage('psi_pdfs_cache', merged);
+      saveToIndexedDB('documentos_pdf', merged);
+      return merged;
+    });
+
+    setExamenes(prev => {
+      const merged = [...prev];
+      ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
+        if (!merged.find(x => x.id === e.id)) merged.push(e);
+      });
+      safeSetLocalStorage('psi_examenes_cache', merged);
+      saveToIndexedDB('examenes', merged);
+      return merged;
+    });
   };
 
   // IndexedDB Initial Load & Supabase Realtime Subscription
@@ -1353,14 +1690,34 @@ function App() {
           psiDB.examenes.toArray(),
           psiDB.syncQueue.toArray()
         ]);
-        if (mats.length > 0) setMaterias(mats);
-        if (bibs.length > 0) setBiblio(bibs);
+
+        const mergedMats = mats.length > 0 ? [...mats] : [...ACADEMIC_MASTER_SEEDS.materias];
+        ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
+          if (!mergedMats.find(x => x.id === m.id)) mergedMats.push(m);
+        });
+        setMaterias(mergedMats);
+
+        const mergedBibs = bibs.length > 0 ? [...bibs] : [...ACADEMIC_MASTER_SEEDS.bibliografia];
+        ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
+          if (!mergedBibs.find(x => x.id === b.id)) mergedBibs.push(b);
+        });
+        setBiblio(mergedBibs);
+
         if (clas.length > 0) setClases(clas);
-        if (pdfsList.length > 0) setPdfs(pdfsList);
+
+        const mergedPdfs = pdfsList.length > 0 ? [...pdfsList] : [...ACADEMIC_MASTER_SEEDS.documentos_pdf];
+        ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
+          if (!mergedPdfs.find(x => x.id === p.id)) mergedPdfs.push(p);
+        });
+        setPdfs(mergedPdfs);
         
-        let mergedApuntes = apus || [];
-        if (pdfsList && pdfsList.length > 0) {
-          pdfsList.forEach(p => {
+        let mergedApuntes = apus.length > 0 ? [...apus] : [...ACADEMIC_MASTER_SEEDS.apuntes];
+        ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
+          if (!mergedApuntes.find(x => x.id === a.id)) mergedApuntes.push(a);
+        });
+
+        if (mergedPdfs && mergedPdfs.length > 0) {
+          mergedPdfs.forEach(p => {
             const existingIdx = mergedApuntes.findIndex(a => a.id === p.id || a.pdfName === p.nombre_archivo);
             if (existingIdx === -1) {
               mergedApuntes = [{
@@ -1383,8 +1740,14 @@ function App() {
             }
           });
         }
-        if (mergedApuntes.length > 0) setApuntes(mergedApuntes);
-        if (exas.length > 0) setExamenes(exas);
+        setApuntes(mergedApuntes);
+
+        const mergedExams = exas.length > 0 ? [...exas] : [...ACADEMIC_MASTER_SEEDS.examenes];
+        ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
+          if (!mergedExams.find(x => x.id === e.id)) mergedExams.push(e);
+        });
+        setExamenes(mergedExams);
+
         if (queue.length > 0) setSyncQueue(queue);
       } catch (e) {
         console.warn('Error loading from IndexedDB:', e);
@@ -1423,28 +1786,36 @@ function App() {
         supabaseClient.from('examenes').select('*').order('fecha')
       ]);
 
-      if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data) && matsRes.value.data.length > 0) {
+      if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data)) {
         setMaterias(prev => {
-          const merged = [...matsRes.value.data];
+          const merged = [...(matsRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(m => m.id === p.id)) merged.push(p);
+          });
+          ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
+            if (!merged.find(x => x.id === m.id)) merged.push(m);
           });
           safeSetLocalStorage('psi_materias_cache', merged);
           saveToIndexedDB('materias', merged);
           return merged;
         });
       }
-      if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data) && bibRes.value.data.length > 0) {
+
+      if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data)) {
         setBiblio(prev => {
-          const merged = [...bibRes.value.data];
+          const merged = [...(bibRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(b => b.id === p.id)) merged.push(p);
+          });
+          ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
+            if (!merged.find(x => x.id === b.id)) merged.push(b);
           });
           safeSetLocalStorage('psi_biblio_cache', merged);
           saveToIndexedDB('bibliografia', merged);
           return merged;
         });
       }
+
       if (claRes.status === 'fulfilled' && Array.isArray(claRes.value.data) && claRes.value.data.length > 0) {
         setClases(prev => {
           const merged = [...claRes.value.data];
@@ -1456,41 +1827,58 @@ function App() {
           return merged;
         });
       }
-      if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data) && apuRes.value.data.length > 0) {
+
+      if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data)) {
         setApuntes(prev => {
-          const merged = [...apuRes.value.data];
+          const merged = [...(apuRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(a => a.id === p.id)) merged.push(p);
+          });
+          ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
+            if (!merged.find(x => x.id === a.id)) merged.push(a);
           });
           safeSetLocalStorage('psi_apuntes_cache', merged);
           saveToIndexedDB('apuntes', merged);
           return merged;
         });
       }
-      if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data) && pdfRes.value.data.length > 0) {
+
+      if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data)) {
         setPdfs(prev => {
-          const merged = [...pdfRes.value.data];
+          const merged = [...(pdfRes.value.data || [])];
           prev.forEach(p => {
             const match = merged.find(m => m.id === p.id);
             if (!match) merged.push(p);
             else if (p.pdfData && !match.pdfData) match.pdfData = p.pdfData;
+          });
+          ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
+            if (!merged.find(x => x.id === p.id)) merged.push(p);
           });
           safeSetLocalStorage('psi_pdfs_cache', merged);
           saveToIndexedDB('documentos_pdf', merged);
           return merged;
         });
       }
-      if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data) && exRes.value.data.length > 0) {
+
+      if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data)) {
         setExamenes(prev => {
-          const merged = [...exRes.value.data];
+          const merged = [...(exRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(e => e.id === p.id)) merged.push(p);
+          });
+          ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
+            if (!merged.find(x => x.id === e.id)) merged.push(e);
           });
           safeSetLocalStorage('psi_examenes_cache', merged);
           saveToIndexedDB('examenes', merged);
           return merged;
         });
       }
+
+      // Auto-sincronización transparente e instantánea a Supabase
+      setTimeout(() => {
+        syncAllLocalDataToCloud(true);
+      }, 1000);
     } catch (err) {
       console.warn('Sync error:', err);
     }
@@ -2398,19 +2786,21 @@ function App() {
   };
 
   // ── MOTOR DE CARGA Y MIGRACIÓN TOTAL A LA NUBE (LOCAL TO CLOUD) ──
-  const syncAllLocalDataToCloud = async () => {
+  const syncAllLocalDataToCloud = async (silent = false) => {
     if (!supabaseClient) {
-      showToast('Supabase no está inicializado en este cliente', 'alert-triangle');
+      if (!silent) showToast('Supabase no está inicializado en este cliente', 'alert-triangle');
       return;
     }
     if (!navigator.onLine) {
-      showToast('Sin conexión a Internet para sincronizar', 'wifi-off');
+      if (!silent) showToast('Sin conexión a Internet para sincronizar', 'wifi-off');
       return;
     }
 
     setIsSyncingAll(true);
-    triggerHaptic('medium');
-    showToast('Subiendo todos los datos locales a Supabase...', 'cloud-upload');
+    if (!silent) {
+      triggerHaptic('medium');
+      showToast('Subiendo todos los datos locales a Supabase...', 'cloud-upload');
+    }
 
     const results = {
       materias: 0,
@@ -2423,17 +2813,19 @@ function App() {
     };
 
     try {
-      // 1. Materias
-      if (materias.length > 0) {
-        const cleanMats = materias.map(sanitizeForCloud.materias);
+      // 1. Materias (Merge local con semillas maestras para persistencia total)
+      const matsList = materias.length > 0 ? materias : ACADEMIC_MASTER_SEEDS.materias;
+      if (matsList.length > 0) {
+        const cleanMats = matsList.map(sanitizeForCloud.materias);
         const { error } = await supabaseClient.from('materias').upsert(cleanMats, { onConflict: 'id' });
         if (error) results.errors.push(`Materias: ${error.message}`);
         else results.materias = cleanMats.length;
       }
 
       // 2. Bibliografía
-      if (biblio.length > 0) {
-        const cleanBib = biblio.map(sanitizeForCloud.bibliografia);
+      const bibList = biblio.length > 0 ? biblio : ACADEMIC_MASTER_SEEDS.bibliografia;
+      if (bibList.length > 0) {
+        const cleanBib = bibList.map(sanitizeForCloud.bibliografia);
         const { error } = await supabaseClient.from('bibliografia').upsert(cleanBib, { onConflict: 'id' });
         if (error) results.errors.push(`Bibliografía: ${error.message}`);
         else results.bibliografia = cleanBib.length;
@@ -2447,25 +2839,28 @@ function App() {
         else results.clases = cleanCla.length;
       }
 
-      // 4. Apuntes
-      if (apuntes.length > 0) {
-        const cleanApu = apuntes.map(sanitizeForCloud.apuntes);
+      // 4. Apuntes (Garantiza guías completas de WISC-IV y Personalidad)
+      const apuList = apuntes.length > 0 ? apuntes : ACADEMIC_MASTER_SEEDS.apuntes;
+      if (apuList.length > 0) {
+        const cleanApu = apuList.map(sanitizeForCloud.apuntes);
         const { error } = await supabaseClient.from('apuntes').upsert(cleanApu, { onConflict: 'id' });
         if (error) results.errors.push(`Apuntes: ${error.message}`);
         else results.apuntes = cleanApu.length;
       }
 
       // 5. Documentos PDF
-      if (pdfs.length > 0) {
-        const cleanPdf = pdfs.map(sanitizeForCloud.documentos_pdf);
+      const pdfList = pdfs.length > 0 ? pdfs : ACADEMIC_MASTER_SEEDS.documentos_pdf;
+      if (pdfList.length > 0) {
+        const cleanPdf = pdfList.map(sanitizeForCloud.documentos_pdf);
         const { error } = await supabaseClient.from('documentos_pdf').upsert(cleanPdf, { onConflict: 'id' });
         if (error) results.errors.push(`Documentos PDF: ${error.message}`);
         else results.documentos_pdf = cleanPdf.length;
       }
 
       // 6. Exámenes
-      if (examenes.length > 0) {
-        const cleanEx = examenes.map(sanitizeForCloud.examenes);
+      const exList = examenes.length > 0 ? examenes : ACADEMIC_MASTER_SEEDS.examenes;
+      if (exList.length > 0) {
+        const cleanEx = exList.map(sanitizeForCloud.examenes);
         const { error } = await supabaseClient.from('examenes').upsert(cleanEx, { onConflict: 'id' });
         if (error) results.errors.push(`Exámenes: ${error.message}`);
         else results.examenes = cleanEx.length;
@@ -2485,11 +2880,15 @@ function App() {
         : `¡${totalItems} registros respaldados con éxito en Supabase!`;
 
       setSyncStatusSummary(results);
-      showToast(summaryMsg, results.errors.length > 0 ? 'alert-circle' : 'check-circle-2');
-      triggerHaptic('success');
+      if (!silent) {
+        showToast(summaryMsg, results.errors.length > 0 ? 'alert-circle' : 'check-circle-2');
+        triggerHaptic('success');
+      } else {
+        console.log(`[Auto-Sync Silencioso] ${summaryMsg}`);
+      }
     } catch (err) {
       console.error('Error durante sincronización total:', err);
-      showToast(`Error al subir a la nube: ${err.message}`, 'alert-triangle');
+      if (!silent) showToast(`Error al subir a la nube: ${err.message}`, 'alert-triangle');
     } finally {
       setIsSyncingAll(false);
     }
