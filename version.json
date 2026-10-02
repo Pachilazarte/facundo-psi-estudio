@@ -1,7 +1,7 @@
 {
-  "version": "2.22.0",
-  "buildDate": "2026-10-02T03:40:00.000Z",
+  "version": "2.23.0",
+  "buildDate": "2026-10-02T04:00:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Persistencia blindada de PDFs y apuntes binarios en Dexie/IndexedDB durante sincronizaciones de Supabase, selector de materia integrado en editor de apuntes y depuración automática de sesiones fantasma de grabadora."
+  "notes": "Módulo interactivo de variables de prompts para Gemini, reemplazo automático de prompts por imágenes renderizadas en Markdown y compilador de PDF con soporte integrado de gráficos."
 }

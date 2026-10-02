@@ -231,13 +231,24 @@ function parseMarkdownToHTML(md) {
     return `<code>${formula}</code>`;
   });
 
-  // Marcadores de imágenes [imagen N: descripcion]
-  html = html.replace(/\[imagen\s*(\d+):?\s*([^\]]*)\]/gi, (match, num, desc) => {
-    return `<div class="my-4 p-4 rounded-lg bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
-      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald text-xs font-extrabold border border-app-emerald/20">
-        <svg class="w-3.5 h-3.5 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg> FIGURA ${num}
+  // Render Markdown Images ![alt](src)
+  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, src) => {
+    return `<div class="my-4 p-2.5 rounded-xl bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
+      <img src="${src}" alt="${alt || 'Gráfico / Diagrama'}" class="max-h-[420px] max-w-full mx-auto rounded-lg object-contain shadow-md" loading="lazy" />
+      ${alt ? `<p class="text-[11px] text-app-muted mt-2 italic font-medium">${alt}</p>` : ''}
+    </div>`;
+  });
+
+  // Marcadores y variables de imágenes / prompts [IMAGEN_PROMPT N: descripcion] o [imagen N: descripcion]
+  html = html.replace(/\[(?:IMAGEN_PROMPT|imagen_prompt|imagen|figura|grafico)\s*(\d*):?\s*([^\]]*)\]/gi, (match, num, desc) => {
+    const cleanNum = num ? ` #${num}` : '';
+    const cleanDesc = desc.trim() || 'Esquema o diagrama conceptual solicitado';
+    return `<div class="my-3.5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left shadow-sm break-inside-avoid">
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-wider">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        IMAGEN SOLICITADA${cleanNum} (PROMPT IA)
       </div>
-      <p class="text-xs text-app-muted mt-2 italic font-serif">${desc.trim() || 'Esquema o fotografía conceptual'}</p>
+      <p class="text-xs text-app-text mt-2 font-mono bg-app-surface p-2 rounded-lg border border-app-border/70 select-all">${cleanDesc}</p>
     </div>`;
   });
 
@@ -630,7 +641,7 @@ function parseMarkdown(text) {
       }
     }
 
-    var imgMatch = line.match(/^\s*(\[(?:imagen|FIGURA|IMAGEN|grafico)\s*\d*:?\s*([^\]]+)\]|!\[(.*?)\]\((.*?)\))\s*$/i);
+    var imgMatch = line.match(/^\s*(\[(?:imagen|FIGURA|IMAGEN|grafico|IMAGEN_PROMPT|imagen_prompt|figura)\s*\d*:?\s*([^\]]+)\]|!\[(.*?)\]\((.*?)\))\s*$/i);
     if (imgMatch) {
       var rawKey = imgMatch[1];
       var label = imgMatch[2] || imgMatch[3] || rawKey;
@@ -1564,7 +1575,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.22.0';
+  const currentVersion = 'v2.23.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -6626,7 +6637,49 @@ function ModalApunteSplitView({
     return combined;
   }, [availableUnits]);
 
-  // Autocompletar título si comienza con # Encabezado
+  // Detección automática de variables de imagen / prompts en el contenido Markdown
+  const pendingImagePrompts = useMemo(() => {
+    if (!form.contenido) return [];
+    const regex = /\[(?:IMAGEN_PROMPT|imagen_prompt|imagen|grafico|figura)\s*(\d*):?\s*([^\]]+)\]/gi;
+    const items = [];
+    let match;
+    let fallbackIdx = 1;
+    while ((match = regex.exec(form.contenido)) !== null) {
+      items.push({
+        rawMatch: match[0],
+        num: match[1] || String(fallbackIdx++),
+        promptText: match[2].trim()
+      });
+    }
+    return items;
+  }, [form.contenido]);
+
+  // Reemplazar variable de prompt por imagen en base64
+  const handleReplacePromptWithImage = (rawMatch, file, promptText) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target.result;
+      const cleanDesc = (promptText || 'Gráfico Conceptual').replace(/[\r\n]+/g, ' ').trim();
+      const replacement = `\n\n![${cleanDesc}](${base64})\n\n`;
+      const newContent = form.contenido.replace(rawMatch, replacement);
+      setForm(prev => ({ ...prev, contenido: newContent }));
+      if (showToast) showToast('¡Imagen insertada y variable reemplazada con éxito!', 'check-circle');
+      triggerHaptic('success');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleCopyPrompt = (promptText, num) => {
+    navigator.clipboard.writeText(promptText).then(() => {
+      if (showToast) showToast(`Prompt #${num} copiado al portapapeles. Pégalo en Gemini.`, 'copy');
+      triggerHaptic('light');
+    }).catch(() => {
+      if (showToast) showToast('No se pudo copiar el prompt', 'alert-circle');
+    });
+  };
+
+  // Autocompletar título si comienza con # Encabezado y soportar pegado directo de imágenes
   const handleContentChange = (val) => {
     let updated = { ...form, contenido: val };
     if (!form.titulo.trim()) {
@@ -6637,6 +6690,21 @@ function ModalApunteSplitView({
   };
 
   const handlePaste = (e) => {
+    // Intercepción de imágenes pegadas desde el portapapeles (Ctrl + V)
+    const items = e.clipboardData?.items;
+    if (items && items.length > 0) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile();
+          if (blob && pendingImagePrompts.length > 0) {
+            e.preventDefault();
+            const targetPrompt = pendingImagePrompts[0];
+            handleReplacePromptWithImage(targetPrompt.rawMatch, blob, targetPrompt.promptText);
+            return;
+          }
+        }
+      }
+    }
     const text = e.clipboardData?.getData('text');
     if (text && !form.titulo.trim()) {
       const extracted = extractAcademicTitle(text);
@@ -6887,6 +6955,10 @@ function ModalApunteSplitView({
                 <button type="button" onClick={() => insertSyntax('> ')} className="px-2.5 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-emerald text-app-text" title="Cita textual">Cita &gt;</button>
                 <button type="button" onClick={() => insertSyntax('$', '$')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-navy text-app-navy font-mono" title="LaTeX inline">$f(x)$</button>
                 <button type="button" onClick={() => insertSyntax('$$\n', '\n$$')} className="px-2 py-1 rounded-lg bg-app-card border border-app-border hover:border-app-navy text-app-navy font-mono" title="LaTeX display">$$...$$</button>
+                <span className="w-px h-4 bg-app-border mx-1"></span>
+                <button type="button" onClick={() => insertSyntax('[IMAGEN_PROMPT 1: "Describe aquí el diagrama o gráfico conceptual a generar..."]')} className="px-2.5 py-1 rounded-lg bg-app-card border border-amber-500/40 hover:border-amber-500 text-amber-500 text-[11px] font-extrabold flex items-center gap-1" title="Insertar variable de imagen con prompt para IA">
+                  <Icon name="image" className="w-3.5 h-3.5 text-amber-500" /> + Prompt Imagen
+                </button>
               </div>
 
               <button
@@ -6897,6 +6969,66 @@ function ModalApunteSplitView({
                 <Icon name="sparkles" className="w-3.5 h-3.5 text-app-emerald" /> Plantilla IA
               </button>
             </div>
+
+            {/* Panel Interactivo: Imágenes Solicitadas / Prompts para Gemini */}
+            {pendingImagePrompts.length > 0 && (
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2 animate-fade-in shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span className="text-xs font-black text-amber-500 uppercase tracking-wide flex items-center gap-1.5">
+                      <Icon name="image" className="w-3.5 h-3.5 text-amber-500" />
+                      {pendingImagePrompts.length === 1 ? '1 Imagen / Gráfico Requerido en este Apunte' : `${pendingImagePrompts.length} Imágenes / Gráficos Requeridos en este Apunte`}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-app-muted font-medium">
+                    Copia el prompt, genera la imagen en Gemini y súbela aquí (o pega con Ctrl+V) para reemplazar la variable automáticamente.
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                  {pendingImagePrompts.map((item, idx) => (
+                    <div key={idx} className="p-2.5 rounded-lg bg-app-surface border border-app-border flex flex-col justify-between gap-2 shadow-sm">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                            Imagen #{item.num}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyPrompt(item.promptText, item.num)}
+                            className="px-2 py-1 rounded bg-app-card hover:bg-app-emerald-bg hover:text-app-emerald border border-app-border text-[11px] font-extrabold flex items-center gap-1 transition-all"
+                            title="Copiar prompt para Gemini"
+                          >
+                            <Icon name="copy" className="w-3 h-3" /> Copiar Prompt
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-app-text font-mono line-clamp-2 bg-app-card p-1.5 rounded border border-app-border/40 select-all" title={item.promptText}>
+                          {item.promptText}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-app-border/50">
+                        <label className="cursor-pointer px-2.5 py-1 rounded-md bg-app-emerald text-white text-[11px] font-extrabold flex items-center gap-1.5 hover:brightness-110 shadow-emerald transition-all">
+                          <Icon name="upload" className="w-3 h-3 text-white" />
+                          <span>Subir Imagen</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleReplacePromptWithImage(item.rawMatch, file, item.promptText);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Side-by-Side Editor & Live Preview */}
             <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden min-h-0">
