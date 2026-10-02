@@ -295,14 +295,8 @@ function safeSetLocalStorage(key, data) {
       sanitized = data.map(item => {
         if (!item) return item;
         const clone = { ...item };
-        // Si tiene archivo PDF binario, no meterlo a localStorage (IndexedDB lo guarda completo)
+        // Si tiene archivo PDF binario, no meterlo a localStorage para no saturar quota (IndexedDB lo guarda completo)
         if (clone.pdfData) delete clone.pdfData;
-        if (typeof clone.contenido === 'string' && clone.contenido.length > 4000) {
-          clone.contenido = clone.contenido.slice(0, 4000) + '\n\n... [Contenido completo guardado en IndexedDB]';
-        }
-        if (typeof clone.texto_extraido === 'string' && clone.texto_extraido.length > 4000) {
-          clone.texto_extraido = clone.texto_extraido.slice(0, 4000) + '\n\n... [Texto completo guardado en IndexedDB]';
-        }
         return clone;
       });
     }
@@ -1575,7 +1569,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.24.0';
+  const currentVersion = 'v2.25.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });

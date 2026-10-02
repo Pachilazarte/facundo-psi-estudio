@@ -1,7 +1,7 @@
 {
-  "version": "2.24.0",
-  "buildDate": "2026-10-02T04:05:00.000Z",
+  "version": "2.25.0",
+  "buildDate": "2026-10-02T04:08:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Corrección definitiva del estado de sesiones en Grabadora (savedSessions is not defined) y blindaje no destructivo de ErrorBoundary."
+  "notes": "Eliminación absoluta de truncamiento de texto en notas (eliminado slice de 4000 caracteres en safeSetLocalStorage) y preservación integral de Markdown."
 }
