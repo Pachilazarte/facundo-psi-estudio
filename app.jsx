@@ -301,6 +301,30 @@ function safeSetLocalStorage(key, data) {
   }
 }
 
+// ── 3.6 TOMBSTONES ANTI-RESURRECCIÓN DE DATOS ELIMINADOS ──
+function getDeletedRecords() {
+  return safeGetLocalStorage('psi_deleted_records', []);
+}
+
+function addDeletedRecord(table, id) {
+  if (!id) return;
+  const current = getDeletedRecords();
+  if (!current.some(r => r.table === table && r.id === id)) {
+    const updated = [...current, { table, id, deleted_at: new Date().toISOString() }];
+    safeSetLocalStorage('psi_deleted_records', updated);
+  }
+}
+
+function isRecordDeleted(table, id) {
+  if (!id) return false;
+  const current = getDeletedRecords();
+  return current.some(r => r.table === table && r.id === id);
+}
+
+function clearDeletedRecords() {
+  safeSetLocalStorage('psi_deleted_records', []);
+}
+
 // ── 3.8 NEUROSCAN VECTOR PDF COMPILER (A4 & 2-COLUMN BOOKLET) ──
 function parseInlineSegments(str) {
   const segments = [];
@@ -1193,32 +1217,6 @@ const ACADEMIC_MASTER_SEEDS = {
       fecha_parcial1: '2026-11-05',
       modalidad_parcial: 'Presencial Escrito',
       temas_parcial1: 'Unidad 1: Modelos de Rasgos y Factores (Big Five / Costa & McCrae). Unidad 2: Enfoques Fenomenológicos y Conductuales.'
-    },
-    {
-      id: 'mat_semiosis',
-      nombre: 'Semiosis Social',
-      abreviatura: 'SEM',
-      docente: 'Cátedra A (Prof. González)',
-      color: '#10B981',
-      año_cursado: 2026,
-      cuatrimestre: 2,
-      descripcion: 'Teoría de la significación, discursos sociales y semiótica.',
-      fecha_parcial1: '2026-10-15',
-      modalidad_parcial: 'Presencial Escrito',
-      temas_parcial1: 'Unidad 1: Saussure y Peirce. Unidad 2: Verón y discursos sociales.'
-    },
-    {
-      id: 'mat_psicopatologia',
-      nombre: 'Psicopatología I',
-      abreviatura: 'PSICOPAT',
-      docente: 'Cátedra Única (Prof. Martínez)',
-      color: '#2563EB',
-      año_cursado: 2026,
-      cuatrimestre: 2,
-      descripcion: 'Estructuras clínicas: neurosis, psicosis y perversión.',
-      fecha_parcial1: '2026-10-28',
-      modalidad_parcial: 'Presencial Escrito',
-      temas_parcial1: 'Neurosis obsesiva e histeria en Freud y Lacan.'
     }
   ],
   bibliografia: [
@@ -1296,51 +1294,6 @@ const ACADEMIC_MASTER_SEEDS = {
       nro_parcial: 1,
       link_resumen: '',
       notas: 'Determinismo recíproco triádico, autoeficacia y autorregulación.'
-    },
-    {
-      id: 'bib_saussure',
-      materia_id: 'mat_semiosis',
-      materia: 'Semiosis Social',
-      unidad: 'Unidad 1',
-      nro_texto: 1,
-      titulo_texto: 'Curso de Lingüística General (Cap. 1 a 4)',
-      autores: 'Saussure, F. (1916)',
-      caracter: 'Obligatorio',
-      estado: 'Leído',
-      va_parcial: true,
-      nro_parcial: 1,
-      link_resumen: 'https://docs.google.com',
-      notas: 'Signo lingüístico, significante/significado, arbitrariedad y valor.'
-    },
-    {
-      id: 'bib_peirce',
-      materia_id: 'mat_semiosis',
-      materia: 'Semiosis Social',
-      unidad: 'Unidad 1',
-      nro_texto: 2,
-      titulo_texto: 'La Ciencia de la Semiótica',
-      autores: 'Peirce, C. S. (1931)',
-      caracter: 'Obligatorio',
-      estado: 'Pendiente',
-      va_parcial: true,
-      nro_parcial: 1,
-      link_resumen: '',
-      notas: 'Representamen, Objeto e Interpretante. Semiosis infinita.'
-    },
-    {
-      id: 'bib_veron',
-      materia_id: 'mat_semiosis',
-      materia: 'Semiosis Social',
-      unidad: 'Unidad 2',
-      nro_texto: 3,
-      titulo_texto: 'La Semiosis Social: Fragmentos de una Teoría de la Discursividad',
-      autores: 'Verón, E. (1987)',
-      caracter: 'Obligatorio',
-      estado: 'Pendiente',
-      va_parcial: true,
-      nro_parcial: 1,
-      link_resumen: '',
-      notas: 'Condiciones de producción y de reconocimiento. Gramática discursiva.'
     }
   ],
   apuntes: [
@@ -1536,19 +1489,6 @@ El inventario NEO-PI-R evalúa las 5 dimensiones mayores mediante 30 facetas esp
       textos_vinculados: ['bib_personalidad_u1', 'bib_personalidad_u2'],
       temas: 'Modelos factoriales, dimensiones Big Five (Costa & McCrae), estabilidad de rasgos y determinismo recíproco.',
       finalizado: false
-    },
-    {
-      id: 'ex_semiosis_p1',
-      materia_id: 'mat_semiosis',
-      materia: 'Semiosis Social',
-      nombre: 'Primer Parcial Presencial',
-      tipo: 'Parcial 1',
-      fecha: '2026-10-15',
-      modalidad: 'Presencial Escrito',
-      unidades_incluidas: ['Unidad 1', 'Unidad 2'],
-      textos_vinculados: ['bib_saussure', 'bib_peirce', 'bib_veron'],
-      temas: 'Unidad 1 y Unidad 2 completas. Autores: Saussure, Peirce, Verón.',
-      finalizado: false
     }
   ]
 };
@@ -1560,55 +1500,60 @@ function App() {
   const [innerTab, setInnerTab] = useState('params');
   const [biblioFilter, setBiblioFilter] = useState('todos');
 
-  // Academic State (con safe storage anti-crash y auto-fusión de seeds)
+  // Academic State (con safe storage anti-crash, filtrado por tombstones y auto-fusión de seeds)
   const [materias, setMaterias] = useState(() => {
     const cached = safeGetLocalStorage('psi_materias_cache', []);
-    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.materias;
-    const merged = [...cached];
+    const validCached = cached.filter(m => !isRecordDeleted('materias', m.id));
+    if (validCached.length === 0) return ACADEMIC_MASTER_SEEDS.materias.filter(m => !isRecordDeleted('materias', m.id));
+    const merged = [...validCached];
     ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
-      if (!merged.find(x => x.id === m.id)) merged.push(m);
+      if (!isRecordDeleted('materias', m.id) && !merged.find(x => x.id === m.id)) merged.push(m);
     });
     return merged;
   });
 
   const [biblio, setBiblio] = useState(() => {
     const cached = safeGetLocalStorage('psi_biblio_cache', []);
-    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.bibliografia;
-    const merged = [...cached];
+    const validCached = cached.filter(b => !isRecordDeleted('bibliografia', b.id));
+    if (validCached.length === 0) return ACADEMIC_MASTER_SEEDS.bibliografia.filter(b => !isRecordDeleted('bibliografia', b.id));
+    const merged = [...validCached];
     ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
-      if (!merged.find(x => x.id === b.id)) merged.push(b);
+      if (!isRecordDeleted('bibliografia', b.id) && !merged.find(x => x.id === b.id)) merged.push(b);
     });
     return merged;
   });
 
-  const [clases, setClases] = useState(() => safeGetLocalStorage('psi_clases_cache', []));
+  const [clases, setClases] = useState(() => safeGetLocalStorage('psi_clases_cache', []).filter(c => !isRecordDeleted('clases', c.id)));
 
   const [apuntes, setApuntes] = useState(() => {
     const cached = safeGetLocalStorage('psi_apuntes_cache', []);
-    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.apuntes;
-    const merged = [...cached];
+    const validCached = cached.filter(a => !isRecordDeleted('apuntes', a.id));
+    if (validCached.length === 0) return ACADEMIC_MASTER_SEEDS.apuntes.filter(a => !isRecordDeleted('apuntes', a.id));
+    const merged = [...validCached];
     ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
-      if (!merged.find(x => x.id === a.id)) merged.push(a);
+      if (!isRecordDeleted('apuntes', a.id) && !merged.find(x => x.id === a.id)) merged.push(a);
     });
     return merged;
   });
 
   const [pdfs, setPdfs] = useState(() => {
     const cached = safeGetLocalStorage('psi_pdfs_cache', []);
-    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.documentos_pdf;
-    const merged = [...cached];
+    const validCached = cached.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+    if (validCached.length === 0) return ACADEMIC_MASTER_SEEDS.documentos_pdf.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+    const merged = [...validCached];
     ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
-      if (!merged.find(x => x.id === p.id)) merged.push(p);
+      if (!isRecordDeleted('documentos_pdf', p.id) && !merged.find(x => x.id === p.id)) merged.push(p);
     });
     return merged;
   });
 
   const [examenes, setExamenes] = useState(() => {
     const cached = safeGetLocalStorage('psi_examenes_cache', []);
-    if (cached.length === 0) return ACADEMIC_MASTER_SEEDS.examenes;
-    const merged = [...cached];
+    const validCached = cached.filter(e => !isRecordDeleted('examenes', e.id));
+    if (validCached.length === 0) return ACADEMIC_MASTER_SEEDS.examenes.filter(e => !isRecordDeleted('examenes', e.id));
+    const merged = [...validCached];
     ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
-      if (!merged.find(x => x.id === e.id)) merged.push(e);
+      if (!isRecordDeleted('examenes', e.id) && !merged.find(x => x.id === e.id)) merged.push(e);
     });
     return merged;
   });
@@ -1619,7 +1564,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.20.0';
+  const currentVersion = 'v2.21.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1780,8 +1725,9 @@ function App() {
 
   const seedInitialData = () => {
     setMaterias(prev => {
-      let merged = [...prev];
+      let merged = prev.filter(m => !isRecordDeleted('materias', m.id));
       [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+        if (isRecordDeleted('materias', m.id)) return;
         const idx = merged.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
         if (idx === -1) merged.unshift(m);
         else merged[idx] = { ...m, ...merged[idx] };
@@ -1792,8 +1738,9 @@ function App() {
     });
 
     setBiblio(prev => {
-      let merged = [...prev];
+      let merged = prev.filter(b => !isRecordDeleted('bibliografia', b.id));
       [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+        if (isRecordDeleted('bibliografia', b.id)) return;
         const idx = merged.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
         if (idx === -1) merged.unshift(b);
       });
@@ -1803,8 +1750,9 @@ function App() {
     });
 
     setApuntes(prev => {
-      let merged = [...prev];
+      let merged = prev.filter(a => !isRecordDeleted('apuntes', a.id));
       [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+        if (isRecordDeleted('apuntes', a.id)) return;
         const idx = merged.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
         if (idx === -1) merged.unshift(a);
       });
@@ -1814,8 +1762,9 @@ function App() {
     });
 
     setPdfs(prev => {
-      let merged = [...prev];
+      let merged = prev.filter(p => !isRecordDeleted('documentos_pdf', p.id));
       [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+        if (isRecordDeleted('documentos_pdf', p.id)) return;
         const idx = merged.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
         if (idx === -1) merged.unshift(p);
       });
@@ -1825,8 +1774,9 @@ function App() {
     });
 
     setExamenes(prev => {
-      let merged = [...prev];
+      let merged = prev.filter(e => !isRecordDeleted('examenes', e.id));
       [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+        if (isRecordDeleted('examenes', e.id)) return;
         const idx = merged.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
         if (idx === -1) merged.unshift(e);
       });
@@ -1851,32 +1801,37 @@ function App() {
           psiDB.syncQueue.toArray()
         ]);
 
-        let mergedMats = mats.length > 0 ? [...mats] : [];
+        let mergedMats = mats.filter(m => !isRecordDeleted('materias', m.id));
         [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+          if (isRecordDeleted('materias', m.id)) return;
           const idx = mergedMats.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
           if (idx === -1) mergedMats.unshift(m);
           else mergedMats[idx] = { ...m, ...mergedMats[idx] };
         });
         setMaterias(mergedMats);
 
-        let mergedBibs = bibs.length > 0 ? [...bibs] : [];
+        let mergedBibs = bibs.filter(b => !isRecordDeleted('bibliografia', b.id));
         [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+          if (isRecordDeleted('bibliografia', b.id)) return;
           const idx = mergedBibs.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
           if (idx === -1) mergedBibs.unshift(b);
         });
         setBiblio(mergedBibs);
 
-        if (clas.length > 0) setClases(clas);
+        const validClas = clas.filter(c => !isRecordDeleted('clases', c.id));
+        if (validClas.length > 0) setClases(validClas);
 
-        let mergedPdfs = pdfsList.length > 0 ? [...pdfsList] : [];
+        let mergedPdfs = pdfsList.filter(p => !isRecordDeleted('documentos_pdf', p.id));
         [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+          if (isRecordDeleted('documentos_pdf', p.id)) return;
           const idx = mergedPdfs.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
           if (idx === -1) mergedPdfs.unshift(p);
         });
         setPdfs(mergedPdfs);
         
-        let mergedApuntes = apus.length > 0 ? [...apus] : [];
+        let mergedApuntes = apus.filter(a => !isRecordDeleted('apuntes', a.id));
         [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+          if (isRecordDeleted('apuntes', a.id)) return;
           const idx = mergedApuntes.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
           if (idx === -1) mergedApuntes.unshift(a);
         });
@@ -1907,8 +1862,9 @@ function App() {
         }
         setApuntes(mergedApuntes);
 
-        let mergedExams = exas.length > 0 ? [...exas] : [];
+        let mergedExams = exas.filter(e => !isRecordDeleted('examenes', e.id));
         [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+          if (isRecordDeleted('examenes', e.id)) return;
           const idx = mergedExams.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
           if (idx === -1) mergedExams.unshift(e);
         });
@@ -1953,12 +1909,18 @@ function App() {
       ]);
 
       if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data)) {
+        matsRes.value.data.forEach(m => {
+          if (isRecordDeleted('materias', m.id)) {
+            supabaseClient.from('materias').delete().eq('id', m.id).then(() => {}).catch(() => {});
+          }
+        });
         setMaterias(prev => {
-          let merged = [...(matsRes.value.data || [])];
-          prev.forEach(p => {
+          let merged = matsRes.value.data.filter(m => !isRecordDeleted('materias', m.id));
+          prev.filter(p => !isRecordDeleted('materias', p.id)).forEach(p => {
             if (!merged.find(m => m.id === p.id)) merged.push(p);
           });
           [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+            if (isRecordDeleted('materias', m.id)) return;
             const idx = merged.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
             if (idx === -1) merged.unshift(m);
             else merged[idx] = { ...m, ...merged[idx] };
@@ -1970,12 +1932,18 @@ function App() {
       }
 
       if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data)) {
+        bibRes.value.data.forEach(b => {
+          if (isRecordDeleted('bibliografia', b.id)) {
+            supabaseClient.from('bibliografia').delete().eq('id', b.id).then(() => {}).catch(() => {});
+          }
+        });
         setBiblio(prev => {
-          let merged = [...(bibRes.value.data || [])];
-          prev.forEach(p => {
+          let merged = bibRes.value.data.filter(b => !isRecordDeleted('bibliografia', b.id));
+          prev.filter(p => !isRecordDeleted('bibliografia', p.id)).forEach(p => {
             if (!merged.find(b => b.id === p.id)) merged.push(p);
           });
           [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+            if (isRecordDeleted('bibliografia', b.id)) return;
             const idx = merged.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
             if (idx === -1) merged.unshift(b);
           });
@@ -1985,10 +1953,15 @@ function App() {
         });
       }
 
-      if (claRes.status === 'fulfilled' && Array.isArray(claRes.value.data) && claRes.value.data.length > 0) {
+      if (claRes.status === 'fulfilled' && Array.isArray(claRes.value.data)) {
+        claRes.value.data.forEach(c => {
+          if (isRecordDeleted('clases', c.id)) {
+            supabaseClient.from('clases').delete().eq('id', c.id).then(() => {}).catch(() => {});
+          }
+        });
         setClases(prev => {
-          const merged = [...claRes.value.data];
-          prev.forEach(p => {
+          let merged = claRes.value.data.filter(c => !isRecordDeleted('clases', c.id));
+          prev.filter(p => !isRecordDeleted('clases', p.id)).forEach(p => {
             if (!merged.find(c => c.id === p.id)) merged.push(p);
           });
           safeSetLocalStorage('psi_clases_cache', merged);
@@ -1998,12 +1971,18 @@ function App() {
       }
 
       if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data)) {
+        apuRes.value.data.forEach(a => {
+          if (isRecordDeleted('apuntes', a.id)) {
+            supabaseClient.from('apuntes').delete().eq('id', a.id).then(() => {}).catch(() => {});
+          }
+        });
         setApuntes(prev => {
-          let merged = [...(apuRes.value.data || [])];
-          prev.forEach(p => {
+          let merged = apuRes.value.data.filter(a => !isRecordDeleted('apuntes', a.id));
+          prev.filter(p => !isRecordDeleted('apuntes', p.id)).forEach(p => {
             if (!merged.find(a => a.id === p.id)) merged.push(p);
           });
           [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+            if (isRecordDeleted('apuntes', a.id)) return;
             const idx = merged.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
             if (idx === -1) merged.unshift(a);
           });
@@ -2014,14 +1993,20 @@ function App() {
       }
 
       if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data)) {
+        pdfRes.value.data.forEach(p => {
+          if (isRecordDeleted('documentos_pdf', p.id)) {
+            supabaseClient.from('documentos_pdf').delete().eq('id', p.id).then(() => {}).catch(() => {});
+          }
+        });
         setPdfs(prev => {
-          let merged = [...(pdfRes.value.data || [])];
-          prev.forEach(p => {
+          let merged = pdfRes.value.data.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+          prev.filter(p => !isRecordDeleted('documentos_pdf', p.id)).forEach(p => {
             const match = merged.find(m => m.id === p.id);
             if (!match) merged.push(p);
             else if (p.pdfData && !match.pdfData) match.pdfData = p.pdfData;
           });
           [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+            if (isRecordDeleted('documentos_pdf', p.id)) return;
             const idx = merged.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
             if (idx === -1) merged.unshift(p);
           });
@@ -2032,12 +2017,18 @@ function App() {
       }
 
       if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data)) {
+        exRes.value.data.forEach(e => {
+          if (isRecordDeleted('examenes', e.id)) {
+            supabaseClient.from('examenes').delete().eq('id', e.id).then(() => {}).catch(() => {});
+          }
+        });
         setExamenes(prev => {
-          let merged = [...(exRes.value.data || [])];
-          prev.forEach(p => {
+          let merged = exRes.value.data.filter(e => !isRecordDeleted('examenes', e.id));
+          prev.filter(p => !isRecordDeleted('examenes', p.id)).forEach(p => {
             if (!merged.find(e => e.id === p.id)) merged.push(p);
           });
           [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+            if (isRecordDeleted('examenes', e.id)) return;
             const idx = merged.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
             if (idx === -1) merged.unshift(e);
           });
@@ -2344,16 +2335,81 @@ function App() {
   };
 
   const handleDeleteMateria = async (id) => {
-    if (!confirm('¿Eliminar esta materia y todos sus datos asociados?')) return;
-    const updated = materias.filter(m => m.id !== id);
-    setMaterias(updated);
-    safeSetLocalStorage('psi_materias_cache', updated);
-    if (selectedMateriaId === id) setSelectedMateriaId(null);
-    showToast('Materia eliminada', 'trash-2');
+    const target = materias.find(m => m.id === id);
+    const nombreMat = target?.nombre || '';
+    if (!confirm(`¿Eliminar definitivamente la materia "${nombreMat || id}" y todos sus datos asociados (apuntes, bibliografía, clases, PDFs y exámenes)?`)) return;
 
+    // 1. Identificar registros hijos asociados
+    const childBiblio = biblio.filter(b => b.materia_id === id || (nombreMat && b.materia === nombreMat));
+    const childClases = clases.filter(c => c.materia_id === id || (nombreMat && c.materia === nombreMat));
+    const childApuntes = apuntes.filter(a => a.materia_id === id || (nombreMat && a.materia === nombreMat));
+    const childPdfs = pdfs.filter(p => p.materia_id === id || (nombreMat && p.materia === nombreMat));
+    const childExamenes = examenes.filter(e => e.materia_id === id || (nombreMat && e.materia === nombreMat));
+
+    // 2. Registrar Tombstones Anti-Resurrección
+    addDeletedRecord('materias', id);
+    childBiblio.forEach(b => addDeletedRecord('bibliografia', b.id));
+    childClases.forEach(c => addDeletedRecord('clases', c.id));
+    childApuntes.forEach(a => addDeletedRecord('apuntes', a.id));
+    childPdfs.forEach(p => addDeletedRecord('documentos_pdf', p.id));
+    childExamenes.forEach(e => addDeletedRecord('examenes', e.id));
+
+    // 3. Actualizar React State & LocalStorage
+    const updatedMats = materias.filter(m => m.id !== id);
+    const updatedBib = biblio.filter(b => b.materia_id !== id && (!nombreMat || b.materia !== nombreMat));
+    const updatedCla = clases.filter(c => c.materia_id !== id && (!nombreMat || c.materia !== nombreMat));
+    const updatedApu = apuntes.filter(a => a.materia_id !== id && (!nombreMat || a.materia !== nombreMat));
+    const updatedPdf = pdfs.filter(p => p.materia_id !== id && (!nombreMat || p.materia !== nombreMat));
+    const updatedExa = examenes.filter(e => e.materia_id !== id && (!nombreMat || e.materia !== nombreMat));
+
+    setMaterias(updatedMats);
+    setBiblio(updatedBib);
+    setClases(updatedCla);
+    setApuntes(updatedApu);
+    setPdfs(updatedPdf);
+    setExamenes(updatedExa);
+
+    safeSetLocalStorage('psi_materias_cache', updatedMats);
+    safeSetLocalStorage('psi_biblio_cache', updatedBib);
+    safeSetLocalStorage('psi_clases_cache', updatedCla);
+    safeSetLocalStorage('psi_apuntes_cache', updatedApu);
+    safeSetLocalStorage('psi_pdfs_cache', updatedPdf);
+    safeSetLocalStorage('psi_examenes_cache', updatedExa);
+
+    if (selectedMateriaId === id) setSelectedMateriaId(null);
+
+    // 4. Limpiar en IndexedDB
+    if (psiDB) {
+      try {
+        await Promise.allSettled([
+          psiDB.materias.delete(id),
+          childBiblio.length > 0 ? psiDB.bibliografia.bulkDelete(childBiblio.map(b => b.id)) : Promise.resolve(),
+          childClases.length > 0 ? psiDB.clases.bulkDelete(childClases.map(c => c.id)) : Promise.resolve(),
+          childApuntes.length > 0 ? psiDB.apuntes.bulkDelete(childApuntes.map(a => a.id)) : Promise.resolve(),
+          childPdfs.length > 0 ? psiDB.documentos_pdf.bulkDelete(childPdfs.map(p => p.id)) : Promise.resolve(),
+          childExamenes.length > 0 ? psiDB.examenes.bulkDelete(childExamenes.map(e => e.id)) : Promise.resolve()
+        ]);
+      } catch (errDB) {
+        console.warn('Error borrando en IndexedDB:', errDB);
+      }
+    }
+
+    showToast('Materia y datos vinculados eliminados definitivamente', 'trash-2');
+
+    // 5. Eliminar en Supabase en Cascada
     if (supabaseClient && isOnline) {
-      try { await supabaseClient.from('materias').delete().eq('id', id); }
-      catch (e) { enqueueAction('DELETE', 'materias', { id }); }
+      try {
+        await Promise.allSettled([
+          supabaseClient.from('materias').delete().eq('id', id),
+          supabaseClient.from('bibliografia').delete().eq('materia_id', id),
+          supabaseClient.from('clases').delete().eq('materia_id', id),
+          supabaseClient.from('apuntes').delete().eq('materia_id', id),
+          supabaseClient.from('documentos_pdf').delete().eq('materia_id', id),
+          supabaseClient.from('examenes').delete().eq('materia_id', id)
+        ]);
+      } catch (e) {
+        enqueueAction('DELETE', 'materias', { id });
+      }
     } else {
       enqueueAction('DELETE', 'materias', { id });
     }
@@ -2432,9 +2488,13 @@ function App() {
 
   const handleDeleteBiblio = async (id) => {
     if (!confirm('¿Eliminar este texto?')) return;
+    addDeletedRecord('bibliografia', id);
     const updated = biblio.filter(b => b.id !== id);
     setBiblio(updated);
     safeSetLocalStorage('psi_biblio_cache', updated);
+    if (psiDB) {
+      try { await psiDB.bibliografia.delete(id); } catch (e) {}
+    }
     showToast('Texto eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -2476,9 +2536,13 @@ function App() {
 
   const handleDeleteClase = async (id) => {
     if (!confirm('¿Eliminar esta clase?')) return;
+    addDeletedRecord('clases', id);
     const updated = clases.filter(c => c.id !== id);
     setClases(updated);
     safeSetLocalStorage('psi_clases_cache', updated);
+    if (psiDB) {
+      try { await psiDB.clases.delete(id); } catch (e) {}
+    }
     showToast('Clase eliminada', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -2620,17 +2684,24 @@ function App() {
 
   const handleDeleteApunte = async (id) => {
     if (!confirm('¿Eliminar este apunte?')) return;
+    addDeletedRecord('apuntes', id);
+    addDeletedRecord('documentos_pdf', id);
+
     const updated = apuntes.filter(a => a.id !== id);
     setApuntes(updated);
     safeSetLocalStorage('psi_apuntes_cache', updated);
-    saveToIndexedDB('apuntes', updated);
+    if (psiDB) {
+      try { await psiDB.apuntes.delete(id); } catch (e) {}
+    }
 
     // Si también está en pdfs, eliminarlo
     if (pdfs.some(p => p.id === id)) {
       const updatedP = pdfs.filter(p => p.id !== id);
       setPdfs(updatedP);
       safeSetLocalStorage('psi_pdfs_cache', updatedP);
-      saveToIndexedDB('documentos_pdf', updatedP);
+      if (psiDB) {
+        try { await psiDB.documentos_pdf.delete(id); } catch (e) {}
+      }
     }
 
     showToast('Apunte eliminado', 'trash-2');
@@ -2704,10 +2775,25 @@ function App() {
   const handleDeleteDocumentoPDF = async (id) => {
     const doc = pdfs.find(p => p.id === id);
     if (!confirm(`¿Eliminar "${doc?.nombre_archivo || doc?.titulo || 'este documento'}" del sistema?`)) return;
+    addDeletedRecord('documentos_pdf', id);
+    addDeletedRecord('apuntes', id);
+
     const updated = pdfs.filter(p => p.id !== id);
     setPdfs(updated);
     safeSetLocalStorage('psi_pdfs_cache', updated);
-    saveToIndexedDB('documentos_pdf', updated);
+    if (psiDB) {
+      try { await psiDB.documentos_pdf.delete(id); } catch (e) {}
+    }
+
+    if (apuntes.some(a => a.id === id)) {
+      const updatedA = apuntes.filter(a => a.id !== id);
+      setApuntes(updatedA);
+      safeSetLocalStorage('psi_apuntes_cache', updatedA);
+      if (psiDB) {
+        try { await psiDB.apuntes.delete(id); } catch (e) {}
+      }
+    }
+
     showToast('Documento PDF eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -2753,9 +2839,13 @@ function App() {
 
   const handleDeleteExamen = async (id) => {
     if (!confirm('¿Eliminar este examen?')) return;
+    addDeletedRecord('examenes', id);
     const updated = examenes.filter(e => e.id !== id);
     setExamenes(updated);
     safeSetLocalStorage('psi_examenes_cache', updated);
+    if (psiDB) {
+      try { await psiDB.examenes.delete(id); } catch (e) {}
+    }
     showToast('Examen eliminado', 'trash-2');
 
     if (supabaseClient && isOnline) {
@@ -2971,7 +3061,7 @@ function App() {
     setIsSyncingAll(true);
     if (!silent) {
       triggerHaptic('medium');
-      showToast('Subiendo todos los datos locales a Supabase...', 'cloud-upload');
+      showToast('Sincronizando y subiendo datos locales a Supabase...', 'cloud-upload');
     }
 
     const results = {
@@ -2981,12 +3071,38 @@ function App() {
       apuntes: 0,
       documentos_pdf: 0,
       examenes: 0,
+      deletions: 0,
       errors: []
     };
 
     try {
-      // 1. Materias (Merge local con semillas maestras para persistencia total)
-      const matsList = materias.length > 0 ? materias : ACADEMIC_MASTER_SEEDS.materias;
+      // 0. Sincronizar bajas remotas (Tombstones) en Supabase para evitar resurrección permanente
+      const deletedRecords = getDeletedRecords();
+      if (deletedRecords.length > 0) {
+        for (const rec of deletedRecords) {
+          try {
+            if (rec.table && rec.id) {
+              await supabaseClient.from(rec.table).delete().eq('id', rec.id);
+              // Si es materia, limpiar en cascada en Supabase
+              if (rec.table === 'materias') {
+                await Promise.allSettled([
+                  supabaseClient.from('bibliografia').delete().eq('materia_id', rec.id),
+                  supabaseClient.from('clases').delete().eq('materia_id', rec.id),
+                  supabaseClient.from('apuntes').delete().eq('materia_id', rec.id),
+                  supabaseClient.from('documentos_pdf').delete().eq('materia_id', rec.id),
+                  supabaseClient.from('examenes').delete().eq('materia_id', rec.id)
+                ]);
+              }
+              results.deletions++;
+            }
+          } catch (delErr) {
+            console.warn(`Error eliminando registro remoto tombstoned (${rec.table} - ${rec.id}):`, delErr);
+          }
+        }
+      }
+
+      // 1. Materias (Solo materias activas no eliminadas)
+      const matsList = materias.filter(m => !isRecordDeleted('materias', m.id));
       if (matsList.length > 0) {
         const cleanMats = matsList.map(sanitizeForCloud.materias);
         const { error } = await supabaseClient.from('materias').upsert(cleanMats, { onConflict: 'id' });
@@ -2995,7 +3111,7 @@ function App() {
       }
 
       // 2. Bibliografía
-      const bibList = biblio.length > 0 ? biblio : ACADEMIC_MASTER_SEEDS.bibliografia;
+      const bibList = biblio.filter(b => !isRecordDeleted('bibliografia', b.id));
       if (bibList.length > 0) {
         const cleanBib = bibList.map(sanitizeForCloud.bibliografia);
         const { error } = await supabaseClient.from('bibliografia').upsert(cleanBib, { onConflict: 'id' });
@@ -3004,15 +3120,16 @@ function App() {
       }
 
       // 3. Clases
-      if (clases.length > 0) {
-        const cleanCla = clases.map(sanitizeForCloud.clases);
+      const claList = clases.filter(c => !isRecordDeleted('clases', c.id));
+      if (claList.length > 0) {
+        const cleanCla = claList.map(sanitizeForCloud.clases);
         const { error } = await supabaseClient.from('clases').upsert(cleanCla, { onConflict: 'id' });
         if (error) results.errors.push(`Clases: ${error.message}`);
         else results.clases = cleanCla.length;
       }
 
-      // 4. Apuntes (Garantiza guías completas de WISC-IV y Personalidad)
-      const apuList = apuntes.length > 0 ? apuntes : ACADEMIC_MASTER_SEEDS.apuntes;
+      // 4. Apuntes (Garantiza notas y resúmenes completos)
+      const apuList = apuntes.filter(a => !isRecordDeleted('apuntes', a.id));
       if (apuList.length > 0) {
         const cleanApu = apuList.map(sanitizeForCloud.apuntes);
         const { error } = await supabaseClient.from('apuntes').upsert(cleanApu, { onConflict: 'id' });
@@ -3021,7 +3138,7 @@ function App() {
       }
 
       // 5. Documentos PDF
-      const pdfList = pdfs.length > 0 ? pdfs : ACADEMIC_MASTER_SEEDS.documentos_pdf;
+      const pdfList = pdfs.filter(p => !isRecordDeleted('documentos_pdf', p.id));
       if (pdfList.length > 0) {
         const cleanPdf = pdfList.map(sanitizeForCloud.documentos_pdf);
         const { error } = await supabaseClient.from('documentos_pdf').upsert(cleanPdf, { onConflict: 'id' });
@@ -3030,7 +3147,7 @@ function App() {
       }
 
       // 6. Exámenes
-      const exList = examenes.length > 0 ? examenes : ACADEMIC_MASTER_SEEDS.examenes;
+      const exList = examenes.filter(e => !isRecordDeleted('examenes', e.id));
       if (exList.length > 0) {
         const cleanEx = exList.map(sanitizeForCloud.examenes);
         const { error } = await supabaseClient.from('examenes').upsert(cleanEx, { onConflict: 'id' });
@@ -5008,9 +5125,6 @@ function App() {
                 </button>
                 <button onClick={triggerPing} className="px-4 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
                   <Icon name="activity" className="w-4 h-4" /> Ping Keep-Alive
-                </button>
-                <button onClick={clearCache} className="px-4 py-2.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 flex items-center gap-2">
-                  <Icon name="trash-2" className="w-4 h-4" /> Limpiar Caché Local
                 </button>
               </div>
             </div>
