@@ -1053,6 +1053,8 @@ function App() {
 
   const [ingestionData, setIngestionData] = useState(null);
   const [profileImage, setProfileImage] = useState(localStorage.getItem('psi_profile_image') || null);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncStatusSummary, setSyncStatusSummary] = useState(null);
 
   const handleProfileImageUpload = (e) => {
     const file = e.target.files[0];
@@ -1508,29 +1510,169 @@ function App() {
     }
   };
 
+  // ── SANITIZACIÓN DEFENSIVA PARA ESQUEMA POSTGRES / SUPABASE ──
+  const sanitizeForCloud = {
+    materias: (m) => {
+      const { evaluaciones, ...clean } = m || {};
+      return {
+        id: String(clean.id),
+        nombre: String(clean.nombre || ''),
+        abreviatura: String(clean.abreviatura || 'MAT'),
+        docente: String(clean.docente || ''),
+        color: String(clean.color || '#10B981'),
+        año_cursado: parseInt(clean.año_cursado, 10) || 2026,
+        cuatrimestre: parseInt(clean.cuatrimestre, 10) || 1,
+        descripcion: String(clean.descripcion || ''),
+        fecha_parcial1: clean.fecha_parcial1 || null,
+        modalidad_parcial: String(clean.modalidad_parcial || 'Presencial Escrito'),
+        temas_parcial1: String(clean.temas_parcial1 || ''),
+        created_at: clean.created_at || new Date().toISOString()
+      };
+    },
+    bibliografia: (b) => {
+      let nroParcial = null;
+      if (b && b.nro_parcial) {
+        const match = String(b.nro_parcial).match(/\d+/);
+        nroParcial = match ? parseInt(match[0], 10) : 1;
+      }
+      return {
+        id: String(b?.id || ''),
+        materia_id: b?.materia_id || null,
+        materia: String(b?.materia || ''),
+        unidad: String(b?.unidad || 'Unidad 1'),
+        nro_texto: parseInt(b?.nro_texto, 10) || 1,
+        titulo_texto: String(b?.titulo_texto || 'Texto sin título'),
+        autores: String(b?.autores || ''),
+        caracter: String(b?.caracter || 'Obligatorio'),
+        estado: String(b?.estado || 'Pendiente'),
+        va_parcial: Boolean(b?.va_parcial),
+        nro_parcial: nroParcial,
+        link_resumen: String(b?.link_resumen || ''),
+        notas: String(b?.notas || ''),
+        created_at: b?.created_at || new Date().toISOString()
+      };
+    },
+    clases: (c) => {
+      return {
+        id: String(c?.id || ''),
+        materia_id: c?.materia_id || null,
+        materia: String(c?.materia || ''),
+        nro_clase: parseInt(c?.nro_clase, 10) || 1,
+        tipo: String(c?.tipo || 'Teórica'),
+        titulo_clase: String(c?.titulo_clase || ''),
+        desgrabacion_md: String(c?.desgrabacion_md || ''),
+        link_grabacion: String(c?.link_grabacion || ''),
+        grabaciones: Array.isArray(c?.grabaciones) ? c.grabaciones.map(g => ({ id: g.id, title: g.title, url: (typeof g.url === 'string' && g.url.startsWith('data:') ? '' : g.url) })) : [],
+        imagenes: Array.isArray(c?.imagenes) ? c.imagenes.map(img => ({ id: img.id, caption: img.caption, url: (typeof img.url === 'string' && img.url.startsWith('data:') ? '' : img.url) })) : [],
+        aclaraciones: String(c?.aclaraciones || ''),
+        temas_enfasis: String(c?.temas_enfasis || ''),
+        fecha_carga: c?.fecha_carga || c?.fecha || new Date().toISOString()
+      };
+    },
+    apuntes: (a) => {
+      const { pdfData, pdfName, numPages, saveToPdfDocs, ...clean } = a || {};
+      let nroParcial = null;
+      if (clean.nro_parcial) {
+        const match = String(clean.nro_parcial).match(/\d+/);
+        nroParcial = match ? parseInt(match[0], 10) : 1;
+      }
+      return {
+        id: String(clean.id || ''),
+        materia_id: clean.materia_id || null,
+        materia: String(clean.materia || ''),
+        unidad: String(clean.unidad || 'Unidad 1'),
+        titulo: String(clean.titulo || 'Apunte'),
+        tipo: String(clean.tipo || 'Resumen'),
+        va_parcial: Boolean(clean.va_parcial),
+        nro_parcial: nroParcial,
+        contenido: String(clean.contenido || ''),
+        created_at: clean.created_at || new Date().toISOString()
+      };
+    },
+    documentos_pdf: (p) => {
+      const { pdfData, ...clean } = p || {};
+      let nroParcial = null;
+      if (clean.nro_parcial) {
+        const match = String(clean.nro_parcial).match(/\d+/);
+        nroParcial = match ? parseInt(match[0], 10) : 1;
+      }
+      return {
+        id: String(clean.id || ''),
+        nombre_archivo: String(clean.nombre_archivo || 'documento.pdf'),
+        titulo: String(clean.titulo || clean.nombre_archivo || 'Documento PDF'),
+        materia_id: clean.materia_id || null,
+        materia: String(clean.materia || ''),
+        unidad: String(clean.unidad || 'Unidad 1'),
+        tipo: String(clean.tipo || 'Resumen'),
+        num_paginas: parseInt(clean.num_paginas, 10) || 1,
+        va_parcial: Boolean(clean.va_parcial),
+        nro_parcial: nroParcial,
+        texto_extraido: clean.texto_extraido ? String(clean.texto_extraido).slice(0, 5000) : '',
+        created_at: clean.created_at || new Date().toISOString()
+      };
+    },
+    examenes: (e) => {
+      const linkedTexts = e?.textos_vinculados || e?.textos_ids || [];
+      return {
+        id: String(e?.id || ''),
+        materia_id: e?.materia_id || null,
+        materia: String(e?.materia || ''),
+        nombre: String(e?.nombre || 'Evaluación'),
+        tipo: String(e?.tipo || 'Parcial 1'),
+        fecha: e?.fecha || new Date().toISOString().split('T')[0],
+        modalidad: String(e?.modalidad || 'Presencial Escrito'),
+        temas: String(e?.temas || ''),
+        unidades_incluidas: Array.isArray(e?.unidades_incluidas) ? e.unidades_incluidas : [],
+        textos_vinculados: Array.isArray(linkedTexts) ? linkedTexts : [],
+        textos_ids: Array.isArray(linkedTexts) ? linkedTexts : [],
+        finalizado: Boolean(e?.finalizado),
+        created_at: e?.created_at || new Date().toISOString()
+      };
+    }
+  };
+
   const processSyncQueue = async () => {
     if (!navigator.onLine || !supabaseClient || syncQueue.length === 0) return;
     const queue = [...syncQueue];
+    const remainingQueue = [];
+
     for (const item of queue) {
       try {
-        if (item.action === 'INSERT') await supabaseClient.from(item.table).insert([item.payload]);
-        if (item.action === 'UPDATE') await supabaseClient.from(item.table).update(item.payload).eq('id', item.payload.id);
-        if (item.action === 'DELETE') await supabaseClient.from(item.table).delete().eq('id', item.payload.id);
+        if (!item.table || !item.payload) continue;
+        const sanitizer = sanitizeForCloud[item.table];
+        const cleanPayload = sanitizer ? sanitizer(item.payload) : item.payload;
+
+        if (item.action === 'INSERT' || item.action === 'UPDATE') {
+          const { error } = await supabaseClient.from(item.table).upsert(cleanPayload, { onConflict: 'id' });
+          if (error) throw error;
+        } else if (item.action === 'DELETE') {
+          const { error } = await supabaseClient.from(item.table).delete().eq('id', item.payload.id);
+          if (error) throw error;
+        }
       } catch (e) {
-        console.warn('Queue error:', e);
-        return;
+        console.warn(`[SyncQueue] Error al sincronizar ítem en ${item.table}:`, e);
+        remainingQueue.push(item);
       }
     }
-    setSyncQueue([]);
-    localStorage.setItem('psi_sync_queue', '[]');
+
+    setSyncQueue(remainingQueue);
+    localStorage.setItem('psi_sync_queue', JSON.stringify(remainingQueue));
     if (psiDB && psiDB.syncQueue) {
       try {
         await psiDB.syncQueue.clear();
+        if (remainingQueue.length > 0) {
+          await psiDB.syncQueue.bulkAdd(remainingQueue);
+        }
       } catch (e) {
-        console.warn('IndexedDB syncQueue clear error:', e);
+        console.warn('IndexedDB syncQueue update error:', e);
       }
     }
-    showToast('Cola sincronizada con Supabase', 'cloud-check');
+
+    if (remainingQueue.length === 0) {
+      showToast('Cola sincronizada con Supabase', 'cloud-check');
+    } else {
+      showToast(`${remainingQueue.length} elemento(s) pendientes de reintento`, 'alert-circle');
+    }
   };
 
   const currentMateria = useMemo(() => {
@@ -2175,6 +2317,182 @@ function App() {
     a.download = `PsiEstudio_Backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     showToast('Copia de seguridad exportada', 'download');
+  };
+
+  const handleImportBackupJSON = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        if (!parsed || typeof parsed !== 'object') {
+          throw new Error('El archivo no contiene un JSON válido.');
+        }
+
+        let newMats = materias;
+        let newBib = biblio;
+        let newCla = clases;
+        let newApu = apuntes;
+        let newPdf = pdfs;
+        let newEx = examenes;
+
+        if (Array.isArray(parsed.materias) && parsed.materias.length > 0) {
+          newMats = [...parsed.materias];
+          materias.forEach(m => { if (!newMats.find(x => x.id === m.id)) newMats.push(m); });
+          setMaterias(newMats);
+          safeSetLocalStorage('psi_materias_cache', newMats);
+          saveToIndexedDB('materias', newMats);
+        }
+
+        if (Array.isArray(parsed.biblio) && parsed.biblio.length > 0) {
+          newBib = [...parsed.biblio];
+          biblio.forEach(b => { if (!newBib.find(x => x.id === b.id)) newBib.push(b); });
+          setBiblio(newBib);
+          safeSetLocalStorage('psi_biblio_cache', newBib);
+          saveToIndexedDB('bibliografia', newBib);
+        }
+
+        if (Array.isArray(parsed.clases) && parsed.clases.length > 0) {
+          newCla = [...parsed.clases];
+          clases.forEach(c => { if (!newCla.find(x => x.id === c.id)) newCla.push(c); });
+          setClases(newCla);
+          safeSetLocalStorage('psi_clases_cache', newCla);
+          saveToIndexedDB('clases', newCla);
+        }
+
+        if (Array.isArray(parsed.apuntes) && parsed.apuntes.length > 0) {
+          newApu = [...parsed.apuntes];
+          apuntes.forEach(a => { if (!newApu.find(x => x.id === a.id)) newApu.push(a); });
+          setApuntes(newApu);
+          safeSetLocalStorage('psi_apuntes_cache', newApu);
+          saveToIndexedDB('apuntes', newApu);
+        }
+
+        if (Array.isArray(parsed.pdfs) && parsed.pdfs.length > 0) {
+          newPdf = [...parsed.pdfs];
+          pdfs.forEach(p => { if (!newPdf.find(x => x.id === p.id)) newPdf.push(p); });
+          setPdfs(newPdf);
+          safeSetLocalStorage('psi_pdfs_cache', newPdf);
+          saveToIndexedDB('documentos_pdf', newPdf);
+        }
+
+        if (Array.isArray(parsed.examenes) && parsed.examenes.length > 0) {
+          newEx = [...parsed.examenes];
+          examenes.forEach(ex => { if (!newEx.find(x => x.id === ex.id)) newEx.push(ex); });
+          setExamenes(newEx);
+          safeSetLocalStorage('psi_examenes_cache', newEx);
+          saveToIndexedDB('examenes', newEx);
+        }
+
+        showToast('Backup importado y fusionado correctamente', 'check-circle-2');
+        triggerHaptic('success');
+      } catch (err) {
+        console.error('Error al importar backup:', err);
+        showToast('Error al procesar JSON: ' + err.message, 'alert-triangle');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // ── MOTOR DE CARGA Y MIGRACIÓN TOTAL A LA NUBE (LOCAL TO CLOUD) ──
+  const syncAllLocalDataToCloud = async () => {
+    if (!supabaseClient) {
+      showToast('Supabase no está inicializado en este cliente', 'alert-triangle');
+      return;
+    }
+    if (!navigator.onLine) {
+      showToast('Sin conexión a Internet para sincronizar', 'wifi-off');
+      return;
+    }
+
+    setIsSyncingAll(true);
+    triggerHaptic('medium');
+    showToast('Subiendo todos los datos locales a Supabase...', 'cloud-upload');
+
+    const results = {
+      materias: 0,
+      bibliografia: 0,
+      clases: 0,
+      apuntes: 0,
+      documentos_pdf: 0,
+      examenes: 0,
+      errors: []
+    };
+
+    try {
+      // 1. Materias
+      if (materias.length > 0) {
+        const cleanMats = materias.map(sanitizeForCloud.materias);
+        const { error } = await supabaseClient.from('materias').upsert(cleanMats, { onConflict: 'id' });
+        if (error) results.errors.push(`Materias: ${error.message}`);
+        else results.materias = cleanMats.length;
+      }
+
+      // 2. Bibliografía
+      if (biblio.length > 0) {
+        const cleanBib = biblio.map(sanitizeForCloud.bibliografia);
+        const { error } = await supabaseClient.from('bibliografia').upsert(cleanBib, { onConflict: 'id' });
+        if (error) results.errors.push(`Bibliografía: ${error.message}`);
+        else results.bibliografia = cleanBib.length;
+      }
+
+      // 3. Clases
+      if (clases.length > 0) {
+        const cleanCla = clases.map(sanitizeForCloud.clases);
+        const { error } = await supabaseClient.from('clases').upsert(cleanCla, { onConflict: 'id' });
+        if (error) results.errors.push(`Clases: ${error.message}`);
+        else results.clases = cleanCla.length;
+      }
+
+      // 4. Apuntes
+      if (apuntes.length > 0) {
+        const cleanApu = apuntes.map(sanitizeForCloud.apuntes);
+        const { error } = await supabaseClient.from('apuntes').upsert(cleanApu, { onConflict: 'id' });
+        if (error) results.errors.push(`Apuntes: ${error.message}`);
+        else results.apuntes = cleanApu.length;
+      }
+
+      // 5. Documentos PDF
+      if (pdfs.length > 0) {
+        const cleanPdf = pdfs.map(sanitizeForCloud.documentos_pdf);
+        const { error } = await supabaseClient.from('documentos_pdf').upsert(cleanPdf, { onConflict: 'id' });
+        if (error) results.errors.push(`Documentos PDF: ${error.message}`);
+        else results.documentos_pdf = cleanPdf.length;
+      }
+
+      // 6. Exámenes
+      if (examenes.length > 0) {
+        const cleanEx = examenes.map(sanitizeForCloud.examenes);
+        const { error } = await supabaseClient.from('examenes').upsert(cleanEx, { onConflict: 'id' });
+        if (error) results.errors.push(`Exámenes: ${error.message}`);
+        else results.examenes = cleanEx.length;
+      }
+
+      if (results.errors.length === 0) {
+        setSyncQueue([]);
+        localStorage.setItem('psi_sync_queue', '[]');
+        if (psiDB && psiDB.syncQueue) {
+          try { await psiDB.syncQueue.clear(); } catch (e) {}
+        }
+      }
+
+      const totalItems = results.materias + results.bibliografia + results.clases + results.apuntes + results.documentos_pdf + results.examenes;
+      const summaryMsg = results.errors.length > 0
+        ? `Sincronizados ${totalItems} registros con advertencias (${results.errors.length})`
+        : `¡${totalItems} registros respaldados con éxito en Supabase!`;
+
+      setSyncStatusSummary(results);
+      showToast(summaryMsg, results.errors.length > 0 ? 'alert-circle' : 'check-circle-2');
+      triggerHaptic('success');
+    } catch (err) {
+      console.error('Error durante sincronización total:', err);
+      showToast(`Error al subir a la nube: ${err.message}`, 'alert-triangle');
+    } finally {
+      setIsSyncingAll(false);
+    }
   };
 
   const clearCache = () => {
@@ -4095,14 +4413,30 @@ function App() {
 
             <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
               <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
-                <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Mantenimiento
+                <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Sincronización en la Nube
               </h3>
+              <p className="text-xs text-app-muted">
+                Exporta copias de seguridad en JSON o sube todos tus datos locales de forma idempotente a Supabase.
+              </p>
               <div className="flex flex-wrap gap-3">
-                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-2">
-                  <Icon name="download" className="w-4 h-4" /> Exportar Backup (JSON)
+                <button
+                  onClick={syncAllLocalDataToCloud}
+                  disabled={isSyncingAll}
+                  className="px-4 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center gap-2 hover:brightness-110 disabled:opacity-50"
+                >
+                  <Icon name={isSyncingAll ? "refresh-cw" : "cloud-upload"} className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
+                  {isSyncingAll ? 'Subiendo a Supabase...' : 'Subir Todo a Supabase'}
+                </button>
+                <label className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl cursor-pointer shadow-card flex items-center gap-2 transition-all">
+                  <Icon name="upload" className="w-4 h-4 text-app-emerald" />
+                  <span>Importar Backup (JSON)</span>
+                  <input type="file" accept=".json,application/json" onChange={handleImportBackupJSON} className="hidden" />
+                </label>
+                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
+                  <Icon name="download" className="w-4 h-4 text-app-emerald" /> Exportar Backup (JSON)
                 </button>
                 <button onClick={triggerPing} className="px-4 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
-                  <Icon name="activity" className="w-4 h-4" /> Ping Keep-Alive Supabase
+                  <Icon name="activity" className="w-4 h-4" /> Ping Keep-Alive
                 </button>
                 <button onClick={clearCache} className="px-4 py-2.5 bg-app-ruby-bg text-app-ruby font-bold text-xs rounded-xl border border-app-ruby/30 flex items-center gap-2">
                   <Icon name="trash-2" className="w-4 h-4" /> Limpiar Caché Local
@@ -4128,27 +4462,111 @@ function App() {
 
         {/* ── TAB: SISTEMA ── */}
         {activeTab === 'system' && (
-          <div className="space-y-6 animate-fade-in max-w-2xl">
+          <div className="space-y-6 animate-fade-in max-w-3xl">
             <h2 className="text-2xl font-extrabold flex items-center gap-2 text-app-text">
-              <Icon name="database" className="w-6 h-6 text-app-emerald" size={24} /> Sistema & Conexión Supabase
+              <Icon name="database" className="w-6 h-6 text-app-emerald" size={24} /> Sistema & Sincronización en la Nube
             </h2>
 
-            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
-              <h3 className="text-base font-extrabold text-app-text">Credenciales de Base de Datos</h3>
+            {/* Panel de Métricas de Datos Locales */}
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                  <Icon name="layers" className="w-4 h-4 text-app-emerald" /> Inventario de Datos Locales en Memoria / IndexedDB
+                </h3>
+                <span className={`px-2.5 py-1 rounded-md text-[11px] font-extrabold flex items-center gap-1.5 ${isOnline ? 'bg-app-emerald-bg text-app-emerald border border-app-emerald/30' : 'bg-app-ruby-bg text-app-ruby border border-app-ruby/30'}`}>
+                  <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-app-emerald' : 'bg-app-ruby'}`}></span>
+                  {isOnline ? 'Conectado a Internet' : 'Sin Conexión'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { label: 'Materias', count: materias.length, icon: 'book' },
+                  { label: 'Bibliografía', count: biblio.length, icon: 'book-open' },
+                  { label: 'Clases', count: clases.length, icon: 'presentation' },
+                  { label: 'Apuntes', count: apuntes.length, icon: 'file-edit' },
+                  { label: 'Documentos PDF', count: pdfs.length, icon: 'file-text' },
+                  { label: 'Exámenes', count: examenes.length, icon: 'calendar-check' }
+                ].map((item, idx) => (
+                  <div key={idx} className="p-3 rounded-xl bg-app-surface border border-app-border flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-app-muted">
+                      <Icon name={item.icon} className="w-4 h-4 text-app-emerald" />
+                      <span>{item.label}</span>
+                    </div>
+                    <span className="text-sm font-black text-app-text font-mono">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Botón Principal de Carga a Supabase */}
+              <div className="pt-2 border-t border-app-border flex flex-wrap gap-3">
+                <button
+                  onClick={syncAllLocalDataToCloud}
+                  disabled={isSyncingAll}
+                  className="flex-1 py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110 disabled:opacity-50"
+                >
+                  <Icon name={isSyncingAll ? "refresh-cw" : "cloud-upload"} className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
+                  {isSyncingAll ? 'Sincronizando todos los registros...' : 'Subir Todos los Datos Locales a Supabase'}
+                </button>
+
+                <button
+                  onClick={processSyncQueue}
+                  disabled={syncQueue.length === 0}
+                  className="px-4 py-3 bg-app-surface border border-app-border hover:border-app-emerald font-bold text-xs rounded-xl flex items-center gap-2 text-app-text disabled:opacity-50"
+                >
+                  <Icon name="refresh-cw" className="w-4 h-4 text-app-emerald" />
+                  <span>Sincronizar Cola ({syncQueue.length})</span>
+                </button>
+              </div>
+
+              {/* Resumen del último resultado */}
+              {syncStatusSummary && (
+                <div className="p-3.5 rounded-xl bg-app-emerald-bg border border-app-emerald/30 text-xs text-app-text space-y-1.5 animate-fade-in">
+                  <div className="font-extrabold text-app-emerald flex items-center gap-1.5">
+                    <Icon name="check-circle-2" className="w-4 h-4 text-app-emerald" />
+                    Último resultado de sincronización:
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-mono font-bold text-app-muted">
+                    <span>Materias: {syncStatusSummary.materias}</span>
+                    <span>Lecturas: {syncStatusSummary.bibliografia}</span>
+                    <span>Clases: {syncStatusSummary.clases}</span>
+                    <span>Apuntes: {syncStatusSummary.apuntes}</span>
+                    <span>PDFs: {syncStatusSummary.documentos_pdf}</span>
+                    <span>Exámenes: {syncStatusSummary.examenes}</span>
+                  </div>
+                  {syncStatusSummary.errors && syncStatusSummary.errors.length > 0 && (
+                    <div className="pt-2 text-app-ruby text-[11px]">
+                      Advertencias: {syncStatusSummary.errors.join(' • ')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Credenciales y Diagnóstico */}
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
+              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                <Icon name="key" className="w-4 h-4 text-app-emerald" /> Configuración de Supabase
+              </h3>
               <div>
                 <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Project URL</label>
-                <input value={SUPABASE_CONFIG.url} readOnly className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none" />
+                <input value={SUPABASE_CONFIG.url} readOnly className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none font-mono" />
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Anon Public Key</label>
-                <input value={SUPABASE_CONFIG.key} readOnly type="password" className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none" />
+                <input value={SUPABASE_CONFIG.key} readOnly type="password" className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none font-mono" />
               </div>
               <div className="flex flex-wrap gap-3 pt-2">
-                <button onClick={triggerPing} className="px-4 py-2.5 bg-app-emerald text-white font-bold text-xs rounded-xl shadow-emerald flex items-center gap-2">
+                <button onClick={triggerPing} className="px-4 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
                   <Icon name="activity" className="w-4 h-4" /> Ping de Prueba
                 </button>
-                <button onClick={processSyncQueue} className="px-4 py-2.5 bg-app-surface border border-app-border font-bold text-xs rounded-xl flex items-center gap-2 text-app-text">
-                  <Icon name="refresh-cw" className="w-4 h-4" /> Sincronizar Cola ({syncQueue.length})
+                <label className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl cursor-pointer shadow-card flex items-center gap-2 transition-all">
+                  <Icon name="upload" className="w-4 h-4 text-app-emerald" />
+                  <span>Importar Backup (JSON)</span>
+                  <input type="file" accept=".json,application/json" onChange={handleImportBackupJSON} className="hidden" />
+                </label>
+                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
+                  <Icon name="download" className="w-4 h-4 text-app-emerald" /> Exportar Backup (JSON)
                 </button>
                 <button
                   onClick={() => checkForUpdates(true)}

@@ -1,7 +1,7 @@
 {
-  "version": "2.16.0",
-  "buildDate": "2026-10-02T01:15:00.000Z",
+  "version": "2.17.0",
+  "buildDate": "2026-10-02T02:05:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Auditoría y construcción completa de la Etapa 2 (PsiVoice Mobile): Captura de audio con persistencia atómica y rotación programada (AudioRecorderService), salvaguarda ante llamadas e interrupciones nativas (InterruptionHandler), sincronización tolerante a fallos con reintentos exponenciales y sondeo adaptativo (SyncService), e interfaz React Native con selector de presets acústicos y ajustes de servidor (App.tsx)."
+  "notes": "Auditoría y construcción completa del sistema de carga local a la nube (Local-to-Cloud): Motor de migración masiva idempotente (syncAllLocalDataToCloud), sanitización estricta de esquemas para Postgres/Supabase, cola de deltas resiliente no bloqueante (processSyncQueue con upsert), importador y fusionador de respaldos JSON (handleImportBackupJSON) y panel de observabilidad en Sistema y Mi Perfil."
 }
