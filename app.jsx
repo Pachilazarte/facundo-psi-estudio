@@ -1564,7 +1564,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.21.0';
+  const currentVersion = 'v2.22.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1715,8 +1715,30 @@ function App() {
   const saveToIndexedDB = async (tableName, items) => {
     if (psiDB && psiDB[tableName] && Array.isArray(items)) {
       try {
-        // MERGE DEFENSIVO: Guardado no destructivo (sin .clear()) para preservar binarios y datos locales
-        await psiDB[tableName].bulkPut(items);
+        if (tableName === 'documentos_pdf' || tableName === 'apuntes') {
+          // Merge defensivo: preservar binarios locales existentes si el ítem entrante no los tiene
+          const existing = await psiDB[tableName].toArray();
+          const mergedItems = items.map(item => {
+            if (!item) return item;
+            const match = existing.find(e => e.id === item.id);
+            if (match) {
+              return {
+                ...match,
+                ...item,
+                pdfData: item.pdfData || match.pdfData || null,
+                pdfName: item.pdfName || match.pdfName || null,
+                numPages: item.numPages || match.numPages || match.num_paginas || 1,
+                num_paginas: item.num_paginas || match.num_paginas || match.numPages || 1,
+                texto_extraido: item.texto_extraido || match.texto_extraido || '',
+                contenido: item.contenido || match.contenido || ''
+              };
+            }
+            return item;
+          });
+          await psiDB[tableName].bulkPut(mergedItems);
+        } else {
+          await psiDB[tableName].bulkPut(items);
+        }
       } catch (e) {
         console.warn(`IndexedDB save error (${tableName}):`, e);
       }
@@ -1977,7 +1999,20 @@ function App() {
           }
         });
         setApuntes(prev => {
-          let merged = apuRes.value.data.filter(a => !isRecordDeleted('apuntes', a.id));
+          let incoming = apuRes.value.data.filter(a => !isRecordDeleted('apuntes', a.id));
+          let merged = incoming.map(inc => {
+            const match = prev.find(p => p.id === inc.id);
+            if (match) {
+              return {
+                ...match,
+                ...inc,
+                pdfData: match.pdfData || inc.pdfData || null,
+                pdfName: match.pdfName || inc.pdfName || null,
+                numPages: match.numPages || inc.numPages || 1
+              };
+            }
+            return inc;
+          });
           prev.filter(p => !isRecordDeleted('apuntes', p.id)).forEach(p => {
             if (!merged.find(a => a.id === p.id)) merged.push(p);
           });
@@ -1999,11 +2034,22 @@ function App() {
           }
         });
         setPdfs(prev => {
-          let merged = pdfRes.value.data.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+          let incoming = pdfRes.value.data.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+          let merged = incoming.map(inc => {
+            const match = prev.find(p => p.id === inc.id);
+            if (match) {
+              return {
+                ...match,
+                ...inc,
+                pdfData: match.pdfData || inc.pdfData || null,
+                num_paginas: match.num_paginas || inc.num_paginas || 1,
+                tamaño_bytes: match.tamaño_bytes || inc.tamaño_bytes || 0
+              };
+            }
+            return inc;
+          });
           prev.filter(p => !isRecordDeleted('documentos_pdf', p.id)).forEach(p => {
-            const match = merged.find(m => m.id === p.id);
-            if (!match) merged.push(p);
-            else if (p.pdfData && !match.pdfData) match.pdfData = p.pdfData;
+            if (!merged.find(m => m.id === p.id)) merged.push(p);
           });
           [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
             if (isRecordDeleted('documentos_pdf', p.id)) return;
@@ -5306,6 +5352,8 @@ function App() {
         <ModalApunteSplitView
           initialData={modalApunte.data}
           materiaNombre={currentMateria?.nombre || ''}
+          materias={materias}
+          initialMateriaId={modalApunte.data?.materia_id || selectedMateriaId || (globalMateriaFilter !== 'todas' ? globalMateriaFilter : null)}
           availableUnits={currentMateriaUnits}
           showToast={showToast}
           onClose={() => setModalApunte({ open: false, data: null })}
@@ -6546,6 +6594,8 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
 function ModalApunteSplitView({
   initialData = null,
   materiaNombre = '',
+  materias = [],
+  initialMateriaId = null,
   availableUnits = [],
   showToast = () => {},
   onClose = () => {},
@@ -6553,6 +6603,7 @@ function ModalApunteSplitView({
 }) {
   const [form, setForm] = useState(() => ({
     id: initialData?.id || null,
+    materia_id: initialData?.materia_id || initialMateriaId || (materias?.[0]?.id || null),
     titulo: initialData?.titulo || '',
     unidad: initialData?.unidad || (availableUnits?.[0] || 'Unidad 1'),
     tipo: initialData?.tipo || 'Resumen',
@@ -6629,16 +6680,19 @@ function ModalApunteSplitView({
     setIsGeneratingPDF(true);
     triggerHaptic('medium');
     try {
+      const selectedMat = materias.find(m => m.id === form.materia_id);
+      const activeMateriaName = selectedMat?.nombre || materiaNombre || 'Cátedra';
+
       if (form.pdfData) {
         await downloadPDFHelper({
           pdfData: form.pdfData,
-          fileName: form.pdfName || `${materiaNombre} - ${form.titulo}.pdf`,
+          fileName: form.pdfName || `${activeMateriaName} - ${form.titulo}.pdf`,
           twoColumns,
           showToast
         });
       } else {
         const result = await generateAcademicPDFBlob({
-          materia: materiaNombre,
+          materia: activeMateriaName,
           unidad: form.unidad,
           titulo: form.titulo || 'Apunte Académico',
           contenido: form.contenido
@@ -6650,7 +6704,7 @@ function ModalApunteSplitView({
             const bookletUrl = URL.createObjectURL(bookletBlob);
             const a = document.createElement('a');
             a.href = bookletUrl;
-            a.download = `${materiaNombre} - ${form.titulo || 'Apunte'} (2_Pags_Hoja).pdf`;
+            a.download = `${activeMateriaName} - ${form.titulo || 'Apunte'} (2_Pags_Hoja).pdf`;
             a.click();
             setTimeout(() => URL.revokeObjectURL(bookletUrl), 10000);
             if (showToast) showToast('Descargando cuadernillo de 2 páginas...', 'book-open');
@@ -6682,8 +6736,15 @@ function ModalApunteSplitView({
       return;
     }
     triggerHaptic('success');
-    onSave(form);
+    const selectedMat = materias.find(m => m.id === form.materia_id);
+    onSave({
+      ...form,
+      materia_id: form.materia_id || (materias[0]?.id || null),
+      materia: selectedMat ? selectedMat.nombre : (materiaNombre || 'General')
+    });
   };
+
+  const currentDisplayMateria = materias.find(m => m.id === form.materia_id)?.nombre || materiaNombre || 'Cátedra';
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
@@ -6700,7 +6761,7 @@ function ModalApunteSplitView({
                 {form.id ? 'Editar Guía / Apunte de Estudio' : 'Nuevo Apunte Académico'}
               </h3>
               <span className="text-[11px] text-app-muted font-bold">
-                {materiaNombre || 'Cátedra'} • {form.unidad}
+                {currentDisplayMateria} • {form.unidad}
               </span>
             </div>
           </div>
@@ -6759,17 +6820,31 @@ function ModalApunteSplitView({
 
         {/* Top Form Controls Bar */}
         <div className="px-4 sm:px-6 py-2.5 bg-app-card border-b border-app-border grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-          <div className="sm:col-span-6">
+          <div className="sm:col-span-5">
             <input
               type="text"
               value={form.titulo}
               onChange={e => setForm({ ...form, titulo: e.target.value })}
-              placeholder="Título del Apunte (ej: Saussure - El Signo y el Valor Lingüístico)"
+              placeholder="Título del Apunte (ej: WISC-IV - Consignas y Baremo)"
               className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm font-black text-app-text outline-none focus:border-app-emerald"
               required
             />
           </div>
           <div className="sm:col-span-3">
+            <select
+              value={form.materia_id || (materias[0]?.id || '')}
+              onChange={e => {
+                const targetMat = materias.find(m => m.id === e.target.value);
+                setForm({ ...form, materia_id: e.target.value, materia: targetMat?.nombre || '' });
+              }}
+              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+            >
+              {materias.map(m => (
+                <option key={m.id} value={m.id}>{m.abreviatura || m.nombre}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
             <select
               value={form.unidad}
               onChange={e => setForm({ ...form, unidad: e.target.value })}
@@ -6780,13 +6855,13 @@ function ModalApunteSplitView({
               ))}
             </select>
           </div>
-          <div className="sm:col-span-3">
+          <div className="sm:col-span-2">
             <select
               value={form.tipo}
               onChange={e => setForm({ ...form, tipo: e.target.value })}
               className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
             >
-              <option value="Resumen">Resumen de Estudio</option>
+              <option value="Resumen">Resumen</option>
               <option value="Guía de Cátedra">Guía de Cátedra</option>
               <option value="Mapa Conceptual">Mapa Conceptual</option>
               <option value="Fichas de Examen">Fichas de Examen</option>
