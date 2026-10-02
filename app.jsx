@@ -171,6 +171,20 @@ function parseMarkdownToHTML(md) {
   if (!md) return '';
   let html = md;
 
+  // Code / Mermaid Blocks
+  html = html.replace(/```(mermaid|[\w-]*)\r?\n([\s\S]*?)```/g, (match, lang, code) => {
+    if (lang === 'mermaid') {
+      return `<div class="my-4 p-4 rounded-xl bg-app-surface border border-app-border text-center overflow-x-auto">
+        <div class="inline-block px-2.5 py-0.5 rounded bg-app-emerald-bg text-app-emerald text-[10px] font-mono font-bold mb-2 uppercase tracking-wider">Diagrama Académico</div>
+        <div class="mermaid text-xs flex justify-center">${code.trim()}</div>
+      </div>`;
+    }
+    return `<div class="my-3 p-3 rounded-xl bg-app-card border border-app-border font-mono text-[11px] overflow-x-auto text-app-text">
+      <div class="text-[9px] text-app-muted uppercase font-bold tracking-wider mb-1.5">${lang || 'Código'}</div>
+      <pre class="whitespace-pre overflow-x-auto">${code.trim()}</pre>
+    </div>`;
+  });
+
   // Render Markdown Tables
   html = html.replace(/((?:^\s*\|.+\|\s*\r?\n?)+)/gm, (match) => {
     const lines = match.trim().split(/\r?\n/).filter(l => l.trim().startsWith('|'));
@@ -228,15 +242,19 @@ function parseMarkdownToHTML(md) {
   });
 
   html = html
-    .replace(/^### (.*$)/gim, '<h3 class="text-sm font-extrabold text-app-text mt-3 mb-1 tracking-tight">$1</h3>')
+    .replace(/^##### (.*$)/gim, '<h5 class="text-xs font-bold text-app-muted mt-2 mb-0.5 tracking-tight uppercase">$1</h5>')
+    .replace(/^#### (.*$)/gim, '<h4 class="text-xs font-extrabold text-app-text mt-3 mb-1 tracking-tight">$1</h4>')
+    .replace(/^### (.*$)/gim, '<h3 class="text-sm font-extrabold text-app-text mt-3.5 mb-1 tracking-tight">$1</h3>')
     .replace(/^## (.*$)/gim, '<h2 class="text-base font-black text-app-text mt-4 mb-1.5 border-b border-app-border/40 pb-1 tracking-tight">$1</h2>')
     .replace(/^# (.*$)/gim, '<h1 class="text-xl font-black uppercase text-app-emerald mt-4 mb-2 tracking-tight">$1</h1>')
     .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-3 my-2.5 rounded-r-xl text-xs italic text-app-text font-serif leading-relaxed">$1</blockquote>')
+    .replace(/\*\*\*(.*?)\*\*\*/gim, '<strong class="text-app-emerald font-extrabold italic">$1</strong>')
     .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-app-emerald font-extrabold">$1</strong>')
     .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold italic">$1</em>')
-    .replace(/^[ \t]*◦ (.*$)/gim, '<li class="ml-8 list-[circle] text-app-text text-xs leading-relaxed my-0.5 opacity-90">$1</li>')
-    .replace(/^[ \t]*• (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed my-0.5">$1</li>')
-    .replace(/^- (.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed my-0.5">$1</li>')
+    .replace(/^([ \t]{2,}|\t+)[•\-*◦]\s*(.*$)/gim, '<li class="ml-8 list-[circle] text-app-text text-xs leading-relaxed my-0.5 opacity-90">$2</li>')
+    .replace(/^[ \t]*◦\s*(.*$)/gim, '<li class="ml-8 list-[circle] text-app-text text-xs leading-relaxed my-0.5 opacity-90">$1</li>')
+    .replace(/^[ \t]*[•\-*]\s*(.*$)/gim, '<li class="ml-4 list-disc text-app-text text-xs leading-relaxed my-0.5">$1</li>')
+    .replace(/^[ \t]*(\d+)[\.\)]\s*(.*$)/gim, '<li class="ml-5 list-decimal text-app-text text-xs leading-relaxed my-0.5 font-medium">$2</li>')
     .replace(/\n$/gim, '<br />');
 
   return html;
@@ -371,16 +389,16 @@ async function convertPDFToTwoColumns(sourceBlob) {
   const sourceDoc = await PDFLibObj.PDFDocument.load(rawBytes);
   const destDoc = await PDFLibObj.PDFDocument.create();
 
-  // Configuración idéntica a generadordepdf.html (NEUROSCAN)
-  const marginPt = 4 * 2.83465; // Estrecho (4mm)
-  const gapPt = 4 * 2.83465; // Separación (4mm)
+  // Configuración de alta fidelidad NEUROSCAN (2 páginas por carilla horizontal A4)
+  const marginPt = 6 * 2.83465; // Margen exterior seguro (6mm)
+  const gapPt = 6 * 2.83465; // Separación central (6mm)
   const sheetW = 841.89; // A4 Horizontal (ancho)
   const sheetH = 595.28; // A4 Horizontal (alto)
   const slotW = (sheetW - (marginPt * 2) - gapPt) / 2;
   const slotH = sheetH - (marginPt * 2);
 
   const totalPages = sourceDoc.getPageCount();
-  const zoom = 1.05; // 105% Ampliación del contenido
+  const zoom = 1.0; // 100% Escala natural sin recorte perimetral
 
   for (let i = 0; i < totalPages; i += 2) {
     const newPage = destDoc.addPage([sheetW, sheetH]);
@@ -395,17 +413,12 @@ async function convertPDFToTwoColumns(sourceBlob) {
       const arHueco = slotW / slotH;
       const arPag = w / h;
       if (arPag > arHueco) {
-        const nw = Math.max(h * arHueco, w * 0.88);
+        const nw = Math.max(h * arHueco, w * 0.95);
         L += (w - nw) / 2; R -= (w - nw) / 2; w = nw;
       } else {
-        const nh = Math.max(w / arHueco, h * 0.88);
+        const nh = Math.max(w / arHueco, h * 0.95);
         B += (h - nh) / 2; T -= (h - nh) / 2; h = nh;
       }
-
-      // Ampliación 105%
-      const nw2 = w / zoom, nh2 = h / zoom;
-      L += (w - nw2) / 2; R -= (w - nw2) / 2;
-      B += (h - nh2) / 2; T -= (h - nh2) / 2;
 
       const bbox = { left: L, bottom: B, right: R, top: T };
       const emb = await destDoc.embedPage(srcPage, bbox);
@@ -470,25 +483,64 @@ function stripInline(s) {
   return String(s || '')
     .replace(/\*\*\*(.+?)\*\*\*/g, '$1')
     .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1');
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
+function formatLatexReadable(tex) {
+  return String(tex || '')
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\\left\s*\(/g, '(')
+    .replace(/\\right\s*\)/g, ')')
+    .replace(/\\left\s*\[/g, '[')
+    .replace(/\\right\s*\]/g, ']')
+    .replace(/\\frac\{([^}]+)\}\{([^}]+)\}/g, '($1 / $2)')
+    .replace(/\\times/g, '×')
+    .replace(/\\pm/g, '±')
+    .replace(/\\leq?/g, '≤')
+    .replace(/\\geq?/g, '≥')
+    .replace(/\\neq?/g, '≠')
+    .replace(/\\sum_\{[^}]+\}\^\{[^}]+\}/g, 'Σ')
+    .replace(/\\sum/g, 'Σ')
+    .replace(/\\alpha/g, 'α')
+    .replace(/\\beta/g, 'β')
+    .replace(/\\mu/g, 'μ')
+    .replace(/\\sigma/g, 'σ')
+    .replace(/\\theta/g, 'θ')
+    .replace(/\\sqrt\{([^}]+)\}/g, '√($1)')
+    .replace(/\\sqrt/g, '√')
+    .replace(/\\cdot/g, '·')
+    .replace(/\\,/g, ' ')
+    .replace(/\\;/g, ' ')
+    .replace(/\\quad/g, '   ')
+    .replace(/\\qquad/g, '     ')
+    .replace(/\\/g, '')
+    .trim();
 }
 
 function parseInline(str) {
   var segments = [];
-  var re = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*/g;
+  var clean = String(str || '')
+    .replace(/^[%•\-*◦]+\s*/, '')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-');
+
+  var re = /\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`|\$([^\$\n]+)\$/g;
   var last = 0, m;
-  var safeStr = String(str || '');
-  while ((m = re.exec(safeStr)) !== null) {
+  while ((m = re.exec(clean)) !== null) {
     if (m.index > last) {
-      segments.push({ text: safeStr.slice(last, m.index), bold: false, italic: false });
+      segments.push({ text: clean.slice(last, m.index), bold: false, italic: false });
     }
     if (m[1] !== undefined)      segments.push({ text: m[1], bold: true,  italic: true  });
     else if (m[2] !== undefined) segments.push({ text: m[2], bold: true,  italic: false });
     else if (m[3] !== undefined) segments.push({ text: m[3], bold: false, italic: true  });
+    else if (m[4] !== undefined) segments.push({ text: m[4], bold: true,  italic: false, isCode: true });
+    else if (m[5] !== undefined) segments.push({ text: formatLatexReadable(m[5]), bold: false, italic: true });
     last = m.index + m[0].length;
   }
-  if (last < safeStr.length) segments.push({ text: safeStr.slice(last), bold: false, italic: false });
-  return segments.length ? segments : [{ text: safeStr, bold: false, italic: false }];
+  if (last < clean.length) segments.push({ text: clean.slice(last), bold: false, italic: false });
+  return segments.length ? segments : [{ text: clean, bold: false, italic: false }];
 }
 
 function parseMarkdown(text) {
@@ -500,6 +552,25 @@ function parseMarkdown(text) {
   while (i < rawLines.length) {
     var rawLine = rawLines[i];
     var line = rawLine.trimEnd();
+
+    // Detección de Bloques de Código o Mermaid (```lang ... ```)
+    if (/^\s*```/.test(line)) {
+      var lang = line.replace(/^\s*```/, '').trim();
+      var codeLines = [];
+      i++;
+      while (i < rawLines.length && !/^\s*```/.test(rawLines[i].trimEnd())) {
+        codeLines.push(rawLines[i]);
+        i++;
+      }
+      tokens.push({
+        type: 'code_block',
+        lang: lang || 'code',
+        lines: codeLines,
+        text: codeLines.join('\n')
+      });
+      i++;
+      continue;
+    }
 
     // Detección de Tabla Markdown
     if (/^\s*\|(.+)\|\s*$/.test(line)) {
@@ -551,24 +622,39 @@ function parseMarkdown(text) {
     } else if (/^### /.test(line)) {
       tokens.push({ type: 'h3', text: stripInline(line.slice(4).trim()) });
       wordCount += line.split(/\s+/).length;
+    } else if (/^#### /.test(line)) {
+      tokens.push({ type: 'h4', text: stripInline(line.slice(5).trim()) });
+      wordCount += line.split(/\s+/).length;
+    } else if (/^##### /.test(line)) {
+      tokens.push({ type: 'h4', text: stripInline(line.slice(6).trim()) });
+      wordCount += line.split(/\s+/).length;
     } else if (/^---+$/.test(line.trim())) {
       tokens.push({ type: 'hr' });
     } else if (/^\$\$.*\$\$$/.test(line.trim())) {
       var formula = line.trim().slice(2, -2).trim();
       tokens.push({ type: 'formula', text: formula });
       formulaCount++;
-    } else if (/^◦ /.test(line)) {
-      var t2 = line.slice(2).trim();
+    } else if (/^\s*>\s*(.*)$/.test(line)) {
+      var qMatch = line.match(/^\s*>\s*(.*)$/);
+      var qText = qMatch ? qMatch[1].trim() : '';
+      tokens.push({ type: 'quote', text: qText, segs: parseInline(qText) });
+      wordCount += qText.split(/\s+/).length;
+    } else if (/^(\s{2,}|\t+)[•\-*◦]\s*(.*)$/.test(line) || /^\s*◦\s*(.*)$/.test(line)) {
+      var mSub = line.match(/^(\s{2,}|\t+)[•\-*◦]\s*(.*)$/) || line.match(/^\s*◦\s*(.*)$/);
+      var t2 = mSub ? mSub[mSub.length - 1].trim() : '';
       tokens.push({ type: 'li2', text: t2, segs: parseInline(t2) });
-      wordCount += line.split(/\s+/).length;
-    } else if (/^• /.test(line)) {
-      var t1 = line.slice(2).trim();
+      wordCount += t2.split(/\s+/).length;
+    } else if (/^\s*[•\-*]\s*(.*)$/.test(line)) {
+      var mMain = line.match(/^\s*[•\-*]\s*(.*)$/);
+      var t1 = mMain ? mMain[1].trim() : '';
       tokens.push({ type: 'li1', text: t1, segs: parseInline(t1) });
-      wordCount += line.split(/\s+/).length;
-    } else if (/^[-*] /.test(line)) {
-      var tl = line.slice(2).trim();
-      tokens.push({ type: 'li1', text: tl, segs: parseInline(tl) });
-      wordCount += line.split(/\s+/).length;
+      wordCount += t1.split(/\s+/).length;
+    } else if (/^\s*(\d+)[\.\)]\s*(.*)$/.test(line)) {
+      var mNum = line.match(/^\s*(\d+)[\.\)]\s*(.*)$/);
+      var nNum = mNum[1];
+      var nText = mNum[2].trim();
+      tokens.push({ type: 'num_li', num: nNum, text: nText, segs: parseInline(nText) });
+      wordCount += nText.split(/\s+/).length;
     } else if (!line.trim()) {
       tokens.push({ type: 'blank' });
     } else {
@@ -631,22 +717,23 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
   var TW = PW - ML - MR;
   var pageNum = 1;
 
-  var C_BLACK  = [0, 0, 0];
-  var C_DARK   = [20, 20, 20];
-  var C_ACCENT = [0, 70, 140];
-  var C_SUB    = [60, 40, 120];
-  var C_DIM    = [110, 110, 120];
-  var C_RULE   = [180, 190, 205];
-  var C_FORM   = [130, 90, 0];
+  var C_BLACK  = [15, 23, 42];
+  var C_DARK   = [30, 41, 59];
+  var C_ACCENT = [5, 150, 105];
+  var C_SUB    = [99, 102, 241];
+  var C_DIM    = [100, 116, 139];
+  var C_RULE   = [203, 213, 225];
+  var C_FORM   = [180, 83, 9];
 
   var FS_H1   = 12;
-  var FS_H2   = 10;
-  var FS_H3   = 10;
-  var FS_BODY = 9;
+  var FS_H2   = 10.5;
+  var FS_H3   = 9.5;
+  var FS_H4   = 8.5;
+  var FS_BODY = 8;
   var FS_LI   = FS_BODY;
-  var FS_HDR  = 7;
+  var FS_HDR  = 6.8;
 
-  function lh(fs) { return fs * 0.353 * 1.0; }
+  function lh(fs) { return fs * 0.353 * 1.05; }
 
   var y = MT;
 
@@ -658,7 +745,7 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
     return false;
   }
 
-  function addPage() {
+  function drawFooter() {
     doc.setFontSize(FS_HDR);
     doc.setFont(fontSel, 'normal');
     setColor(C_DIM);
@@ -667,9 +754,15 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
     doc.setFontSize(FS_HDR - 0.5);
     doc.setFont(fontSel, 'italic');
     setColor(C_DIM);
-    doc.text(materia + ' · ' + unidad, ML, PH - 8);
-    doc.text(titulo, PW - MR, PH - 8, { align: 'right' });
+    var leftMaxW = (TW / 2) - 10;
+    var leftText = doc.splitTextToSize((materia || '') + ' · ' + (unidad || ''), leftMaxW)[0] || '';
+    var rightText = doc.splitTextToSize(titulo || '', leftMaxW)[0] || '';
+    doc.text(leftText, ML, PH - 8);
+    doc.text(rightText, PW - MR, PH - 8, { align: 'right' });
+  }
 
+  function addPage() {
+    drawFooter();
     doc.addPage('a4', 'portrait');
     pageNum++;
     y = MT;
@@ -680,7 +773,8 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
     doc.setFontSize(FS_HDR);
     doc.setFont(fontSel, 'normal');
     setColor(C_DIM);
-    doc.text(materia + ' · ' + unidad + ' · ' + titulo, ML, MT - 8);
+    var headText = doc.splitTextToSize((materia || '') + ' · ' + (unidad || '') + ' · ' + (titulo || ''), TW)[0] || '';
+    doc.text(headText, ML, MT - 8);
     setDraw(C_RULE);
     doc.setLineWidth(0.18);
     doc.line(ML, MT - 5, PW - MR, MT - 5);
@@ -689,11 +783,15 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
   function renderInline(segs, startX, maxW, fs, baseColor, baseBold) {
     var words = [];
     (segs || []).forEach(function(seg) {
-      var parts = String(seg.text || '').split(/(\s+)/);
+      var rawSegText = String(seg.text || '')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2013\u2014]/g, '-');
+      var parts = rawSegText.split(/(\s+)/);
       parts.forEach(function(p) {
         if (p === '') return;
         var isSpace = /^\s+$/.test(p);
-        words.push({ text: p, bold: seg.bold || baseBold, italic: seg.italic, isSpace: isSpace });
+        words.push({ text: p, bold: seg.bold || baseBold, italic: seg.italic, isCode: seg.isCode, isSpace: isSpace });
       });
     });
 
@@ -704,17 +802,17 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
 
     words.forEach(function(w) {
       var style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
-      doc.setFont(fontSel, style);
+      doc.setFont(w.isCode ? 'courier' : fontSel, style);
       doc.setFontSize(fs);
       var ww = doc.getTextWidth(w.text);
 
       if (!w.isSpace && currW + ww > maxW && curr.length > 0) {
         if (curr.length && curr[curr.length-1].isSpace) curr.pop();
         lines.push(curr);
-        curr = [{ text: w.text, bold: w.bold, italic: w.italic, isSpace: false, width: ww }];
+        curr = [{ text: w.text, bold: w.bold, italic: w.italic, isCode: w.isCode, isSpace: false, width: ww }];
         currW = ww;
       } else {
-        curr.push({ text: w.text, bold: w.bold, italic: w.italic, isSpace: w.isSpace, width: ww });
+        curr.push({ text: w.text, bold: w.bold, italic: w.italic, isCode: w.isCode, isSpace: w.isSpace, width: ww });
         currW += ww;
       }
     });
@@ -724,19 +822,19 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
     }
 
     lines.forEach(function(line) {
-      needSpace(lineH + 0.5);
+      needSpace(lineH + 0.4);
       var cx = startX;
       line.forEach(function(w) {
         var style = (w.bold && w.italic) ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
-        doc.setFont(fontSel, style);
+        doc.setFont(w.isCode ? 'courier' : fontSel, style);
         doc.setFontSize(fs);
-        setColor(baseColor);
+        setColor(w.bold ? C_BLACK : baseColor);
         doc.text(w.text, cx, y);
         cx += w.width;
       });
       y += lineH;
     });
-    y += 0.3;
+    y += 0.2;
   }
 
   // Header Página 1
@@ -755,7 +853,7 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
         doc.line(ML, y - 1, PW - MR, y - 1);
         doc.setFontSize(FS_H1);
         doc.setFont(fontSel,'bold');
-        setColor(C_DARK);
+        setColor(C_BLACK);
         var h1lines = doc.splitTextToSize(tok.text.toUpperCase(), TW);
         doc.text(h1lines, PW / 2, y + lh(FS_H1) - 0.5, { align: 'center' });
         y += h1lines.length * lh(FS_H1) + 1;
@@ -794,13 +892,60 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
         break;
       }
 
+      case 'h4': {
+        y += 1.2;
+        needSpace(lh(FS_H4) + 3);
+        doc.setFontSize(FS_H4);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_BLACK);
+        var h4lines = doc.splitTextToSize(tok.text, TW);
+        doc.text(h4lines, ML, y);
+        y += h4lines.length * lh(FS_H4) + 0.8;
+        break;
+      }
+
+      case 'code_block': {
+        var codeLines = tok.lines || [tok.text];
+        var blockH = Math.min((codeLines.length * 3.5) + 6, 90);
+        needSpace(blockH + 2);
+        doc.setFillColor(248, 250, 252);
+        setDraw(C_RULE);
+        doc.setLineWidth(0.18);
+        doc.roundedRect(ML, y, TW, blockH, 1.5, 1.5, 'FD');
+        
+        doc.setFontSize(6.2);
+        doc.setFont('courier', 'bold');
+        setColor(C_ACCENT);
+        doc.text(tok.lang === 'mermaid' ? 'DIAGRAMA CONCEPTUAL' : 'BLOQUE ACADÉMICO / SINTAXIS', ML + 3, y + 3.8);
+
+        doc.setFontSize(6.8);
+        doc.setFont('courier', 'normal');
+        setColor(C_DARK);
+        var cy = y + 7.5;
+        codeLines.slice(0, 24).forEach(function(cline) {
+          doc.text(String(cline).slice(0, 95), ML + 3, cy);
+          cy += 3.4;
+        });
+        y += blockH + 2.5;
+        break;
+      }
+
+      case 'quote': {
+        needSpace(lh(FS_BODY) + 2);
+        doc.setFillColor(240, 253, 244);
+        setDraw(C_ACCENT);
+        doc.setLineWidth(0.6);
+        doc.line(ML, y - lh(FS_BODY), ML, y + 1);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: true }], ML + 4, TW - 4, FS_BODY, C_DARK, false);
+        break;
+      }
+
       case 'image_var': {
         var rawBase64 = getStoredImageData(tok.rawKey, tok.src);
         y += 2;
         if (rawBase64) {
           try {
             var finalBase64 = getRotatedBase64Sync(rawBase64, 0);
-
             var maxImgW = TW;
             var maxImgH = 100;
             var imgProps = doc.getImageProperties(finalBase64);
@@ -840,7 +985,7 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
           doc.setFontSize(8);
           doc.setFont(fontSel, 'italic');
           setColor(C_ACCENT);
-          doc.text('📷 [Variable de imagen pendiente: ' + tok.label + ']', PW / 2, y + 5.5, { align: 'center' });
+          doc.text('📷 [Variable de imagen: ' + tok.label + ']', PW / 2, y + 5.5, { align: 'center' });
           y += 11;
         }
         break;
@@ -848,31 +993,43 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
 
       case 'li1': {
         needSpace(lh(FS_LI) + 1);
-        doc.setFontSize(FS_LI + 0.5);
-        doc.setFont(fontSel,'normal');
-        setColor(C_ACCENT);
-        doc.text('•', ML + 4, y);
-        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 9, TW - 9, FS_LI, C_DARK, false);
+        doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+        doc.circle(ML + 3, y - (lh(FS_LI) * 0.35), 0.75, 'F');
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 7, TW - 7, FS_LI, C_DARK, false);
         break;
       }
 
       case 'li2': {
         needSpace(lh(FS_LI) + 1);
-        doc.setFontSize(FS_LI - 0.5);
-        doc.setFont(fontSel,'normal');
-        setColor(C_SUB);
-        doc.text('◦', ML + 10, y);
-        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 14, TW - 15, FS_LI - 0.5, C_DIM, false);
+        doc.setDrawColor(C_SUB[0], C_SUB[1], C_SUB[2]);
+        doc.setLineWidth(0.22);
+        doc.circle(ML + 8.5, y - (lh(FS_LI) * 0.35), 0.65, 'D');
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 12, TW - 12, FS_LI - 0.5, C_DARK, false);
+        break;
+      }
+
+      case 'num_li': {
+        needSpace(lh(FS_LI) + 1);
+        doc.setFontSize(FS_LI);
+        doc.setFont(fontSel, 'bold');
+        setColor(C_ACCENT);
+        doc.text(String(tok.num) + '.', ML + 2, y);
+        renderInline(tok.segs || [{ text: tok.text, bold: false, italic: false }], ML + 7, TW - 7, FS_LI, C_DARK, false);
         break;
       }
 
       case 'formula': {
-        needSpace(lh(FS_BODY) + 2);
+        var cleanMath = formatLatexReadable(tok.text);
+        needSpace(10);
+        doc.setFillColor(254, 252, 232);
+        setDraw([217, 119, 6]);
+        doc.setLineWidth(0.2);
+        doc.roundedRect(ML, y, TW, 7.5, 1, 1, 'FD');
         doc.setFontSize(FS_BODY);
-        doc.setFont(fontSel, 'italic');
+        doc.setFont(fontSel, 'bolditalic');
         setColor(C_FORM);
-        doc.text(tok.text, PW / 2, y, { align: 'center' });
-        y += lh(FS_BODY) + 1;
+        doc.text(cleanMath, PW / 2, y + 4.8, { align: 'center' });
+        y += 10.5;
         break;
       }
 
@@ -887,8 +1044,8 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
             margin: { left: ML, right: MR },
             styles: {
               font: fontSel,
-              fontSize: 7.5,
-              cellPadding: 1.6,
+              fontSize: 7.2,
+              cellPadding: 1.5,
               lineColor: C_RULE,
               lineWidth: 0.15,
               textColor: C_DARK
@@ -897,7 +1054,7 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
               fillColor: C_ACCENT,
               textColor: [255, 255, 255],
               fontStyle: 'bold',
-              fontSize: 8
+              fontSize: 7.5
             },
             alternateRowStyles: {
               fillColor: [248, 250, 252]
@@ -977,11 +1134,8 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
     prevType = tok.type;
   });
 
-  if (opts && opts.nums) {
-    doc.setFontSize(FS_HDR);
-    doc.setFont(fontSel,'normal');
-    setColor(C_DIM);
-    doc.text(String(pageNum), PW / 2, PH - 8, { align: 'center' });
+  if (opts && opts.footer) {
+    drawFooter();
   }
 
   return { blob: doc.output('blob'), pages: pageNum };
@@ -1465,7 +1619,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.19.0';
+  const currentVersion = 'v2.20.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });

@@ -1,7 +1,7 @@
 {
-  "version": "2.19.0",
-  "buildDate": "2026-10-02T02:49:00.000Z",
+  "version": "2.20.0",
+  "buildDate": "2026-10-02T03:10:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Restauración e inyección forzosa de materias Evaluación Psicológica y Psicodiagnóstico (Infanto Juvenil) y Psicología de la Personalidad, guías completas WISC-IV y Big Five, y estrategia de red Network-First sin caché obsoleto."
+  "notes": "Corrección completa del compilador vectorial de PDF: Viñetas vectoriales puras sin artefactos de porcentaje (%), formateador matemático LaTeX legible, soporte para subtítulos H4 (####), bloques de diagramas Mermaid, y márgenes seguros anti-solapamiento de encabezados y pies de página."
 }
