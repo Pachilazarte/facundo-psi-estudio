@@ -1465,7 +1465,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.18.0';
+  const currentVersion = 'v2.19.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1626,9 +1626,11 @@ function App() {
 
   const seedInitialData = () => {
     setMaterias(prev => {
-      const merged = [...prev];
-      ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
-        if (!merged.find(x => x.id === m.id)) merged.push(m);
+      let merged = [...prev];
+      [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+        const idx = merged.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
+        if (idx === -1) merged.unshift(m);
+        else merged[idx] = { ...m, ...merged[idx] };
       });
       safeSetLocalStorage('psi_materias_cache', merged);
       saveToIndexedDB('materias', merged);
@@ -1636,9 +1638,10 @@ function App() {
     });
 
     setBiblio(prev => {
-      const merged = [...prev];
-      ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
-        if (!merged.find(x => x.id === b.id)) merged.push(b);
+      let merged = [...prev];
+      [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+        const idx = merged.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
+        if (idx === -1) merged.unshift(b);
       });
       safeSetLocalStorage('psi_biblio_cache', merged);
       saveToIndexedDB('bibliografia', merged);
@@ -1646,9 +1649,10 @@ function App() {
     });
 
     setApuntes(prev => {
-      const merged = [...prev];
-      ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
-        if (!merged.find(x => x.id === a.id)) merged.push(a);
+      let merged = [...prev];
+      [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+        const idx = merged.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
+        if (idx === -1) merged.unshift(a);
       });
       safeSetLocalStorage('psi_apuntes_cache', merged);
       saveToIndexedDB('apuntes', merged);
@@ -1656,9 +1660,10 @@ function App() {
     });
 
     setPdfs(prev => {
-      const merged = [...prev];
-      ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
-        if (!merged.find(x => x.id === p.id)) merged.push(p);
+      let merged = [...prev];
+      [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+        const idx = merged.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
+        if (idx === -1) merged.unshift(p);
       });
       safeSetLocalStorage('psi_pdfs_cache', merged);
       saveToIndexedDB('documentos_pdf', merged);
@@ -1666,9 +1671,10 @@ function App() {
     });
 
     setExamenes(prev => {
-      const merged = [...prev];
-      ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
-        if (!merged.find(x => x.id === e.id)) merged.push(e);
+      let merged = [...prev];
+      [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+        const idx = merged.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
+        if (idx === -1) merged.unshift(e);
       });
       safeSetLocalStorage('psi_examenes_cache', merged);
       saveToIndexedDB('examenes', merged);
@@ -1691,29 +1697,34 @@ function App() {
           psiDB.syncQueue.toArray()
         ]);
 
-        const mergedMats = mats.length > 0 ? [...mats] : [...ACADEMIC_MASTER_SEEDS.materias];
-        ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
-          if (!mergedMats.find(x => x.id === m.id)) mergedMats.push(m);
+        let mergedMats = mats.length > 0 ? [...mats] : [];
+        [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+          const idx = mergedMats.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
+          if (idx === -1) mergedMats.unshift(m);
+          else mergedMats[idx] = { ...m, ...mergedMats[idx] };
         });
         setMaterias(mergedMats);
 
-        const mergedBibs = bibs.length > 0 ? [...bibs] : [...ACADEMIC_MASTER_SEEDS.bibliografia];
-        ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
-          if (!mergedBibs.find(x => x.id === b.id)) mergedBibs.push(b);
+        let mergedBibs = bibs.length > 0 ? [...bibs] : [];
+        [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+          const idx = mergedBibs.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
+          if (idx === -1) mergedBibs.unshift(b);
         });
         setBiblio(mergedBibs);
 
         if (clas.length > 0) setClases(clas);
 
-        const mergedPdfs = pdfsList.length > 0 ? [...pdfsList] : [...ACADEMIC_MASTER_SEEDS.documentos_pdf];
-        ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
-          if (!mergedPdfs.find(x => x.id === p.id)) mergedPdfs.push(p);
+        let mergedPdfs = pdfsList.length > 0 ? [...pdfsList] : [];
+        [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+          const idx = mergedPdfs.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
+          if (idx === -1) mergedPdfs.unshift(p);
         });
         setPdfs(mergedPdfs);
         
-        let mergedApuntes = apus.length > 0 ? [...apus] : [...ACADEMIC_MASTER_SEEDS.apuntes];
-        ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
-          if (!mergedApuntes.find(x => x.id === a.id)) mergedApuntes.push(a);
+        let mergedApuntes = apus.length > 0 ? [...apus] : [];
+        [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+          const idx = mergedApuntes.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
+          if (idx === -1) mergedApuntes.unshift(a);
         });
 
         if (mergedPdfs && mergedPdfs.length > 0) {
@@ -1742,9 +1753,10 @@ function App() {
         }
         setApuntes(mergedApuntes);
 
-        const mergedExams = exas.length > 0 ? [...exas] : [...ACADEMIC_MASTER_SEEDS.examenes];
-        ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
-          if (!mergedExams.find(x => x.id === e.id)) mergedExams.push(e);
+        let mergedExams = exas.length > 0 ? [...exas] : [];
+        [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+          const idx = mergedExams.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
+          if (idx === -1) mergedExams.unshift(e);
         });
         setExamenes(mergedExams);
 
@@ -1788,12 +1800,14 @@ function App() {
 
       if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data)) {
         setMaterias(prev => {
-          const merged = [...(matsRes.value.data || [])];
+          let merged = [...(matsRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(m => m.id === p.id)) merged.push(p);
           });
-          ACADEMIC_MASTER_SEEDS.materias.forEach(m => {
-            if (!merged.find(x => x.id === m.id)) merged.push(m);
+          [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
+            const idx = merged.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
+            if (idx === -1) merged.unshift(m);
+            else merged[idx] = { ...m, ...merged[idx] };
           });
           safeSetLocalStorage('psi_materias_cache', merged);
           saveToIndexedDB('materias', merged);
@@ -1803,12 +1817,13 @@ function App() {
 
       if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data)) {
         setBiblio(prev => {
-          const merged = [...(bibRes.value.data || [])];
+          let merged = [...(bibRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(b => b.id === p.id)) merged.push(p);
           });
-          ACADEMIC_MASTER_SEEDS.bibliografia.forEach(b => {
-            if (!merged.find(x => x.id === b.id)) merged.push(b);
+          [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
+            const idx = merged.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
+            if (idx === -1) merged.unshift(b);
           });
           safeSetLocalStorage('psi_biblio_cache', merged);
           saveToIndexedDB('bibliografia', merged);
@@ -1830,12 +1845,13 @@ function App() {
 
       if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data)) {
         setApuntes(prev => {
-          const merged = [...(apuRes.value.data || [])];
+          let merged = [...(apuRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(a => a.id === p.id)) merged.push(p);
           });
-          ACADEMIC_MASTER_SEEDS.apuntes.forEach(a => {
-            if (!merged.find(x => x.id === a.id)) merged.push(a);
+          [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
+            const idx = merged.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
+            if (idx === -1) merged.unshift(a);
           });
           safeSetLocalStorage('psi_apuntes_cache', merged);
           saveToIndexedDB('apuntes', merged);
@@ -1845,14 +1861,15 @@ function App() {
 
       if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data)) {
         setPdfs(prev => {
-          const merged = [...(pdfRes.value.data || [])];
+          let merged = [...(pdfRes.value.data || [])];
           prev.forEach(p => {
             const match = merged.find(m => m.id === p.id);
             if (!match) merged.push(p);
             else if (p.pdfData && !match.pdfData) match.pdfData = p.pdfData;
           });
-          ACADEMIC_MASTER_SEEDS.documentos_pdf.forEach(p => {
-            if (!merged.find(x => x.id === p.id)) merged.push(p);
+          [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
+            const idx = merged.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
+            if (idx === -1) merged.unshift(p);
           });
           safeSetLocalStorage('psi_pdfs_cache', merged);
           saveToIndexedDB('documentos_pdf', merged);
@@ -1862,12 +1879,13 @@ function App() {
 
       if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data)) {
         setExamenes(prev => {
-          const merged = [...(exRes.value.data || [])];
+          let merged = [...(exRes.value.data || [])];
           prev.forEach(p => {
             if (!merged.find(e => e.id === p.id)) merged.push(p);
           });
-          ACADEMIC_MASTER_SEEDS.examenes.forEach(e => {
-            if (!merged.find(x => x.id === e.id)) merged.push(e);
+          [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
+            const idx = merged.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
+            if (idx === -1) merged.unshift(e);
           });
           safeSetLocalStorage('psi_examenes_cache', merged);
           saveToIndexedDB('examenes', merged);
