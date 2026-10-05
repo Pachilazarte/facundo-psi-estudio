@@ -1581,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.32.0';
+  const currentVersion = 'v2.33.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8030,8 +8030,25 @@ function GrabadoraDesgrabadorView({
   const [temaClase, setTemaClase] = useState('');
   const [preset, setPreset] = useState('estudio_balanceado');
 
+  // Hack Anti-Suspensión en Background para móviles (Reproducir audio silencioso)
+  const silentAudioRef = useRef(null);
+  useEffect(() => {
+    // Un WAV vacío miniatura de 1 muestra para que el SO no suspenda el proceso del micrófono
+    const silentWAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+    const audio = new Audio(silentWAV);
+    audio.loop = true;
+    audio.volume = 0.01;
+    silentAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.src = '';
+    };
+  }, []);
+
   // Recuperación ante recargas accidentales
   const [interruptedSession, setInterruptedSession] = useState(null);
+
+  const [historyFilter, setHistoryFilter] = useState('');
 
   // Procesamiento y Jobs
   const [isProcessing, setIsProcessing] = useState(false);
@@ -8268,6 +8285,9 @@ function GrabadoraDesgrabadorView({
   const handleStartRecording = async () => {
     try {
       await requestWakeLock();
+      if (silentAudioRef.current) {
+        silentAudioRef.current.play().catch(e => console.warn('Silent audio play blocked', e));
+      }
       triggerHaptic('heavy');
       if (audioUrl && typeof audioUrl === 'string' && audioUrl.startsWith('blob:')) {
           URL.revokeObjectURL(audioUrl);
@@ -8389,6 +8409,9 @@ function GrabadoraDesgrabadorView({
   const handlePauseRecording = () => {
     triggerHaptic('medium');
     releaseWakeLock();
+    if (silentAudioRef.current) {
+      silentAudioRef.current.pause();
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       setRecordingState('paused');
@@ -8407,8 +8430,16 @@ function GrabadoraDesgrabadorView({
   const handleResumeRecording = async () => {
     triggerHaptic('heavy');
     await requestWakeLock();
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
-      mediaRecorderRef.current.resume();
+    if (silentAudioRef.current) {
+      silentAudioRef.current.play().catch(() => {});
+    }
+    if (mediaRecorderRef.current) {
+      if (mediaRecorderRef.current.state === 'paused') {
+        try { mediaRecorderRef.current.resume(); } catch (e) { console.error('Resume error', e); }
+      } else if (mediaRecorderRef.current.state === 'inactive') {
+        showToast('El sistema operativo detuvo el audio. Finalizando...', 'alert-triangle');
+        return handleStopRecording(true);
+      }
       setRecordingState('recording');
       if (speechRecognitionRef.current) {
         try { speechRecognitionRef.current.start(); } catch (e) {}
@@ -8424,6 +8455,9 @@ function GrabadoraDesgrabadorView({
   const handleStopRecording = async (shouldProcess = true) => {
     triggerHaptic('medium');
     releaseWakeLock();
+    if (silentAudioRef.current) {
+      silentAudioRef.current.pause();
+    }
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
@@ -9853,26 +9887,28 @@ function GrabadoraDesgrabadorView({
       {/* ════ SUB-TAB 3: HISTORIAL DE SESIONES GUARDADAS ════ */}
       {activeSubTab === 'history' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h3 className="text-sm font-extrabold text-app-text">Historial de Desgrabaciones Guardadas</h3>
             {savedSessions.length > 0 && (
-              <button
-                onClick={() => {
-                  if (confirm('¿Deseas vaciar el historial de sesiones locales?')) {
-                    setSavedSessions([]);
-                    localStorage.removeItem('psi_audio_sessions_history');
-                  }
-                }}
-                className="text-xs text-app-ruby hover:underline font-bold"
-              >
-                Limpiar Historial
-              </button>
+              <input
+                type="text"
+                placeholder="🔍 Filtrar por materia o clase..."
+                value={historyFilter}
+                onChange={(e) => setHistoryFilter(e.target.value)}
+                className="w-full sm:w-64 p-2 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none focus:border-app-emerald"
+              />
             )}
           </div>
 
           {savedSessions.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {savedSessions.map((s) => (
+              {savedSessions
+                .filter(s => {
+                  if (!historyFilter) return true;
+                  const filterLower = historyFilter.toLowerCase();
+                  return s.materia?.toLowerCase().includes(filterLower) || s.tema?.toLowerCase().includes(filterLower);
+                })
+                .map((s) => (
                 <div key={s.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
