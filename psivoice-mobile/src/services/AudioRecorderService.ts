@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Platform } from 'react-native';
@@ -51,9 +51,9 @@ export class AudioRecorderService {
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
       staysActiveInBackground: true,
-      interruptionModeIOS: Audio.InterruptionModeIOS.DoNotMix,
+      interruptionModeIOS: InterruptionModeIOS.DoNotMix,
       shouldDuckAndroid: true,
-      interruptionModeAndroid: Audio.InterruptionModeAndroid.DoNotMix,
+      interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
       playThroughEarpieceAndroid: false,
     });
   }

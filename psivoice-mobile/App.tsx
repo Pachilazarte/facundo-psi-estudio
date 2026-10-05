@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as SecureStore from 'expo-secure-store';
 import { AudioRecorderService, ClassSessionManifest } from './src/services/AudioRecorderService';
 import { InterruptionHandler } from './src/services/InterruptionHandler';
 import { SyncService } from './src/services/SyncService';
@@ -52,6 +53,7 @@ export default function App() {
   const [serverUrlInput, setServerUrlInput] = useState(syncService.getServerUrl());
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
   const [isTestingServer, setIsTestingServer] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
 
   // Sincronización
   const [isSyncing, setIsSyncing] = useState(false);
@@ -59,6 +61,16 @@ export default function App() {
   const [syncStep, setSyncStep] = useState('');
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cargar el token guardado en el celular (SecureStore) al abrir la app
+  useEffect(() => {
+    SecureStore.getItemAsync('psi_api_token').then((saved) => {
+      if (saved) {
+        setTokenInput(saved);
+        syncService.setToken(saved);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadSessions();
@@ -401,6 +413,20 @@ export default function App() {
               autoCorrect={false}
             />
 
+            <Text style={styles.configModalSubtitle}>
+              Token del servidor (el mismo PSI_API_TOKEN de audio_pipeline/.env)
+            </Text>
+            <TextInput
+              value={tokenInput}
+              onChangeText={setTokenInput}
+              placeholder="Token"
+              placeholderTextColor="#64748b"
+              style={styles.serverInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+
             <View style={styles.configButtonsRow}>
               <TouchableOpacity
                 style={styles.testButton}
@@ -414,8 +440,10 @@ export default function App() {
 
               <TouchableOpacity
                 style={styles.saveConfigButton}
-                onPress={() => {
+                onPress={async () => {
                   syncService.setServerUrl(serverUrlInput);
+                  syncService.setToken(tokenInput);
+                  await SecureStore.setItemAsync('psi_api_token', tokenInput.trim());
                   setShowConfigModal(false);
                 }}
               >

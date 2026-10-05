@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
+from safe_paths import validate_filename, resolve_inside, validate_session_id
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] [SessionMerger] %(message)s",
@@ -120,6 +122,11 @@ class AudioSessionManager:
         self._lock = threading.Lock()
         self.ffmpeg_bin, self.ffprobe_bin = find_ffmpeg_binaries()
 
+    def _session_folder(self, session_id: str) -> Path:
+        """Carpeta de sesión validada: rechaza nombres que salgan de base_dir."""
+        validate_session_id(session_id)
+        return resolve_inside(self.base_dir, session_id)
+
     def _probe_chunk(self, chunk_path: Path) -> Tuple[float, int, int, str]:
         """Extrae duración, sample_rate, canales y códec de un fragmento de audio con fallbacks robustos."""
         if not chunk_path.exists() or chunk_path.stat().st_size == 0:
@@ -194,7 +201,7 @@ class AudioSessionManager:
     ) -> Path:
         """Crea o carga el directorio y manifest de la sesión con metadatos extendidos."""
         with self._lock:
-            session_folder = self.base_dir / session_id
+            session_folder = self._session_folder(session_id)
             session_folder.mkdir(parents=True, exist_ok=True)
             manifest_path = session_folder / "session_manifest.json"
 
@@ -229,7 +236,7 @@ class AudioSessionManager:
         Registra defensivamente un nuevo chunk en la sesión, calculando su duración y offset temporal.
         """
         with self._lock:
-            session_folder = self.base_dir / session_id
+            session_folder = self._session_folder(session_id)
             manifest_path = session_folder / "session_manifest.json"
 
             if not manifest_path.exists():
@@ -255,6 +262,7 @@ class AudioSessionManager:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     manifest = json.load(f)
 
+            validate_filename(chunk_filename)
             chunk_path = session_folder / chunk_filename
             if not chunk_path.exists() or chunk_path.stat().st_size == 0:
                 raise ValueError(f"El fragmento {chunk_filename} no existe o está vacío (0 bytes).")
@@ -331,7 +339,7 @@ class AudioSessionManager:
         Soporta stream copy directo (-c copy) o loteado resampleado para miles de chunks.
         """
         with self._lock:
-            session_folder = self.base_dir / session_id
+            session_folder = self._session_folder(session_id)
             manifest_path = session_folder / "session_manifest.json"
 
             if not manifest_path.exists():

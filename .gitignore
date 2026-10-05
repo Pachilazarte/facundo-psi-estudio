@@ -3,3 +3,6 @@ audio_pipeline/__pycache__/
 audio_pipeline/uploaded_sessions/
 *.log
 .DS_Store
+.env
+.env.*
+!.env.example

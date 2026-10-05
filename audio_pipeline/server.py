@@ -42,6 +42,20 @@ from pydantic import BaseModel, Field
 from cleaner import LectureAudioCleaner, ClassroomAcousticPreset
 from transcriber import VerbatimLectureTranscriber
 from session_merger import AudioSessionManager
+from safe_paths import (
+    UnsafePathError,
+    validate_session_id,
+    sanitize_filename,
+    resolve_inside,
+)
+from seguridad import (
+    load_env_file,
+    get_api_token,
+    get_allowed_origins,
+    token_is_valid,
+    requires_token,
+    TOKEN_HEADER,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,13 +70,31 @@ app = FastAPI(
     version="2.0.0",
 )
 
+load_env_file()
+API_TOKEN = get_api_token()  # sin token el servidor no arranca
+
+# Solo los orígenes de ALLOWED_ORIGINS pueden llamar desde el navegador.
+# Sin credenciales: el token va en un header, no en cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=get_allowed_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", TOKEN_HEADER],
 )
+
+
+@app.middleware("http")
+async def exigir_token(request: Request, call_next):
+    """Rechaza cualquier pedido /api/ sin el token correcto (401)."""
+    if requires_token(request.url.path, request.method):
+        received = request.headers.get(TOKEN_HEADER, "")
+        # El reproductor <audio> no puede mandar headers: solo el audio acepta ?token=
+        if not received and request.url.path.endswith("/audio"):
+            received = request.query_params.get("token", "")
+        if not token_is_valid(received, API_TOKEN):
+            return JSONResponse(status_code=401, content={"detail": "Token inválido o ausente"})
+    return await call_next(request)
 
 # Leer versión desde version.json
 API_VERSION = "2.0.0"
@@ -97,6 +129,15 @@ executor = ThreadPoolExecutor(max_workers=2)
 # Almacén en memoria de estados de Jobs
 jobs_lock = threading.Lock()
 ACTIVE_JOBS: Dict[str, Dict[str, Any]] = {}
+
+
+def _session_folder(session_id: str) -> Path:
+    """Carpeta de una sesión, validada. Cualquier nombre sospechoso responde 400."""
+    try:
+        validate_session_id(session_id)
+        return resolve_inside(BASE_SESSIONS_DIR, session_id)
+    except UnsafePathError:
+        raise HTTPException(status_code=400, detail="session_id inválido")
 
 
 # --- Modelos Pydantic ---
@@ -169,7 +210,7 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
         ACTIVE_JOBS[job_id]["progress_pct"] = 5.0
 
     try:
-        session_folder = BASE_SESSIONS_DIR / session_id
+        session_folder = _session_folder(session_id)
         manifest_file = session_folder / "session_manifest.json"
         
         with open(manifest_file, "r", encoding="utf-8") as f:
@@ -323,6 +364,7 @@ def list_sessions():
 def create_session(payload: CreateSessionRequest):
     """Crea una nueva sesión académica con ID único o personalizado."""
     s_id = payload.session_id or f"session_{uuid.uuid4().hex[:10]}"
+    _session_folder(s_id)  # valida antes de crear nada en disco
     folder = session_manager.get_or_create_session(
         session_id=s_id,
         materia=payload.materia,
@@ -342,8 +384,9 @@ async def upload_chunk(session_id: str, file: UploadFile = File(...)):
     """
     Sube un fragmento de audio de forma atómica (.part -> validación -> commit).
     """
+    _session_folder(session_id)  # valida session_id antes de crear carpetas
     session_folder = session_manager.get_or_create_session(session_id)
-    target_filename = file.filename or f"chunk_{uuid.uuid4().hex[:8]}.caf"
+    target_filename = sanitize_filename(file.filename, f"chunk_{uuid.uuid4().hex[:8]}.caf")
     target_path = session_folder / target_filename
     temp_part_path = session_folder / f".{target_filename}.part"
 
@@ -384,7 +427,7 @@ def trigger_processing(
     Inicia el procesamiento asíncrono en segundo plano (Merge + DSP + Whisper)
     y retorna inmediatamente un `job_id` para consultar el progreso sin timeouts.
     """
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     if not (session_folder / "session_manifest.json").exists():
         raise HTTPException(status_code=404, detail=f"Sesión no encontrada: {session_id}")
 
@@ -432,7 +475,7 @@ def cancel_job(job_id: str):
 @app.delete("/api/sessions/{session_id}")
 def delete_session(session_id: str):
     """Elimina permanentemente una sesión huérfana o no deseada."""
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     if not session_folder.exists():
         raise HTTPException(status_code=404, detail="Sesión no encontrada")
     try:
@@ -447,7 +490,7 @@ def stream_session_audio(session_id: str, request: Request):
     """
     Transmite el audio limpio de la clase con soporte de HTTP Byte Ranges (seek instantáneo).
     """
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     manifest_file = session_folder / "session_manifest.json"
 
     if not manifest_file.exists():
@@ -486,7 +529,7 @@ def get_session_transcript_json(session_id: str):
     Retorna el documento JSON interactivo con marcas de tiempo a nivel de palabra
     para el visor de desgrabaciones de PsiEstudio Web.
     """
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     json_files = list(session_folder.glob("*_desgrabacion.json"))
 
     if not json_files:
@@ -499,7 +542,7 @@ def get_session_transcript_json(session_id: str):
 @app.get("/api/sessions/{session_id}/vtt")
 def get_session_vtt(session_id: str):
     """Entrega los subtítulos WebVTT de la clase."""
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     vtt_files = list(session_folder.glob("*.vtt"))
     if not vtt_files:
         raise HTTPException(status_code=404, detail="Archivo VTT no disponible")
@@ -509,7 +552,7 @@ def get_session_vtt(session_id: str):
 @app.get("/api/sessions/{session_id}/txt")
 def get_session_txt(session_id: str):
     """Entrega el texto plano con timestamps [HH:MM:SS]."""
-    session_folder = BASE_SESSIONS_DIR / session_id
+    session_folder = _session_folder(session_id)
     txt_files = list(session_folder.glob("*_transcripcion.txt"))
     if not txt_files:
         raise HTTPException(status_code=404, detail="Transcripción TXT no disponible")

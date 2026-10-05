@@ -22,6 +22,7 @@ export interface JobStatusResponse {
 
 export class SyncService {
   private serverUrl: string;
+  private token: string = '';
 
   constructor(serverUrl: string = 'http://localhost:8000') {
     this.serverUrl = serverUrl.replace(/\/$/, '');
@@ -33,6 +34,15 @@ export class SyncService {
 
   public getServerUrl(): string {
     return this.serverUrl;
+  }
+
+  /** Token que el servidor exige en el header X-PSI-Token (se guarda en SecureStore). */
+  public setToken(token: string) {
+    this.token = token.trim();
+  }
+
+  private authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+    return { 'X-PSI-Token': this.token, ...extra };
   }
 
   /**
@@ -69,6 +79,7 @@ export class SyncService {
           fieldName: 'file',
           httpMethod: 'POST',
           uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          headers: this.authHeaders(),
         });
 
         if (uploadResult.status === 200 || uploadResult.status === 201) {
@@ -111,7 +122,7 @@ export class SyncService {
     if (onProgress) onProgress(5, '', 'Creando sesión remota...');
     const createRes = await fetch(`${this.serverUrl}/api/sessions/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         session_id: session.sessionId,
         materia: session.materiaNombre,
@@ -152,7 +163,7 @@ export class SyncService {
     if (onProgress) onProgress(70, '', 'Encolando DSP EBU R128 y transcripción Faster-Whisper...');
     const processRes = await fetch(`${this.serverUrl}/api/sessions/${session.sessionId}/process`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: this.authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         preset: options.preset || 'estudio_balanceado',
         apply_dsp: options.applyDsp ?? true,
@@ -180,6 +191,7 @@ export class SyncService {
   async pollJobStatus(jobId: string): Promise<JobStatusResponse> {
     const res = await fetch(`${this.serverUrl}/api/jobs/${jobId}`, {
       method: 'GET',
+      headers: this.authHeaders(),
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) throw new Error(`Job no encontrado (HTTP ${res.status})`);
@@ -234,6 +246,7 @@ export class SyncService {
   async fetchTranscriptResult(sessionId: string): Promise<any> {
     const res = await fetch(`${this.serverUrl}/api/sessions/${sessionId}/transcript`, {
       method: 'GET',
+      headers: this.authHeaders(),
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) throw new Error(`Transcripción no disponible (HTTP ${res.status})`);

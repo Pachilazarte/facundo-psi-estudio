@@ -107,6 +107,21 @@ const Icon = ({ name, className = "w-4 h-4", size = 18, style = {}, strokeWidth 
   );
 };
 
+// ── 2.4 TOKEN DEL SERVIDOR DE AUDIO (header X-PSI-Token) ──
+// El token se guarda en este navegador desde Ajustes. Nunca va en el código.
+function psiApiHeaders(extra = {}) {
+  let token = '';
+  try { token = localStorage.getItem('psi_api_token') || ''; } catch (e) {}
+  return { 'X-PSI-Token': token, ...extra };
+}
+
+// Token automático: el servidor local lo entrega solo a esta web (desde localhost).
+// Nadie tiene que pegarlo a mano.
+fetch('/api-config.json', { cache: 'no-store' })
+  .then(r => (r.ok ? r.json() : null))
+  .then(cfg => { if (cfg && cfg.token) { try { localStorage.setItem('psi_api_token', cfg.token); } catch (e) {} } })
+  .catch(() => {});
+
 // ── 2.5 HAPTIC FEEDBACK UTILITY ──
 const triggerHaptic = (type = 'light') => {
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
@@ -8076,7 +8091,8 @@ function GrabadoraDesgrabadorView({
   // Historial de sesiones guardadas localmente
   const [savedSessions, setSavedSessions] = useState(() => safeGetLocalStorage('psi_audio_sessions_history', []));
 
-  const DEFAULT_GROQ_KEY = ['gsk_uOZRH', 'jdVEP6ONm05nSQy', 'WGdyb3FY7E7mh', 'CkobsFfx42z1N5guBzy'].join('');
+  // Sin key por defecto en el código: la key de Groq la pone el usuario en Ajustes si quiere usar la nube.
+  const DEFAULT_GROQ_KEY = '';
   const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || DEFAULT_GROQ_KEY);
   const speechRecognitionRef = useRef(null);
   const liveSegmentsRef = useRef([]);
@@ -8654,6 +8670,7 @@ function GrabadoraDesgrabadorView({
       return await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
+        Object.entries(psiApiHeaders()).forEach(([k, v]) => xhr.setRequestHeader(k, v));
         
         if (signal) {
           signal.addEventListener('abort', () => {
@@ -8722,7 +8739,7 @@ function GrabadoraDesgrabadorView({
         setProcessingStep('Creando sesión en servidor DSP local...');
         const createRes = await fetch(`${cleanServerUrl}/api/sessions/create`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: psiApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             session_id: sessionId,
             materia: materiaName,
@@ -8755,7 +8772,7 @@ function GrabadoraDesgrabadorView({
         setProcessingStep('Iniciando procesamiento acústico e inferencia...');
         const procRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/process`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: psiApiHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             preset,
             apply_dsp: true,
@@ -8780,7 +8797,7 @@ function GrabadoraDesgrabadorView({
           await new Promise(r => setTimeout(r, waitTime));
           pollCount++;
 
-          const jobRes = await fetch(`${cleanServerUrl}/api/jobs/${jobId}`, { signal });
+          const jobRes = await fetch(`${cleanServerUrl}/api/jobs/${jobId}`, { signal, headers: psiApiHeaders() });
           if (jobRes.ok) {
             const jobData = await jobRes.json();
             const serverPct = jobData.progress_pct || 0;
@@ -8799,13 +8816,13 @@ function GrabadoraDesgrabadorView({
 
         setProcessingProgress(100);
         setProcessingStep('Recuperando desgrabación verbatim...');
-        const transcriptRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/transcript`, { signal });
+        const transcriptRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/transcript`, { signal, headers: psiApiHeaders() });
         if (!transcriptRes.ok) throw new Error('No se pudo recuperar la desgrabación generada.');
         const transcriptJson = await transcriptRes.json();
 
-        setAudioUrl(`${cleanServerUrl}/api/sessions/${sessionId}/audio`);
+        setAudioUrl(`${cleanServerUrl}/api/sessions/${sessionId}/audio?token=${encodeURIComponent(localStorage.getItem('psi_api_token') || '')}`);
         setTranscriptData(transcriptJson);
-        saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio`);
+        saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio?token=${encodeURIComponent(localStorage.getItem('psi_api_token') || '')}`);
       } else if (activeApiKey.trim()) {
         // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
         setProcessingProgress(50);
