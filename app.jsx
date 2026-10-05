@@ -1581,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.29.0';
+  const currentVersion = 'v2.30.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8451,56 +8451,126 @@ function GrabadoraDesgrabadorView({
     showToast('Procesamiento cancelado', 'x');
   };
 
-  // Transcribir con Whisper Cloud API (Groq o OpenAI)
+  // Transcribir con Whisper Cloud API (Groq o OpenAI) con Soporte de Chunking Automático
   const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName) => {
-    const formData = new FormData();
-    formData.append('file', audioBlobOrFile);
-    formData.append('model', 'whisper-large-v3');
-    formData.append('response_format', 'verbose_json');
-    formData.append('language', 'es');
-    formData.append('temperature', '0.0');
-
     const cleanKey = apiKey.trim();
     const isGroq = cleanKey.startsWith('gsk_') || !cleanKey.startsWith('sk-');
     const endpoint = isGroq
       ? 'https://api.groq.com/openai/v1/audio/transcriptions'
       : 'https://api.openai.com/v1/audio/transcriptions';
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${cleanKey}` },
-      body: formData,
-      signal
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => ({}));
-      throw new Error(errJson?.error?.message || `Error en Whisper Cloud (${res.status})`);
+    let blobsToProcess = [audioBlobOrFile];
+    
+    // Si excede 24MB, lo decodificamos y partimos en fragmentos WAV crudos (PCM 16-bit Mono 16kHz)
+    if (audioBlobOrFile.size > 24 * 1024 * 1024) {
+      setProcessingStep('El archivo es muy pesado. Comprimiendo y fraccionando audio localmente (esto puede tardar unos segundos)...');
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        const arrayBuffer = await audioBlobOrFile.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        
+        const MAX_SAMPLES = 12000000; // ~12.5 minutos a 16kHz = ~24MB por chunk
+        const channelData = audioBuffer.getChannelData(0);
+        const totalSamples = channelData.length;
+        const chunks = [];
+        
+        for (let offset = 0; offset < totalSamples; offset += MAX_SAMPLES) {
+          const length = Math.min(MAX_SAMPLES, totalSamples - offset);
+          const slice = channelData.slice(offset, offset + length);
+          
+          const wavBuffer = new ArrayBuffer(44 + length * 2);
+          const view = new DataView(wavBuffer);
+          
+          const writeString = (v, off, str) => {
+            for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i));
+          };
+          
+          writeString(view, 0, 'RIFF');
+          view.setUint32(4, 36 + length * 2, true);
+          writeString(view, 8, 'WAVE');
+          writeString(view, 12, 'fmt ');
+          view.setUint32(16, 16, true);
+          view.setUint16(20, 1, true);
+          view.setUint16(22, 1, true);
+          view.setUint32(24, 16000, true);
+          view.setUint32(28, 16000 * 2, true);
+          view.setUint16(32, 2, true);
+          view.setUint16(34, 16, true);
+          writeString(view, 36, 'data');
+          view.setUint32(40, length * 2, true);
+          
+          let pcmOffset = 44;
+          for (let i = 0; i < length; i++, pcmOffset += 2) {
+            let s = Math.max(-1, Math.min(1, slice[i]));
+            view.setInt16(pcmOffset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+          }
+          chunks.push(new Blob([view], { type: 'audio/wav' }));
+        }
+        blobsToProcess = chunks;
+      } catch (e) {
+        throw new Error('Error al fraccionar el audio localmente. Intenta con un archivo más corto o de menor calidad.');
+      }
     }
 
-    const data = await res.json();
-    const rawSegments = data.segments || [];
+    let allSegments = [];
+    let fullText = "";
+    let accumulatedTime = 0;
 
-    const segments = rawSegments.map((seg, idx) => ({
-      id: idx + 1,
-      start: seg.start,
-      end: seg.end,
-      timestamp: formatTime(seg.start),
-      text: (seg.text || '').trim(),
-      words: (seg.words || []).map(w => ({
-        word: w.word,
-        start: w.start,
-        end: w.end
-      }))
-    }));
+    for (let i = 0; i < blobsToProcess.length; i++) {
+      if (blobsToProcess.length > 1) {
+        setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${blobsToProcess.length} en la nube...`);
+      }
+      
+      const formData = new FormData();
+      formData.append('file', new File([blobsToProcess[i]], `chunk_${i}.wav`, { type: blobsToProcess[i].type || 'audio/wav' }));
+      formData.append('model', 'whisper-large-v3');
+      formData.append('response_format', 'verbose_json');
+      formData.append('language', 'es');
+      formData.append('temperature', '0.0');
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${cleanKey}` },
+        body: formData,
+        signal
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson?.error?.message || `Error en Whisper Cloud (${res.status}) en fragmento ${i + 1}`);
+      }
+
+      const data = await res.json();
+      const rawSegments = data.segments || [];
+      
+      rawSegments.forEach((seg, idx) => {
+        const adjStart = accumulatedTime + seg.start;
+        const adjEnd = accumulatedTime + seg.end;
+        allSegments.push({
+          id: allSegments.length + 1,
+          start: adjStart,
+          end: adjEnd,
+          timestamp: formatTime(adjStart),
+          text: (seg.text || '').trim(),
+          words: (seg.words || []).map(w => ({
+            word: w.word,
+            start: accumulatedTime + w.start,
+            end: accumulatedTime + w.end
+          }))
+        });
+      });
+      
+      fullText += (data.text || '') + " ";
+      accumulatedTime += data.duration || 0;
+    }
 
     return {
       version: '2.0.0',
       subject: materiaName,
-      duration_seconds: data.duration || recordingSeconds || 0,
-      total_segments: segments.length,
-      paragraphs: data.text ? [data.text] : segments.map(s => s.text),
-      segments
+      duration_seconds: accumulatedTime || recordingSeconds || 0,
+      total_segments: allSegments.length,
+      paragraphs: [fullText.trim()],
+      segments: allSegments
     };
   };
 
@@ -8664,9 +8734,6 @@ function GrabadoraDesgrabadorView({
         saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio`);
       } else if (activeApiKey.trim()) {
         // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
-        if (audioBlobOrFile.size > 25 * 1024 * 1024) {
-          throw new Error('El archivo excede el límite de 25MB de la API Cloud. Conecta el servidor Python DSP para procesar archivos grandes.');
-        }
         setProcessingProgress(50);
         setProcessingStep('Transcribiendo con Whisper Cloud API...');
         const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName);
