@@ -1581,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.31.0';
+  const currentVersion = 'v2.32.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8860,6 +8860,28 @@ function GrabadoraDesgrabadorView({
     try {
       localStorage.setItem('psi_audio_sessions_history', JSON.stringify(updated.slice(0, 30)));
     } catch (e) {}
+
+    // Guardar automáticamente en Supabase como "Apunte" para no perderlo nunca
+    const targetMat = materias.find(m => m.nombre === materia);
+    if (targetMat) {
+      let contentText = `DESGRABACIÓN: ${materia} - CLASE #${claseNum}\n\n`;
+      if (transcript.segments) {
+        transcript.segments.forEach(s => { contentText += `[${s.timestamp}] ${s.text}\n`; });
+      } else if (transcript.paragraphs) {
+        transcript.paragraphs.forEach(p => { contentText += `${p}\n\n`; });
+      }
+
+      onSaveApunte({
+        id: `desgrab_${sessionId}`,
+        materia_id: targetMat.id,
+        titulo: `Desgrabación: Clase ${claseNum} - ${tema || 'Audio'}`,
+        tipo: 'texto',
+        contenido: contentText,
+        clase_relacionada: claseNum,
+        tags: 'desgrabacion, respaldo_automatico'
+      });
+      console.log('Respaldo automático enviado a Supabase (Apuntes)');
+    }
   };
 
   // Sincronización del Reproductor de Audio (Apartado 4.2)
@@ -9175,37 +9197,51 @@ function GrabadoraDesgrabadorView({
     copyToClipboardUniversal(textToCopy, 'Transcripción copiada al portapapeles');
   };
 
-  // Descargar Archivos Multiformato (.md, .vtt, .srt, .txt, .json)
-  const handleDownloadFile = (ext = 'md') => {
-    if (!transcriptData) return;
+  // Helper para generar texto
+  const getTranscriptText = (transcript) => {
+    if (!transcript) return '';
+    return transcript.segments
+      ? transcript.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
+      : transcript.paragraphs?.join('\n\n') || '';
+  };
+
+  // Descargar Archivos Multiformato (.md, .txt, .doc)
+  const handleDownloadFile = (ext = 'md', explicitData = null, explicitMateria = null, explicitClase = null) => {
+    const dataToUse = explicitData || transcriptData;
+    if (!dataToUse) return;
     const targetMatObj = materias.find(m => m.id === targetMateriaId);
-    const materiaName = (targetMatObj ? targetMatObj.nombre : 'Clase').replace(/\s+/g, '_');
+    const resolvedMateriaName = explicitMateria || (targetMatObj ? targetMatObj.nombre : 'Clase');
+    const materiaName = resolvedMateriaName.replace(/\s+/g, '_');
+    const resolvedClase = explicitClase || targetClaseNum;
+    
     let content = '';
     let mime = 'text/plain;charset=utf-8';
-    let filename = `desgrabacion_${materiaName}_c${targetClaseNum}.${ext}`;
+    let filename = `desgrabacion_${materiaName}_c${resolvedClase}.${ext}`;
 
     if (ext === 'md') {
       mime = 'text/markdown;charset=utf-8';
-      content = `# DESGRABACIÓN: ${materiaName.replace(/_/g, ' ')} - CLASE #${targetClaseNum}\n\n`;
-      content += `> **Fecha:** ${new Date().toLocaleDateString('es-AR')} | **Duración:** ${formatTime(duration || transcriptData.duration_seconds || 0)}\n\n`;
-      if (transcriptData.segments) {
-        transcriptData.segments.forEach(s => { content += `**[${s.timestamp}]** ${s.text}\n\n`; });
-      } else if (transcriptData.paragraphs) {
-        transcriptData.paragraphs.forEach(p => { content += `${p}\n\n`; });
+      content = `# DESGRABACIÓN: ${materiaName.replace(/_/g, ' ')} - CLASE #${resolvedClase}\n\n`;
+      content += `> **Fecha:** ${new Date().toLocaleDateString('es-AR')} | **Duración:** ${formatTime(duration || dataToUse.duration_seconds || 0)}\n\n`;
+      if (dataToUse.segments) {
+        dataToUse.segments.forEach(s => { content += `**[${s.timestamp}]** ${s.text}\n\n`; });
+      } else if (dataToUse.paragraphs) {
+        dataToUse.paragraphs.forEach(p => { content += `${p}\n\n`; });
       }
-    } else if (ext === 'vtt') {
-      mime = 'text/vtt;charset=utf-8';
-      content = generateVTTContent(transcriptData.segments || []);
-    } else if (ext === 'srt') {
-      mime = 'application/x-subrip;charset=utf-8';
-      content = generateSRTContent(transcriptData.segments || []);
+    } else if (ext === 'doc') {
+      mime = 'application/msword;charset=utf-8';
+      content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>Desgrabación</title></head><body>
+<h1>DESGRABACIÓN: ${materiaName.replace(/_/g, ' ')} - CLASE #${resolvedClase}</h1>
+<p><strong>Fecha:</strong> ${new Date().toLocaleDateString('es-AR')} | <strong>Duración:</strong> ${formatTime(duration || dataToUse.duration_seconds || 0)}</p><hr/>
+`;
+      if (dataToUse.segments) {
+        dataToUse.segments.forEach(s => { content += `<p><strong>[${s.timestamp}]</strong> ${s.text}</p>\n`; });
+      } else if (dataToUse.paragraphs) {
+        dataToUse.paragraphs.forEach(p => { content += `<p>${p}</p>\n`; });
+      }
+      content += `</body></html>`;
     } else if (ext === 'txt') {
-      content = transcriptData.segments
-        ? transcriptData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
-        : transcriptData.paragraphs?.join('\n\n') || '';
-    } else if (ext === 'json') {
-      content = JSON.stringify(transcriptData, null, 2);
-      mime = 'application/json';
+      content = getTranscriptText(dataToUse);
     }
 
     const blob = new Blob([content], { type: mime });
@@ -9252,17 +9288,17 @@ function GrabadoraDesgrabadorView({
       </div>
 
       {/* ── SUB-NAVEGACIÓN INTERNA ── */}
-      <div className="flex items-center gap-2 border-b border-app-border pb-2 overflow-x-auto no-scrollbar">
+      <div className="flex flex-wrap items-center gap-2 border-b border-app-border pb-2">
         {[
-          { id: 'record', label: '🎙️ Grabar / Procesar Audio', icon: 'mic' },
-          { id: 'player', label: '🎧 Visor Interactivo Sincronizado', icon: 'headphones', disabled: !transcriptData },
-          { id: 'history', label: `📚 Sesiones Guardadas (${savedSessions.length})`, icon: 'archive' },
+          { id: 'record', label: '🎙️ Grabar Audio', icon: 'mic' },
+          { id: 'player', label: '🎧 Visor Interactivo', icon: 'headphones', disabled: !transcriptData },
+          { id: 'history', label: `📚 Historial (${savedSessions.length})`, icon: 'archive' },
         ].map(tab => (
           <button
             key={tab.id}
             disabled={tab.disabled}
             onClick={() => setActiveSubTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap ${
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold transition-all flex-1 justify-center sm:flex-none sm:justify-start ${
               activeSubTab === tab.id
                 ? 'bg-app-emerald text-white shadow-emerald'
                 : (tab.disabled ? 'opacity-40 cursor-not-allowed text-app-muted' : 'bg-app-card text-app-muted hover:text-app-text border border-app-border')
@@ -9625,43 +9661,11 @@ function GrabadoraDesgrabadorView({
               {/* Botones de Acción y Exportación */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={handleTransferToApunte}
-                  className="px-3 py-2 bg-app-emerald-bg border border-app-emerald/30 text-app-emerald font-bold text-xs rounded-xl hover:bg-app-emerald hover:text-white transition-all flex items-center gap-1"
-                  title="Transferir a Apunte de Clase con metadatos"
-                >
-                  <Icon name="file-text" className="w-3.5 h-3.5" /> + Apunte
-                </button>
-
-                <button
-                  onClick={handleLinkToClaseDirectly}
-                  className="px-3 py-2 bg-app-surface border border-app-border text-app-text font-bold text-xs rounded-xl hover:border-app-emerald transition-all flex items-center gap-1"
-                  title="Vincular audio y desgrabación a la Ficha de Clase en Aulas"
-                >
-                  <Icon name="link-2" className="w-3.5 h-3.5 text-app-emerald" /> + Ficha Clase
-                </button>
-
-                <button
-                  onClick={handleGenerateNeuroscan}
-                  className="px-3 py-2 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1 hover:brightness-110"
-                  title="Compilar Guía de Estudio NEUROSCAN de Alta Densidad"
-                >
-                  <Icon name="sparkles" className="w-3.5 h-3.5 text-app-emerald" /> NEUROSCAN
-                </button>
-
-                <button
-                  onClick={handleCopyAcademicPrompt}
-                  className="px-2.5 py-2 bg-app-amber-bg border border-app-amber/30 text-app-amber font-bold text-xs rounded-xl hover:brightness-110 transition-all flex items-center gap-1"
-                  title="Copiar Prompt Académico con la desgrabación completa para procesar en Gemini/Claude"
-                >
-                  <Icon name="bot" className="w-3.5 h-3.5" /> Prompt IA
-                </button>
-
-                <button
                   onClick={handleCopyTranscript}
-                  className="p-2 bg-app-surface border border-app-border rounded-xl text-app-muted hover:text-app-text"
+                  className="p-2 bg-app-surface border border-app-border rounded-xl text-app-text hover:border-app-emerald transition-all flex items-center gap-1.5 font-bold text-xs"
                   title="Copiar texto de la clase"
                 >
-                  <Icon name="clipboard" className="w-3.5 h-3.5" />
+                  <Icon name="clipboard" className="w-3.5 h-3.5" /> Copiar Todo
                 </button>
 
                 {/* Descarga Multiformato */}
@@ -9882,27 +9886,30 @@ function GrabadoraDesgrabadorView({
 
                   <div className="flex items-center justify-between pt-2 border-t border-app-border">
                     <span className="text-[10px] text-app-muted font-mono">{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
-                    <button
-                      onClick={async () => {
-                        setTranscriptData(s.transcript);
-                        let nextAudioUrl = s.audioUrl || null;
-                        if (nextAudioUrl && nextAudioUrl.includes('localhost:8000')) {
-                          try {
-                            const res = await fetch(nextAudioUrl, { method: 'HEAD' });
-                            if (!res.ok) nextAudioUrl = null;
-                          } catch (e) {
-                            nextAudioUrl = null;
-                            showToast('El servidor no está disponible. Solo se cargará la transcripción.', 'alert-triangle');
-                          }
-                        }
-                        setAudioUrl(nextAudioUrl);
-                        setTargetClaseNum(s.claseNum);
-                        setActiveSubTab('player');
-                      }}
-                      className="px-3 py-1.5 bg-app-emerald text-white text-xs font-bold rounded-lg shadow-emerald flex items-center gap-1"
-                    >
-                      <Icon name="play" className="w-3 h-3 text-white" /> Abrir en Visor
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const apunteData = {
+                            id: `hist_${s.id}`,
+                            titulo: `Desgrabación: ${s.materia} - Clase #${s.claseNum}`,
+                            tipo: 'texto',
+                            contenido: getTranscriptText(s.transcript),
+                            created_at: s.fecha
+                          };
+                          onOpenApunteModal(apunteData);
+                        }}
+                        className="px-3 py-1.5 bg-app-emerald text-white text-xs font-bold rounded-lg shadow-emerald flex items-center gap-1 hover:brightness-110"
+                      >
+                        <Icon name="book-open" className="w-3 h-3 text-white" /> Leer
+                      </button>
+                      
+                      <button
+                        onClick={() => handleDownloadFile('doc', s.transcript, s.materia, s.claseNum)}
+                        className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg flex items-center gap-1 hover:border-app-emerald transition-all"
+                      >
+                        <Icon name="download" className="w-3 h-3" /> Descargar (.doc)
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
