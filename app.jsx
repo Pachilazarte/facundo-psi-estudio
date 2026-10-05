@@ -1581,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.30.0';
+  const currentVersion = 'v2.31.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -8073,6 +8073,24 @@ function GrabadoraDesgrabadorView({
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recordingTimerRef = useRef(null);
+  const wakeLockRef = useRef(null);
+
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request('screen');
+      }
+    } catch (err) {
+      console.warn('Wake Lock request failed:', err);
+    }
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(() => {});
+      wakeLockRef.current = null;
+    }
+  };
   const audioRef = useRef(null);
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
@@ -8249,6 +8267,7 @@ function GrabadoraDesgrabadorView({
   // Iniciar Grabación Web + Web Speech API en Vivo
   const handleStartRecording = async () => {
     try {
+      await requestWakeLock();
       triggerHaptic('heavy');
       if (audioUrl && typeof audioUrl === 'string' && audioUrl.startsWith('blob:')) {
           URL.revokeObjectURL(audioUrl);
@@ -8369,6 +8388,7 @@ function GrabadoraDesgrabadorView({
   // Pausar Grabación (Recreo / Pausa de clase)
   const handlePauseRecording = () => {
     triggerHaptic('medium');
+    releaseWakeLock();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.pause();
       setRecordingState('paused');
@@ -8384,8 +8404,9 @@ function GrabadoraDesgrabadorView({
   };
 
   // Reanudar Grabación tras pausa
-  const handleResumeRecording = () => {
+  const handleResumeRecording = async () => {
     triggerHaptic('heavy');
+    await requestWakeLock();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
       mediaRecorderRef.current.resume();
       setRecordingState('recording');
@@ -8402,6 +8423,7 @@ function GrabadoraDesgrabadorView({
   // Detener y Finalizar Grabación
   const handleStopRecording = async (shouldProcess = true) => {
     triggerHaptic('medium');
+    releaseWakeLock();
     if (recordingTimerRef.current) {
       clearInterval(recordingTimerRef.current);
       recordingTimerRef.current = null;
@@ -8452,7 +8474,7 @@ function GrabadoraDesgrabadorView({
   };
 
   // Transcribir con Whisper Cloud API (Groq o OpenAI) con Soporte de Chunking Automático
-  const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName) => {
+  const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName, originalFilename = 'audio.wav') => {
     const cleanKey = apiKey.trim();
     const isGroq = cleanKey.startsWith('gsk_') || !cleanKey.startsWith('sk-');
     const endpoint = isGroq
@@ -8521,8 +8543,26 @@ function GrabadoraDesgrabadorView({
         setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${blobsToProcess.length} en la nube...`);
       }
       
+      const currentBlob = blobsToProcess[i];
+      let extension = 'wav';
+      if (blobsToProcess.length === 1) {
+        // If not chunked, preserve original extension if possible
+        const match = originalFilename.match(/\.([0-9a-z]+)(?:[\?#]|$)/i);
+        if (match) {
+          extension = match[1].toLowerCase();
+        } else if (currentBlob.type) {
+          if (currentBlob.type.includes('mp4') || currentBlob.type.includes('m4a')) extension = 'm4a';
+          else if (currentBlob.type.includes('webm')) extension = 'webm';
+          else if (currentBlob.type.includes('mp3') || currentBlob.type.includes('mpeg')) extension = 'mp3';
+          else if (currentBlob.type.includes('ogg')) extension = 'ogg';
+          else if (currentBlob.type.includes('aac')) extension = 'm4a';
+        }
+      }
+      
+      const fileName = blobsToProcess.length === 1 ? originalFilename : `chunk_${i}.${extension}`;
+      
       const formData = new FormData();
-      formData.append('file', new File([blobsToProcess[i]], `chunk_${i}.wav`, { type: blobsToProcess[i].type || 'audio/wav' }));
+      formData.append('file', new File([currentBlob], fileName, { type: currentBlob.type || 'audio/wav' }));
       formData.append('model', 'whisper-large-v3');
       formData.append('response_format', 'verbose_json');
       formData.append('language', 'es');
@@ -8736,7 +8776,7 @@ function GrabadoraDesgrabadorView({
         // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
         setProcessingProgress(50);
         setProcessingStep('Transcribiendo con Whisper Cloud API...');
-        const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName);
+        const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName, filename);
         setTranscriptData(cloudTranscript);
         saveSessionToHistory(`cloud_${Date.now()}`, materiaName, targetClaseNum, temaClase, cloudTranscript, audioUrl);
       } else if (liveSegmentsRef.current && liveSegmentsRef.current.length > 0) {
