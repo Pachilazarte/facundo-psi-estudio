@@ -155,6 +155,16 @@ class VerbatimLectureTranscriber:
         logger.info(f"Iniciando transcripción verbatim de: {audio_file.name}")
         initial_prompt = self._build_initial_prompt(subject, custom_glossary)
 
+        # Validación defensiva del archivo de audio
+        import subprocess
+        try:
+            subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(audio_file)],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10
+            )
+        except Exception as e:
+            raise ValueError(f"Archivo de audio inválido o corrupto: {audio_file.name}. Detalle: {e}")
+
         # Archivo temporal de checkpoint defensivo para streaming seguro
         checkpoint_file = audio_file.parent / f".{audio_file.stem}_checkpoint.jsonl"
 
@@ -188,10 +198,16 @@ class VerbatimLectureTranscriber:
         current_paragraph = []
         current_char_count = 0
         seg_idx = 1
+        
+        import time
+        start_time = time.time()
+        timeout_limit = max(1800, total_duration * 4)
 
         try:
-            with open(checkpoint_file, "w", encoding="utf-8") as chk_f:
+            with open(checkpoint_file, "a", encoding="utf-8") as chk_f:
                 for seg in segments_generator:
+                    if time.time() - start_time > timeout_limit:
+                        raise TimeoutError(f"Inferencia Whisper cancelada por timeout de {timeout_limit}s.")
                     clean_text = seg.text.strip()
                     if not clean_text:
                         continue

@@ -64,13 +64,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Leer versión desde version.json
+API_VERSION = "2.0.0"
+try:
+    version_file = Path(__file__).parent.parent / "version.json"
+    if version_file.exists():
+        with open(version_file, "r", encoding="utf-8") as f:
+            v_data = json.load(f)
+            API_VERSION = v_data.get("version", "2.0.0")
+except Exception:
+    pass
+
+app.version = API_VERSION
+
 # Inicialización de servicios
 BASE_SESSIONS_DIR = Path("./uploaded_sessions").resolve()
 BASE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 session_manager = AudioSessionManager(base_dir=str(BASE_SESSIONS_DIR))
 cleaner = LectureAudioCleaner()
-transcriber = VerbatimLectureTranscriber(model_size="small")
+
+_transcriber_instance = None
+def get_transcriber():
+    global _transcriber_instance
+    if _transcriber_instance is None:
+        logger.info("Lazy loading VerbatimLectureTranscriber...")
+        _transcriber_instance = VerbatimLectureTranscriber(model_size="small")
+    return _transcriber_instance
 
 executor = ThreadPoolExecutor(max_workers=2)
 
@@ -218,7 +238,7 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
                     ACTIVE_JOBS[job_id]["speed_ratio"] = speed_ratio
                     ACTIVE_JOBS[job_id]["elapsed_sec"] = round(now - start_wall_time, 1)
 
-            transcription_result = transcriber.transcribe_verbatim(
+            transcription_result = get_transcriber().transcribe_verbatim(
                 str(target_audio_for_whisper),
                 subject=subject,
                 custom_glossary=options.custom_glossary,
@@ -238,6 +258,14 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
                 "clean_audio_file": clean_m4a_path.name,
                 "has_transcription": transcription_result is not None,
             }
+        
+        # Programar limpieza automática en 30 minutos
+        def _auto_cleanup():
+            time.sleep(1800)
+            with jobs_lock:
+                ACTIVE_JOBS.pop(job_id, None)
+        threading.Thread(target=_auto_cleanup, daemon=True).start()
+        
         logger.info(f"[Job {job_id}] Procesamiento de sesión {session_id} completado con éxito.")
 
     except Exception as e:
@@ -245,6 +273,13 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
         with jobs_lock:
             ACTIVE_JOBS[job_id]["status"] = "failed"
             ACTIVE_JOBS[job_id]["error"] = str(e)
+            
+        def _auto_cleanup_err():
+            import time
+            time.sleep(1800)
+            with jobs_lock:
+                ACTIVE_JOBS.pop(job_id, None)
+        threading.Thread(target=_auto_cleanup_err, daemon=True).start()
 
 
 # --- Endpoints de la API ---
@@ -255,8 +290,16 @@ def health_check():
     return {
         "status": "healthy",
         "service": "PsiEstudio Verbatim Audio API",
-        "version": "2.0.0",
+        "version": app.version,
         "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
+@app.get("/api/whisper/status")
+def whisper_status():
+    """Verifica si el modelo Whisper ya está cargado en memoria."""
+    return {
+        "loaded": _transcriber_instance is not None,
+        "model": _transcriber_instance.model_size if _transcriber_instance else None
     }
 
 
@@ -376,6 +419,28 @@ def get_job_status(job_id: str):
         raise HTTPException(status_code=404, detail="Job no encontrado")
     return job
 
+@app.delete("/api/jobs/{job_id}")
+def cancel_job(job_id: str):
+    """Cancela o limpia un trabajo en progreso."""
+    with jobs_lock:
+        job = ACTIVE_JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job no encontrado")
+        ACTIVE_JOBS.pop(job_id, None)
+    return {"status": "cancelled", "job_id": job_id}
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str):
+    """Elimina permanentemente una sesión huérfana o no deseada."""
+    session_folder = BASE_SESSIONS_DIR / session_id
+    if not session_folder.exists():
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    try:
+        shutil.rmtree(session_folder)
+        return {"status": "deleted", "session_id": session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/sessions/{session_id}/audio")
 def stream_session_audio(session_id: str, request: Request):
@@ -393,7 +458,18 @@ def stream_session_audio(session_id: str, request: Request):
     if not candidates:
         candidates = list(session_folder.glob("master_completo.m4a"))
     if not candidates:
-        # Buscar primer chunk si es único
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                m_data = json.load(f)
+                chunks = m_data.get("chunks", [])
+                if chunks:
+                    first_chunk = session_folder / chunks[0]["filename"]
+                    if first_chunk.exists():
+                        candidates = [first_chunk]
+        except Exception:
+            pass
+    if not candidates:
+        # Fallback general
         candidates = list(session_folder.glob("*.m4a")) + list(session_folder.glob("*.caf"))
 
     if not candidates:

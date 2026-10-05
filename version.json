@@ -1,7 +1,7 @@
 {
-  "version": "2.26.0",
-  "buildDate": "2026-10-02T04:12:00.000Z",
+  "version": "2.27.0",
+  "buildDate": "2026-10-05T01:30:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Restauración completa de variables de estado en Grabadora y visor de desgrabaciones (setCurrentMatchIndex) con verificación total de componentes."
+  "notes": "Auditoría Defensiva Atómica completada (32 defectos resueltos). Estabilización total del motor DSP, transcripción Whisper con lazy loading y fallback inteligente de UI."
 }

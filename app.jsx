@@ -269,9 +269,21 @@ function parseMarkdownToHTML(md) {
     .replace(/\n$/gim, '<br />');
 
   return html;
+  return html;
 }
 
-// ── 3.5 LOCAL STORAGE & PERSISTENCE SAFE GUARDS ──
+// ── 3.5 UTILIDADES DE TIEMPO Y LOCAL STORAGE ──
+function formatTime(secs) {
+  if (!secs || isNaN(secs) || !isFinite(secs) || secs < 0) return '00:00';
+  const s = Math.floor(secs || 0);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  const remS = s % 60;
+  if (h > 0) return `${String(h).padStart(2, '0')}:${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
+  return `${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
+}
+
 function safeGetLocalStorage(key, fallback = []) {
   try {
     const raw = localStorage.getItem(key);
@@ -1569,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.26.0';
+  const currentVersion = 'v2.27.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -7796,7 +7808,7 @@ function ModalPomodoro({ onClose, showToast }) {
     setTimeLeft(mode === 'work' ? 25 * 60 : 5 * 60);
   };
 
-  const formatTime = (seconds) => {
+  const formatPomodoroTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -7834,7 +7846,7 @@ function ModalPomodoro({ onClose, showToast }) {
         </div>
 
         <div className="relative py-6 bg-app-surface rounded-lg border border-app-border">
-          <div className="text-5xl font-black font-mono tracking-wider text-app-text">{formatTime(timeLeft)}</div>
+          <div className="text-5xl font-black font-mono tracking-wider text-app-text">{formatPomodoroTime(timeLeft)}</div>
           <div className="text-xs font-bold text-app-muted mt-2">
             {mode === 'work' ? 'Enfócate en tu bibliografía' : 'Tómate un respiro'}
           </div>
@@ -8047,8 +8059,7 @@ function GrabadoraDesgrabadorView({
   // Historial de sesiones guardadas localmente
   const [savedSessions, setSavedSessions] = useState(() => safeGetLocalStorage('psi_audio_sessions_history', []));
 
-  const DEFAULT_GROQ_KEY = ['gsk_uOZRH', 'jdVEP6ONm05nSQy', 'WGdyb3FY7E7mh', 'CkobsFfx42z1N5guBzy'].join('');
-  const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || DEFAULT_GROQ_KEY);
+  const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || '');
   const speechRecognitionRef = useRef(null);
   const liveSegmentsRef = useRef([]);
   const recordingSecondsRef = useRef(0);
@@ -8069,6 +8080,15 @@ function GrabadoraDesgrabadorView({
   const mediaStreamRef = useRef(null);
   const abortControllerRef = useRef(null);
   const transcriptContainerRef = useRef(null);
+  const scrollTimeoutRef = useRef(null);
+
+  const handleTranscriptScroll = () => {
+    setAutoScrollEnabled(false);
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
+      setAutoScrollEnabled(true);
+    }, 5000);
+  };
 
   // 1. Cargar datos pre-seleccionados desde la ficha de clase
   useEffect(() => {
@@ -8229,6 +8249,10 @@ function GrabadoraDesgrabadorView({
   const handleStartRecording = async () => {
     try {
       triggerHaptic('heavy');
+      if (audioUrl && typeof audioUrl === 'string' && audioUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(audioUrl);
+      }
+      setAudioUrl(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Tu navegador no soporta captura de audio o requiere HTTPS.');
       }
@@ -8249,7 +8273,7 @@ function GrabadoraDesgrabadorView({
               materiaId: targetMateriaId,
               claseNum: targetClaseNum,
               tema: temaClase,
-              seconds: recordingSeconds,
+              seconds: recordingSecondsRef.current,
               timestamp: Date.now(),
             }));
           } catch (e) {}
@@ -8314,7 +8338,9 @@ function GrabadoraDesgrabadorView({
           rec.onend = () => {
             // Reiniciar reconocimiento continuo si seguimos grabando
             if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-              try { rec.start(); } catch (err) {}
+              setTimeout(() => {
+                try { if (speechRecognitionRef.current) speechRecognitionRef.current.start(); } catch (err) {}
+              }, 500);
             }
           };
 
@@ -8388,12 +8414,15 @@ function GrabadoraDesgrabadorView({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
-    setRecordingState('idle');
+    setRecordingState('processing');
     cleanAudioContext();
     try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
 
     setTimeout(async () => {
-      if (audioChunksRef.current.length === 0) return;
+      if (audioChunksRef.current.length === 0) {
+          setRecordingState('idle');
+          return;
+      }
       const mimeType = getSupportedMimeType() || 'audio/webm';
       const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
       const localAudioUrl = URL.createObjectURL(audioBlob);
@@ -8403,6 +8432,7 @@ function GrabadoraDesgrabadorView({
         const ext = mimeType.includes('mp4') ? 'm4a' : 'webm';
         await processAudioWithBackend(audioBlob, `clase_${targetClaseNum}_${Date.now()}.${ext}`);
       } else {
+        setRecordingState('idle');
         showToast('Grabación guardada localmente', 'check');
       }
     }, 400);
@@ -8473,46 +8503,55 @@ function GrabadoraDesgrabadorView({
     };
   };
 
-  // Subida HTTP de fragmento con seguimiento exacto por bytes reales
-  const uploadChunkWithProgress = (url, formData, signal, onProgress) => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', url);
-      
-      if (signal) {
-        signal.addEventListener('abort', () => {
-          xhr.abort();
-          reject(new Error('Subida cancelada por el usuario.'));
-        });
+  // Subida HTTP de fragmento con seguimiento exacto por bytes reales y reintentos
+  const uploadChunkWithProgress = async (url, formData, signal, onProgress, attempt = 1) => {
+    try {
+      return await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            xhr.abort();
+            reject(new Error('Subida cancelada por el usuario.'));
+          });
+        }
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable && onProgress) {
+            const pct = (event.loaded / event.total) * 100;
+            onProgress(pct, event.loaded, event.total, attempt);
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch (e) {
+              resolve({ status: 'ok' });
+            }
+          } else {
+            try {
+              const errJson = JSON.parse(xhr.responseText);
+              reject(new Error(errJson.detail || errJson.message || `Error HTTP ${xhr.status}`));
+            } catch (e) {
+              reject(new Error(`Error HTTP ${xhr.status} al subir archivo.`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Error de red al conectar con el servidor backend.'));
+        xhr.send(formData);
+      });
+    } catch (e) {
+      if (attempt < 3 && e.message !== 'Subida cancelada por el usuario.') {
+        const delay = attempt === 1 ? 1000 : 3000;
+        await new Promise(r => setTimeout(r, delay));
+        return uploadChunkWithProgress(url, formData, signal, onProgress, attempt + 1);
       }
-
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable && onProgress) {
-          const pct = (event.loaded / event.total) * 100;
-          onProgress(pct, event.loaded, event.total);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch (e) {
-            resolve({ status: 'ok' });
-          }
-        } else {
-          try {
-            const errJson = JSON.parse(xhr.responseText);
-            reject(new Error(errJson.detail || errJson.message || `Error HTTP ${xhr.status}`));
-          } catch (e) {
-            reject(new Error(`Error HTTP ${xhr.status} al subir archivo.`));
-          }
-        }
-      };
-
-      xhr.onerror = () => reject(new Error('Error de red al conectar con el servidor backend.'));
-      xhr.send(formData);
-    });
+      throw e;
+    }
   };
 
   // Procesar Audio con Pipeline Multicapa (Telemetría Real, sin progresos simulados)
@@ -8557,12 +8596,13 @@ function GrabadoraDesgrabadorView({
           `${cleanServerUrl}/api/sessions/${sessionId}/upload-chunk`,
           formData,
           signal,
-          (pct, loaded, total) => {
+          (pct, loaded, total, attempt = 1) => {
             const loadedMB = (loaded / (1024 * 1024)).toFixed(1);
             const totalMB = (total / (1024 * 1024)).toFixed(1);
             const realPct = Math.round((pct / 100) * 20); // 0% a 20%
             setProcessingProgress(realPct);
-            setProcessingStep(`Subiendo audio (${loadedMB} MB / ${totalMB} MB - ${pct.toFixed(0)}%)...`);
+            const retryStr = attempt > 1 ? ` (Reintentando ${attempt}/3)` : '';
+            setProcessingStep(`Subiendo audio${retryStr} (${loadedMB} MB / ${totalMB} MB - ${pct.toFixed(0)}%)...`);
           }
         );
 
@@ -8585,9 +8625,14 @@ function GrabadoraDesgrabadorView({
         let completed = false;
         let pollCount = 0;
 
-        while (!completed && pollCount < 300) {
+        while (!completed && pollCount < 7200) {
           if (signal.aborted) throw new Error('Procesamiento cancelado por el usuario.');
-          await new Promise(r => setTimeout(r, 1000));
+          
+          let waitTime = 1000;
+          if (pollCount > 60) waitTime = 3000;
+          if (pollCount > 120) waitTime = 5000;
+          
+          await new Promise(r => setTimeout(r, waitTime));
           pollCount++;
 
           const jobRes = await fetch(`${cleanServerUrl}/api/jobs/${jobId}`, { signal });
@@ -8618,6 +8663,9 @@ function GrabadoraDesgrabadorView({
         saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio`);
       } else if (activeApiKey.trim()) {
         // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
+        if (audioBlobOrFile.size > 25 * 1024 * 1024) {
+          throw new Error('El archivo excede el límite de 25MB de la API Cloud. Conecta el servidor Python DSP para procesar archivos grandes.');
+        }
         setProcessingProgress(50);
         setProcessingStep('Transcribiendo con Whisper Cloud API...');
         const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName);
@@ -8713,7 +8761,10 @@ function GrabadoraDesgrabadorView({
     setCurrentTime(cur);
 
     if (transcriptData && transcriptData.segments) {
-      const activeSeg = transcriptData.segments.find(s => cur >= s.start && cur <= s.end);
+      let activeSeg = transcriptData.segments.find(s => cur >= s.start && cur <= s.end);
+      if (!activeSeg) {
+        activeSeg = [...transcriptData.segments].reverse().find(s => cur >= s.start);
+      }
       if (activeSeg && activeSeg.id !== activeSegmentId) {
         setActiveSegmentId(activeSeg.id);
         if (autoScrollEnabled) {
@@ -9093,17 +9144,6 @@ function GrabadoraDesgrabadorView({
     showToast(`Archivo ${filename} descargado`, 'download');
   };
 
-  const formatTime = (secs) => {
-    if (!secs || isNaN(secs) || !isFinite(secs) || secs < 0) return '00:00';
-    const s = Math.floor(secs || 0);
-    const m = Math.floor(s / 60);
-    const h = Math.floor(m / 60);
-    const remM = m % 60;
-    const remS = s % 60;
-    if (h > 0) return `${String(h).padStart(2, '0')}:${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
-    return `${String(remM).padStart(2, '0')}:${String(remS).padStart(2, '0')}`;
-  };
-
   return (
     <div className="space-y-6 animate-fade-in max-w-6xl mx-auto pb-12">
       {/* ── HEADER DEL MÓDULO ── */}
@@ -9249,9 +9289,15 @@ function GrabadoraDesgrabadorView({
                 placeholder="gsk_... o sk-..."
                 className="w-full p-2.5 rounded-xl bg-app-card border border-app-border text-xs font-mono text-app-text outline-none focus:border-app-emerald"
               />
-              <p className="text-[10px] text-app-muted mt-1">
-                Permite transcribir archivos grabados o subidos desde Netlify/Celular a máxima velocidad sin encender la terminal.
-              </p>
+              {!whisperApiKey.trim() && !serverOnline ? (
+                <div className="bg-app-amber/10 border border-app-amber/30 p-2 rounded-lg text-[10px] text-app-amber font-medium mt-2">
+                  <strong>Requerido sin servidor local.</strong> Obtené una clave gratuita en <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="underline font-bold">Groq Console</a>.
+                </div>
+              ) : (
+                <p className="text-[10px] text-app-muted mt-1">
+                  Permite transcribir archivos grabados o subidos desde Netlify/Celular a máxima velocidad sin encender la terminal.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -9538,8 +9584,10 @@ function GrabadoraDesgrabadorView({
       )}
 
       {/* ════ SUB-TAB 2: VISOR INTERACTIVO SINCRONIZADO (DUAL PLAYER) ════ */}
-      {activeSubTab === 'player' && transcriptData && (
-        <div className="space-y-4">
+      {activeSubTab === 'player' && (
+        <>
+          {transcriptData ? (
+            <div className="space-y-4">
           {/* Barra Flotante de Reproducción */}
           <div className="bg-app-card border border-app-border p-4 rounded-2xl shadow-fluffy sticky top-16 z-30 space-y-3 backdrop-blur-xl">
             <audio
@@ -9776,7 +9824,7 @@ function GrabadoraDesgrabadorView({
           </div>
 
           {/* Lista Completa de Segmentos con Karaoke y Timestamps Clickeables */}
-          <div ref={transcriptContainerRef} className="space-y-3">
+          <div ref={transcriptContainerRef} onScroll={handleTranscriptScroll} className="space-y-3 overflow-y-auto max-h-[70vh]">
             {transcriptData.segments && transcriptData.segments.length > 0 ? (
               transcriptData.segments.map((seg) => {
                 const isCurrent = currentTime >= seg.start && currentTime <= seg.end;
@@ -9840,6 +9888,14 @@ function GrabadoraDesgrabadorView({
             )}
           </div>
         </div>
+        ) : (
+          <div className="p-12 mt-4 text-center bg-app-card border border-app-border rounded-2xl text-app-muted text-xs space-y-2 shadow-card">
+            <Icon name="headphones" className="w-8 h-8 mx-auto text-app-muted" />
+            <p className="font-bold">No hay desgrabación cargada.</p>
+            <p>Graba una nueva clase o selecciona una del historial para visualizarla aquí.</p>
+          </div>
+        )}
+        </>
       )}
 
       {/* ════ SUB-TAB 3: HISTORIAL DE SESIONES GUARDADAS ════ */}
@@ -9879,9 +9935,19 @@ function GrabadoraDesgrabadorView({
                   <div className="flex items-center justify-between pt-2 border-t border-app-border">
                     <span className="text-[10px] text-app-muted font-mono">{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setTranscriptData(s.transcript);
-                        setAudioUrl(s.audioUrl || null);
+                        let nextAudioUrl = s.audioUrl || null;
+                        if (nextAudioUrl && nextAudioUrl.includes('localhost:8000')) {
+                          try {
+                            const res = await fetch(nextAudioUrl, { method: 'HEAD' });
+                            if (!res.ok) nextAudioUrl = null;
+                          } catch (e) {
+                            nextAudioUrl = null;
+                            showToast('El servidor no está disponible. Solo se cargará la transcripción.', 'alert-triangle');
+                          }
+                        }
+                        setAudioUrl(nextAudioUrl);
                         setTargetClaseNum(s.claseNum);
                         setActiveSubTab('player');
                       }}

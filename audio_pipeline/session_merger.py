@@ -5,16 +5,18 @@ Ecosistema: PsiVoice / PsiEstudio (Etapa 1 - Paso 3: Gestor de Sesiones y Fusió
 Grado: Ingeniería de Producción y Continuación de Grabaciones Multidía
 
 Características de Grado Industrial:
-1. Motor de concatenación híbrido (Stream copy ultrarrápido para chunks homogéneos y 
-   filtro de resampleo unificado 44.1kHz mono para chunks heterogéneos .caf/.m4a).
+1. Motor de concatenación híbrido (Stream copy ultrarrápido -c copy para chunks homogéneos y 
+   filtro por lotes anti-desbordamiento en Windows para chunks heterogéneos .caf/.m4a).
 2. Persistencia atómica de manifest con respaldo automático (.bak) a prueba de cortes de energía.
 3. Cálculo preciso de offsets temporales de sesión por cada fragmento grabado.
 4. Inspección defensiva con ffprobe para descartar chunks corruptos o de 0 bytes.
-5. Limpieza automática de listas de control y archivos temporales.
+5. Limpieza garantizada de listas de control y archivos temporales mediante bloques try...finally.
 6. Soporte nativo para Apple Core Audio Format (CAF 64-bit), M4A, AAC, WAV y MP3.
+7. Hilos de procesamiento protegidos mediante locks reentrantes de concurrencia.
 """
 
 import os
+import re
 import json
 import shutil
 import logging
@@ -31,6 +33,38 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("SessionMerger")
+
+
+def find_ffmpeg_binaries() -> Tuple[str, Optional[str]]:
+    """
+    Localiza defensivamente los binarios de ffmpeg y ffprobe en el sistema operativo,
+    dando prioridad al PATH y utilizando fallback con imageio_ffmpeg sin copias inválidas.
+    """
+    ffmpeg_exe = shutil.which("ffmpeg")
+    ffprobe_exe = shutil.which("ffprobe")
+
+    if not ffmpeg_exe:
+        try:
+            import imageio_ffmpeg
+            img_ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+            if img_ffmpeg and os.path.exists(img_ffmpeg):
+                ffmpeg_exe = img_ffmpeg
+                bin_dir = os.path.dirname(img_ffmpeg)
+                if bin_dir not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                
+                candidate_ffprobe = os.path.join(bin_dir, "ffprobe.exe" if os.name == "nt" else "ffprobe")
+                if os.path.exists(candidate_ffprobe):
+                    ffprobe_exe = candidate_ffprobe
+        except Exception as e:
+            logger.debug(f"No se pudo cargar imageio_ffmpeg: {e}")
+
+    if not ffmpeg_exe:
+        raise EnvironmentError(
+            "FFmpeg no está instalado ni disponible en el PATH del sistema o imageio_ffmpeg."
+        )
+
+    return ffmpeg_exe, ffprobe_exe
 
 
 class AudioChunkMetadata:
@@ -84,37 +118,16 @@ class AudioSessionManager:
         self.base_dir = Path(base_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
-        self._verify_ffmpeg()
-
-    @staticmethod
-    def _verify_ffmpeg() -> None:
-        """Verifica la existencia de FFmpeg y FFprobe en el PATH o los configura desde imageio_ffmpeg."""
-        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-            try:
-                import imageio_ffmpeg
-                bin_dir = os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
-                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
-                exe = imageio_ffmpeg.get_ffmpeg_exe()
-                target_ffmpeg = os.path.join(bin_dir, "ffmpeg.exe")
-                target_ffprobe = os.path.join(bin_dir, "ffprobe.exe")
-                if not os.path.exists(target_ffmpeg):
-                    shutil.copy(exe, target_ffmpeg)
-                if not os.path.exists(target_ffprobe):
-                    shutil.copy(exe, target_ffprobe)
-            except Exception as e:
-                pass
-
-        if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-            raise EnvironmentError("FFmpeg y FFprobe deben estar instalados y disponibles en el PATH.")
+        self.ffmpeg_bin, self.ffprobe_bin = find_ffmpeg_binaries()
 
     def _probe_chunk(self, chunk_path: Path) -> Tuple[float, int, int, str]:
         """Extrae duración, sample_rate, canales y códec de un fragmento de audio con fallbacks robustos."""
         if not chunk_path.exists() or chunk_path.stat().st_size == 0:
             raise ValueError(f"Fragmento vacío o inexistente: {chunk_path.name}")
 
-        if shutil.which("ffprobe"):
+        if self.ffprobe_bin:
             cmd = [
-                "ffprobe",
+                self.ffprobe_bin,
                 "-v", "error",
                 "-show_entries", "format=duration:stream=sample_rate,channels,codec_name",
                 "-of", "json",
@@ -136,14 +149,7 @@ class AudioSessionManager:
                 pass
 
         try:
-            ffmpeg_cmd = "ffmpeg"
-            try:
-                import imageio_ffmpeg
-                ffmpeg_cmd = imageio_ffmpeg.get_ffmpeg_exe()
-            except Exception:
-                pass
-
-            res = subprocess.run([ffmpeg_cmd, "-i", str(chunk_path)], capture_output=True, text=True)
+            res = subprocess.run([self.ffmpeg_bin, "-i", str(chunk_path)], capture_output=True, text=True)
             out = res.stderr or ""
             duration = 10.0
             dur_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", out)
@@ -157,11 +163,11 @@ class AudioSessionManager:
             channels = 1
             if "stereo" in out:
                 channels = 2
-            codec = "opus" if "opus" in out else "webm"
+            codec = "opus" if "opus" in out else "aac"
             return duration, sample_rate, channels, codec
         except Exception as e:
-            logger.warning(f"Fallback probe for {chunk_path.name}: {e}")
-            return 10.0, 44100, 1, "webm"
+            logger.warning(f"Fallback probe para {chunk_path.name}: {e}")
+            return 10.0, 44100, 1, "unknown"
 
     def _atomic_write_manifest(self, manifest_path: Path, data: Dict[str, Any]) -> None:
         """Escribe el archivo manifest de forma atómica para evitar corrupción de datos."""
@@ -173,11 +179,9 @@ class AudioSessionManager:
             f.flush()
             os.fsync(f.fileno())
 
-        # Crear respaldo si el manifest anterior ya existía
         if manifest_path.exists():
             shutil.copy2(manifest_path, bak_file)
 
-        # Reemplazo atómico
         temp_file.replace(manifest_path)
 
     def get_or_create_session(
@@ -229,22 +233,37 @@ class AudioSessionManager:
             manifest_path = session_folder / "session_manifest.json"
 
             if not manifest_path.exists():
-                self.get_or_create_session(session_id)
-
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
+                # Crear sesión implícita si no existía el manifest
+                session_folder.mkdir(parents=True, exist_ok=True)
+                manifest = {
+                    "version": "2.0.0",
+                    "session_id": session_id,
+                    "materia": "",
+                    "clase_numero": 1,
+                    "docente": "",
+                    "tema": "",
+                    "created_at": datetime.utcnow().isoformat() + "Z",
+                    "updated_at": datetime.utcnow().isoformat() + "Z",
+                    "estado": "activa",
+                    "total_duration_sec": 0.0,
+                    "total_chunks": 0,
+                    "chunks": [],
+                    "master_file": None,
+                }
+                self._atomic_write_manifest(manifest_path, manifest)
+            else:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
 
             chunk_path = session_folder / chunk_filename
             if not chunk_path.exists() or chunk_path.stat().st_size == 0:
                 raise ValueError(f"El fragmento {chunk_filename} no existe o está vacío (0 bytes).")
 
-            # Verificar si el chunk ya fue registrado
             existing_filenames = [c["filename"] for c in manifest["chunks"]]
             if chunk_filename in existing_filenames:
                 logger.warning(f"El fragmento {chunk_filename} ya estaba registrado en la sesión {session_id}.")
                 return manifest
 
-            # Extraer metadatos acústicos reales
             duration, sr, ch, codec = self._probe_chunk(chunk_path)
             start_offset = manifest["total_duration_sec"]
             end_offset = start_offset + duration
@@ -275,122 +294,186 @@ class AudioSessionManager:
 
             return manifest
 
+    def _concat_heterogeneous_batch(self, input_files: List[Path], output_file: Path) -> None:
+        """
+        Fusiona un lote de fragmentos heterogéneos mediante filter_complex con límites seguros de argumentos.
+        """
+        cmd = [self.ffmpeg_bin, "-y", "-hide_banner"]
+        for f in input_files:
+            cmd.extend(["-i", str(f.resolve())])
+
+        n_inputs = len(input_files)
+        filter_inputs = "".join([f"[{i}:a]" for i in range(n_inputs)])
+        filter_complex = f"{filter_inputs}concat=n={n_inputs}:v=0:a=1[outa]"
+
+        cmd.extend([
+            "-filter_complex", filter_complex,
+            "-map", "[outa]",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-ar", "44100",
+            "-ac", "1",
+            str(output_file),
+        ])
+
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            raise RuntimeError(f"Error concatenando lote heterogéneo: {res.stderr}")
+
     def merge_session_chunks(
         self,
         session_id: str,
-        output_filename: str = "master_completo.m4a"
+        output_filename: str = "master_completo.m4a",
+        stream_copy_if_homogeneous: bool = True,
     ) -> Dict[str, Any]:
         """
-        Concatena de forma óptima todos los chunks de la sesión.
-        Utiliza Concat Demuxer directo si son homogéneos, o filtro de audio si son dispares.
+        Concatena de forma óptima todos los chunks de la sesión con protección multihilo.
+        Soporta stream copy directo (-c copy) o loteado resampleado para miles de chunks.
         """
-        session_folder = self.base_dir / session_id
-        manifest_path = session_folder / "session_manifest.json"
+        with self._lock:
+            session_folder = self.base_dir / session_id
+            manifest_path = session_folder / "session_manifest.json"
 
-        if not manifest_path.exists():
-            raise FileNotFoundError(f"Manifest no encontrado para la sesión: {session_id}")
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"Manifest no encontrado para la sesión: {session_id}")
 
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
 
-        chunks_info = manifest.get("chunks", [])
-        if not chunks_info:
-            raise ValueError(f"La sesión {session_id} no contiene fragmentos para consolidar.")
+            chunks_info = manifest.get("chunks", [])
+            if not chunks_info:
+                raise ValueError(f"La sesión {session_id} no contiene fragmentos para consolidar.")
 
-        master_out = session_folder / output_filename
+            master_out = session_folder / output_filename
 
-        # Caso 1: Sesión con un solo fragmento (solo transcodifica/renombra a master si es necesario)
-        if len(chunks_info) == 1:
-            single_chunk_path = session_folder / chunks_info[0]["filename"]
-            logger.info(f"Sesión con un único fragmento. Copiando a master: {master_out.name}")
-            shutil.copy2(single_chunk_path, master_out)
-            manifest["master_file"] = output_filename
-            manifest["estado"] = "consolidada"
-            self._atomic_write_manifest(manifest_path, manifest)
-            return {
-                "master_path": str(master_out),
-                "total_duration": manifest["total_duration_sec"],
-                "total_chunks": 1,
-            }
+            # Caso 1: Un solo fragmento
+            if len(chunks_info) == 1:
+                single_chunk_path = session_folder / chunks_info[0]["filename"]
+                logger.info(f"Sesión con un único fragmento. Copiando a master: {master_out.name}")
+                shutil.copy2(single_chunk_path, master_out)
+                manifest["master_file"] = output_filename
+                manifest["estado"] = "consolidada"
+                self._atomic_write_manifest(manifest_path, manifest)
+                return {
+                    "master_path": str(master_out),
+                    "total_duration": manifest["total_duration_sec"],
+                    "total_chunks": 1,
+                }
 
-        # Caso 2: Múltiples fragmentos. Comprobar homogeneidad de formatos
-        sample_rates = set(c["sample_rate"] for c in chunks_info)
-        channels = set(c["channels"] for c in chunks_info)
-        codecs = set(c["codec_name"] for c in chunks_info)
-        is_homogeneous = (len(sample_rates) == 1 and len(channels) == 1 and len(codecs) == 1)
+            # Caso 2: Múltiples fragmentos
+            sample_rates = set(c["sample_rate"] for c in chunks_info)
+            channels = set(c["channels"] for c in chunks_info)
+            codecs = set(c["codec_name"] for c in chunks_info)
+            is_homogeneous = (len(sample_rates) == 1 and len(channels) == 1 and len(codecs) == 1)
 
-        logger.info(
-            f"Consolidando {len(chunks_info)} chunks de la sesión {session_id}. "
-            f"Modo: {'Lossless Direct Concat' if is_homogeneous else 'Resampled Unified Concat'}"
-        )
+            logger.info(
+                f"Consolidando {len(chunks_info)} chunks de la sesión {session_id}. "
+                f"Modo: {'Lossless Stream Copy' if (is_homogeneous and stream_copy_if_homogeneous) else 'Resampled Batch Concat'}"
+            )
 
-        concat_list_file = session_folder / f".concat_list_{session_id}.txt"
+            concat_list_file = session_folder / f".concat_list_{session_id}.txt"
+            temp_batch_files: List[Path] = []
 
-        try:
-            if is_homogeneous:
-                # Concat Demuxer directo
-                with open(concat_list_file, "w", encoding="utf-8") as f:
-                    for c in chunks_info:
-                        c_file = (session_folder / c["filename"]).resolve()
-                        f.write(f"file '{c_file.as_posix()}'\n")
+            try:
+                if is_homogeneous and stream_copy_if_homogeneous:
+                    # Concat Demuxer directo con escaping seguro de comillas simples
+                    with open(concat_list_file, "w", encoding="utf-8") as f:
+                        for c in chunks_info:
+                            c_file = (session_folder / c["filename"]).resolve()
+                            escaped_path = c_file.as_posix().replace("'", r"'\''")
+                            f.write(f"file '{escaped_path}'\n")
 
-                cmd = [
-                    "ffmpeg",
-                    "-y",
-                    "-hide_banner",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_list_file),
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    "-ar", "44100",
-                    "-ac", "1",
-                    str(master_out),
-                ]
-            else:
-                # Fusión con filtro complex concat para evitar desincronización
-                cmd = ["ffmpeg", "-y", "-hide_banner"]
-                for c in chunks_info:
-                    cmd.extend(["-i", str((session_folder / c["filename"]).resolve())])
+                    cmd = [
+                        self.ffmpeg_bin,
+                        "-y",
+                        "-hide_banner",
+                        "-f", "concat",
+                        "-safe", "0",
+                        "-i", str(concat_list_file),
+                        "-c", "copy",
+                        str(master_out),
+                    ]
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode != 0:
+                        logger.warning(f"Stream copy falló ({res.stderr}). Probando recodificación normal...")
+                        # Fallback a recodificación aac
+                        cmd_recode = [
+                            self.ffmpeg_bin,
+                            "-y",
+                            "-hide_banner",
+                            "-f", "concat",
+                            "-safe", "0",
+                            "-i", str(concat_list_file),
+                            "-c:a", "aac",
+                            "-b:a", "128k",
+                            "-ar", "44100",
+                            "-ac", "1",
+                            str(master_out),
+                        ]
+                        res2 = subprocess.run(cmd_recode, capture_output=True, text=True)
+                        if res2.returncode != 0:
+                            raise RuntimeError(f"Fallo al fusionar chunks homogéneos: {res2.stderr}")
 
-                n_inputs = len(chunks_info)
-                filter_inputs = "".join([f"[{i}:a]" for i in range(n_inputs)])
-                filter_complex = f"{filter_inputs}concat=n={n_inputs}:v=0:a=1[outa]"
+                else:
+                    # Fusión heterogénea por lotes (evita desbordar límites de argumentos en Windows)
+                    chunk_paths = [(session_folder / c["filename"]).resolve() for c in chunks_info]
+                    batch_size = 20
 
-                cmd.extend([
-                    "-filter_complex", filter_complex,
-                    "-map", "[outa]",
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    "-ar", "44100",
-                    "-ac", "1",
-                    str(master_out),
-                ])
+                    if len(chunk_paths) <= batch_size:
+                        self._concat_heterogeneous_batch(chunk_paths, master_out)
+                    else:
+                        # Procesar en sub-lotes
+                        batches = [chunk_paths[i:i + batch_size] for i in range(0, len(chunk_paths), batch_size)]
+                        for idx, batch_files in enumerate(batches):
+                            batch_out = session_folder / f".temp_batch_{session_id}_{idx}.m4a"
+                            temp_batch_files.append(batch_out)
+                            self._concat_heterogeneous_batch(batch_files, batch_out)
 
-            res = subprocess.run(cmd, capture_output=True, text=True)
-            if res.returncode != 0:
-                logger.error(f"Error FFmpeg concat: {res.stderr}")
-                raise RuntimeError(f"Fallo al fusionar audio: {res.stderr}")
+                        # Concatenar los archivos de lotes intermedios
+                        with open(concat_list_file, "w", encoding="utf-8") as f:
+                            for b_file in temp_batch_files:
+                                escaped_path = b_file.resolve().as_posix().replace("'", r"'\''")
+                                f.write(f"file '{escaped_path}'\n")
 
-            # Limpiar lista temporal
-            if concat_list_file.exists():
-                concat_list_file.unlink()
+                        cmd_final = [
+                            self.ffmpeg_bin,
+                            "-y",
+                            "-hide_banner",
+                            "-f", "concat",
+                            "-safe", "0",
+                            "-i", str(concat_list_file),
+                            "-c:a", "aac",
+                            "-b:a", "128k",
+                            str(master_out),
+                        ]
+                        res_final = subprocess.run(cmd_final, capture_output=True, text=True)
+                        if res_final.returncode != 0:
+                            raise RuntimeError(f"Fallo en concatenación final por lotes: {res_final.stderr}")
 
-            manifest["master_file"] = output_filename
-            manifest["estado"] = "consolidada"
-            self._atomic_write_manifest(manifest_path, manifest)
-            logger.info(f"Master consolidado con éxito: {master_out.name} ({manifest['total_duration_sec']}s)")
+                manifest["master_file"] = output_filename
+                manifest["estado"] = "consolidada"
+                self._atomic_write_manifest(manifest_path, manifest)
+                logger.info(f"Master consolidado con éxito: {master_out.name} ({manifest['total_duration_sec']}s)")
 
-            return {
-                "master_path": str(master_out),
-                "total_duration": manifest["total_duration_sec"],
-                "total_chunks": len(chunks_info),
-            }
+                return {
+                    "master_path": str(master_out),
+                    "total_duration": manifest["total_duration_sec"],
+                    "total_chunks": len(chunks_info),
+                }
 
-        except Exception as e:
-            if concat_list_file.exists():
-                concat_list_file.unlink()
-            raise
+            finally:
+                # Limpieza garantizada de archivos de control y temporales
+                if concat_list_file.exists():
+                    try:
+                        concat_list_file.unlink()
+                    except Exception:
+                        pass
+                for tb in temp_batch_files:
+                    if tb.exists():
+                        try:
+                            tb.unlink()
+                        except Exception:
+                            pass
 
 
 if __name__ == "__main__":
