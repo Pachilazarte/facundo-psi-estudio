@@ -1512,7 +1512,7 @@ El inventario NEO-PI-R evalúa las 5 dimensiones mayores mediante 30 facetas esp
 
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('psi_theme') || 'light');
-  const [activeTab, setActiveTab] = useState('materias'); // 'materias', 'pdf', 'perfil', 'system'
+  const [activeTab, setActiveTab] = useState('grabadora'); // 'grabadora', 'historial', 'system'
   const [selectedMateriaId, setSelectedMateriaId] = useState(null);
   const [innerTab, setInnerTab] = useState('params');
   const [biblioFilter, setBiblioFilter] = useState('todos');
@@ -3335,14 +3335,8 @@ function App() {
           {/* Navigation Pill Tabs (Always visible on all screen sizes with horizontal swipe) */}
           <div className="overflow-x-auto no-scrollbar hidden md:flex items-center gap-1.5 p-1 bg-app-surface border border-app-border rounded-lg">
             {[
-              { id: 'materias', label: 'Aulas', icon: 'layers', badge: materias.length },
-              { id: 'biblio', label: 'Biblioteca', icon: 'book-open', badge: biblio.length },
-              { id: 'clases', label: 'Clases', icon: 'presentation', badge: clases.length },
-              { id: 'apuntes', label: 'Apuntes', icon: 'file-text', badge: apuntes.length },
-              { id: 'examenes', label: 'Exámenes', icon: 'calendar-check', badge: examenes.length },
-              { id: 'grabadora', label: 'Grabadora & DSP', icon: 'mic', badge: null },
-              { id: 'pdf', label: 'PDF OCR', icon: 'file-up', badge: pdfs.length },
-              { id: 'perfil', label: 'Mi Perfil', icon: 'user', badge: null },
+              { id: 'grabadora', label: 'Grabadora', icon: 'mic', badge: null },
+              { id: 'historial', label: 'Historial', icon: 'clock', badge: null },
               { id: 'system', label: 'Sistema', icon: 'cpu', badge: null },
             ].map(tab => {
               const isActive = activeTab === tab.id;
@@ -3376,11 +3370,9 @@ function App() {
       {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
         {[
-          { id: 'materias', label: 'Aulas', icon: 'layers' },
-          { id: 'biblio', label: 'Lecturas', icon: 'book-open' },
-          { id: 'apuntes', label: 'Apuntes', icon: 'file-text' },
-          { id: 'clases', label: 'Clases', icon: 'presentation' },
-          { id: 'examenes', label: 'Exámenes', icon: 'calendar-check' },
+          { id: 'grabadora', label: 'Grabar', icon: 'mic' },
+          { id: 'historial', label: 'Historial', icon: 'clock' },
+          { id: 'system', label: 'Sistema', icon: 'cpu' },
         ].map(tab => {
           const isActive = activeTab === tab.id;
           return (
@@ -5195,8 +5187,9 @@ function App() {
         )}
 
         {/* ── TAB: GRABADORA & DESGRABADOR VERBATIM ── */}
-        {activeTab === 'grabadora' && (
+        {(activeTab === 'grabadora' || activeTab === 'historial') && (
           <GrabadoraDesgrabadorView
+            activeTopTab={activeTab}
             materias={materias}
             selectedMateriaId={selectedMateriaId}
             clases={clases}
@@ -8008,6 +8001,7 @@ function ModalFlashcards({ title, items, onClose }) {
 
 // ── 5.8 GRABADORA ACADÉMICA & DESGRABADOR VERBATIM (DSP + WHISPER) ──
 function GrabadoraDesgrabadorView({
+  activeTopTab = 'grabadora',
   materias = [],
   selectedMateriaId = null,
   clases = [],
@@ -8018,9 +8012,19 @@ function GrabadoraDesgrabadorView({
   onLinkToClase = () => {}
 }) {
   const [activeSubTab, setActiveSubTab] = useState('record'); // 'record' | 'player' | 'history'
+
+  useEffect(() => {
+    if (activeTopTab === 'historial') {
+      setActiveSubTab('history');
+    } else if (activeTopTab === 'grabadora' && activeSubTab === 'history') {
+      setActiveSubTab('record');
+    }
+  }, [activeTopTab]);
+
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('psi_audio_server_url') || 'http://localhost:8000');
   const [serverOnline, setServerOnline] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState('');
 
   // Máquina de estados de grabación en vivo: 'idle' | 'recording' | 'paused' | 'processing'
   const [recordingState, setRecordingState] = useState('idle');
@@ -9193,12 +9197,19 @@ function GrabadoraDesgrabadorView({
       } else if (transcriptData.paragraphs) {
         transcriptData.paragraphs.forEach(p => { content += `${p}\n\n`; });
       }
-    } else if (ext === 'vtt') {
-      mime = 'text/vtt;charset=utf-8';
-      content = generateVTTContent(transcriptData.segments || []);
-    } else if (ext === 'srt') {
-      mime = 'application/x-subrip;charset=utf-8';
-      content = generateSRTContent(transcriptData.segments || []);
+    } else if (ext === 'doc') {
+      mime = 'application/msword;charset=utf-8';
+      content = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>Desgrabación</title></head><body>
+<h1>DESGRABACIÓN: ${materiaName.replace(/_/g, ' ')} - CLASE #${targetClaseNum}</h1>
+<p><strong>Fecha:</strong> ${new Date().toLocaleDateString('es-AR')} | <strong>Duración:</strong> ${formatTime(duration || transcriptData.duration_seconds || 0)}</p><hr/>
+`;
+      if (transcriptData.segments) {
+        transcriptData.segments.forEach(s => { content += `<p><strong>[${s.timestamp}]</strong> ${s.text}</p>\n`; });
+      } else if (transcriptData.paragraphs) {
+        transcriptData.paragraphs.forEach(p => { content += `<p>${p}</p>\n`; });
+      }
+      content += `</body></html>`;
     } else if (ext === 'txt') {
       content = transcriptData.segments
         ? transcriptData.segments.map(s => `[${s.timestamp}] ${s.text}`).join('\n')
@@ -9631,75 +9642,36 @@ function GrabadoraDesgrabadorView({
                 >
                   <Icon name="file-text" className="w-3.5 h-3.5" /> + Apunte
                 </button>
-
-                <button
-                  onClick={handleLinkToClaseDirectly}
-                  className="px-3 py-2 bg-app-surface border border-app-border text-app-text font-bold text-xs rounded-xl hover:border-app-emerald transition-all flex items-center gap-1"
-                  title="Vincular audio y desgrabación a la Ficha de Clase en Aulas"
-                >
-                  <Icon name="link-2" className="w-3.5 h-3.5 text-app-emerald" /> + Ficha Clase
-                </button>
-
-                <button
-                  onClick={handleGenerateNeuroscan}
-                  className="px-3 py-2 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1 hover:brightness-110"
-                  title="Compilar Guía de Estudio NEUROSCAN de Alta Densidad"
-                >
-                  <Icon name="sparkles" className="w-3.5 h-3.5 text-app-emerald" /> NEUROSCAN
-                </button>
-
-                <button
-                  onClick={handleCopyAcademicPrompt}
-                  className="px-2.5 py-2 bg-app-amber-bg border border-app-amber/30 text-app-amber font-bold text-xs rounded-xl hover:brightness-110 transition-all flex items-center gap-1"
-                  title="Copiar Prompt Académico con la desgrabación completa para procesar en Gemini/Claude"
-                >
-                  <Icon name="bot" className="w-3.5 h-3.5" /> Prompt IA
-                </button>
-
                 <button
                   onClick={handleCopyTranscript}
-                  className="p-2 bg-app-surface border border-app-border rounded-xl text-app-muted hover:text-app-text"
-                  title="Copiar texto de la clase"
+                  className="p-2 bg-app-surface border border-app-border rounded-xl text-app-muted hover:text-app-text flex items-center gap-1.5 px-3 font-bold text-xs"
+                  title="Copiar texto de la desgrabación"
                 >
-                  <Icon name="clipboard" className="w-3.5 h-3.5" />
+                  <Icon name="clipboard" className="w-3.5 h-3.5" /> Copiar
                 </button>
 
                 {/* Descarga Multiformato */}
                 <div className="relative inline-flex items-center bg-app-surface border border-app-border rounded-xl p-0.5">
                   <button
-                    onClick={() => handleDownloadFile('md')}
-                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar Markdown (.md)"
-                  >
-                    .md
-                  </button>
-                  <button
-                    onClick={() => handleDownloadFile('vtt')}
-                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar Subtítulos WebVTT (.vtt)"
-                  >
-                    .vtt
-                  </button>
-                  <button
-                    onClick={() => handleDownloadFile('srt')}
-                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar Subtítulos SubRip (.srt)"
-                  >
-                    .srt
-                  </button>
-                  <button
                     onClick={() => handleDownloadFile('txt')}
-                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    className="px-3 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald border-r border-app-border/50"
                     title="Descargar Texto Plano (.txt)"
                   >
-                    .txt
+                    .TXT
                   </button>
                   <button
-                    onClick={() => handleDownloadFile('json')}
-                    className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar JSON Estructurado (.json)"
+                    onClick={() => handleDownloadFile('md')}
+                    className="px-3 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald border-r border-app-border/50"
+                    title="Descargar Markdown (.md)"
                   >
-                    .json
+                    .MD
+                  </button>
+                  <button
+                    onClick={() => handleDownloadFile('doc')}
+                    className="px-3 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
+                    title="Descargar Word (.doc)"
+                  >
+                    .DOC
                   </button>
                 </div>
               </div>
@@ -9849,26 +9821,38 @@ function GrabadoraDesgrabadorView({
       {/* ════ SUB-TAB 3: HISTORIAL DE SESIONES GUARDADAS ════ */}
       {activeSubTab === 'history' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <h3 className="text-sm font-extrabold text-app-text">Historial de Desgrabaciones Guardadas</h3>
-            {savedSessions.length > 0 && (
-              <button
-                onClick={() => {
-                  if (confirm('¿Deseas vaciar el historial de sesiones locales?')) {
-                    setSavedSessions([]);
-                    localStorage.removeItem('psi_audio_sessions_history');
-                  }
-                }}
-                className="text-xs text-app-ruby hover:underline font-bold"
-              >
-                Limpiar Historial
-              </button>
-            )}
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <input
+                type="text"
+                placeholder="Buscar (ej. Clase, Capacitación...)"
+                value={historyFilter}
+                onChange={e => setHistoryFilter(e.target.value)}
+                className="w-full sm:w-64 bg-app-surface border border-app-border rounded-lg px-3 py-1.5 text-xs text-app-text focus:border-app-emerald outline-none placeholder-app-muted"
+              />
+              {savedSessions.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm('¿Deseas vaciar el historial de sesiones locales?')) {
+                      setSavedSessions([]);
+                      localStorage.removeItem('psi_audio_sessions_history');
+                    }
+                  }}
+                  className="text-xs text-app-ruby hover:underline font-bold whitespace-nowrap"
+                >
+                  Limpiar Historial
+                </button>
+              )}
+            </div>
           </div>
 
           {savedSessions.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {savedSessions.map((s) => (
+              {savedSessions.filter(s => 
+                s.materia.toLowerCase().includes(historyFilter.toLowerCase()) || 
+                s.tema.toLowerCase().includes(historyFilter.toLowerCase())
+              ).map((s) => (
                 <div key={s.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
