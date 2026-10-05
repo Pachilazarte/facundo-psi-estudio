@@ -170,14 +170,21 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
         target_audio_for_whisper = master_raw_path
         clean_m4a_path = master_raw_path
 
+        import time
+        start_wall_time = time.time()
+        whisper_start_time = None
+
         if options.apply_dsp:
             logger.info(f"[Job {job_id}] Iniciando DSP con preset: {options.preset.value}...")
             cleaner.preset = options.preset
 
             def dsp_progress(pct):
+                elapsed = time.time() - start_wall_time
                 with jobs_lock:
-                    ACTIVE_JOBS[job_id]["progress_pct"] = round(15.0 + (pct * 0.35), 1)  # DSP = 15% a 50%
-                    ACTIVE_JOBS[job_id]["step_detail"] = f"Filtrando audio ({pct:.0f}%)"
+                    real_pct = round(min(30.0, (pct / 100.0) * 30.0), 1)
+                    ACTIVE_JOBS[job_id]["progress_pct"] = real_pct
+                    ACTIVE_JOBS[job_id]["step_detail"] = f"Filtrando eco y ruidos EBU R128 ({pct:.0f}%)"
+                    ACTIVE_JOBS[job_id]["elapsed_sec"] = round(elapsed, 1)
 
             dsp_res = cleaner.clean_audio_file(
                 str(master_raw_path),
@@ -190,16 +197,26 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
         # 3. Transcripción Verbatim con Faster-Whisper
         transcription_result = None
         if options.transcribe:
+            whisper_start_time = time.time()
             with jobs_lock:
                 ACTIVE_JOBS[job_id]["step"] = "transcribing"
-                ACTIVE_JOBS[job_id]["progress_pct"] = 50.0
+                ACTIVE_JOBS[job_id]["progress_pct"] = 30.0
 
             logger.info(f"[Job {job_id}] Iniciando transcripción Whisper de: {target_audio_for_whisper.name}...")
 
             def whisper_progress(pct, current_seg):
+                now = time.time()
+                elapsed = now - (whisper_start_time or start_wall_time)
+                processed_sec = current_seg.get("end", 0.0)
+                speed_ratio = round(processed_sec / elapsed, 2) if elapsed > 0.5 else 1.0
+                real_pct = round(30.0 + (pct * 0.69), 1)
+                
                 with jobs_lock:
-                    ACTIVE_JOBS[job_id]["progress_pct"] = round(50.0 + (pct * 0.48), 1)  # Whisper = 50% a 98%
-                    ACTIVE_JOBS[job_id]["step_detail"] = f"Transcribiendo [{current_seg['timestamp']}]"
+                    ACTIVE_JOBS[job_id]["progress_pct"] = min(99.0, real_pct)
+                    ACTIVE_JOBS[job_id]["step_detail"] = f"Transcribiendo [{current_seg['timestamp']}] — {speed_ratio}x vel."
+                    ACTIVE_JOBS[job_id]["processed_sec"] = round(processed_sec, 1)
+                    ACTIVE_JOBS[job_id]["speed_ratio"] = speed_ratio
+                    ACTIVE_JOBS[job_id]["elapsed_sec"] = round(now - start_wall_time, 1)
 
             transcription_result = transcriber.transcribe_verbatim(
                 str(target_audio_for_whisper),
@@ -209,9 +226,12 @@ def _run_processing_job(job_id: str, session_id: str, options: ProcessSessionReq
             )
 
         with jobs_lock:
+            total_elapsed = round(time.time() - start_wall_time, 1)
             ACTIVE_JOBS[job_id]["status"] = "completed"
             ACTIVE_JOBS[job_id]["progress_pct"] = 100.0
             ACTIVE_JOBS[job_id]["step"] = "done"
+            ACTIVE_JOBS[job_id]["elapsed_sec"] = total_elapsed
+            ACTIVE_JOBS[job_id]["step_detail"] = f"¡Completado en {total_elapsed}s!"
             ACTIVE_JOBS[job_id]["completed_at"] = datetime.utcnow().isoformat() + "Z"
             ACTIVE_JOBS[job_id]["result"] = {
                 "session_id": session_id,
