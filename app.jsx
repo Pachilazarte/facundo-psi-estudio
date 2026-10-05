@@ -1581,7 +1581,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.28.0';
+  const currentVersion = 'v2.29.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -9016,48 +9016,17 @@ function GrabadoraDesgrabadorView({
     md += `> **Fecha:** ${new Date().toLocaleDateString('es-AR')} | **Duración del Registro:** ${formatTime(duration || transcriptData.duration_seconds || 0)}  \n\n`;
     md += `---\n\n`;
 
-    md += `## 1. INTRODUCCIÓN Y CONTEXTO EPISTEMOLÓGICO\n`;
-    md += `En el marco de la cursada de **${materiaName}**, esta clase profundiza en los fundamentos conceptuales y metodológicos de la disciplina. El docente expone la articulación dialéctica entre el marco teórico y la práctica profesional, delimitando las categorías esenciales para la comprensión del temario de examen.\n\n`;
-
-    md += `## 2. DESARROLLO CONCEPTUAL Y CATEGORÍAS CENTRALES\n`;
+    md += `## DESARROLLO DE LA CLASE (DESGRABACIÓN RAW)\n\n`;
 
     if (transcriptData.segments && transcriptData.segments.length > 0) {
-      // Agrupar segmentos conceptualmente
-      const chunks = [];
-      const segs = transcriptData.segments;
-      const chunkSize = Math.max(1, Math.ceil(segs.length / 4));
-      for (let i = 0; i < segs.length; i += chunkSize) {
-        chunks.push(segs.slice(i, i + chunkSize));
-      }
-
-      chunks.forEach((chunk, idx) => {
-        const firstTime = chunk[0]?.timestamp || '00:00';
-        const chunkText = chunk.map(s => s.text).join(' ');
-        md += `### Apartado ${idx + 1}: Núcleo Teórico (Minuto ${firstTime})\n`;
-        md += `${chunkText}\n\n`;
-        md += `• **Definición Clave:** *El concepto analizado por el docente opera como criterio rector en la evaluación de la cátedra.*\n`;
-        md += `◦ Matiz técnico: Debe articularse con la bibliografía obligatoria correspondiente a la unidad.\n\n`;
+      transcriptData.segments.forEach((seg, idx) => {
+        md += `**[${seg.timestamp}]** ${seg.text}\n\n`;
       });
     } else if (transcriptData.paragraphs) {
       transcriptData.paragraphs.forEach((p, idx) => {
-        md += `### Eje ${idx + 1}: Concepto Fundamental\n${p}\n\n`;
-        md += `• **Punto Central:** *Articulación teórica con la bibliografía de cátedra.*\n\n`;
+        md += `${p}\n\n`;
       });
     }
-
-    md += `## 3. PUNTOS CLAVE DE EXAMEN & ÉNFASIS DEL DOCENTE\n`;
-    md += `> [!IMPORTANT]\n`;
-    md += `> **Preguntas Típicas de Parcial / Final:**\n`;
-    md += `> 1. Explicar las diferencias estructurales desarrolladas por el autor durante la exposición.\n`;
-    md += `> 2. Definir con precisión el vocabulario técnico sin recurrir a simplificaciones de sentido común.\n`;
-    md += `> 3. Ejemplificar la relación entre el dispositivo teórico y el campo de aplicación clínica/institucional.\n\n`;
-
-    md += `## 4. CUADRO DE INTEGRACIÓN CONCEPTUAL\n\n`;
-    md += `| Dimensión / Autor | Concepto Clave Cátedra | Implicancia Clínica / Académica |\n`;
-    md += `|:---|:---|:---|\n`;
-    md += `| **Eje Principal** | ${temaClase || 'Estructura Conceptual'} | Criterio de evaluación diagnóstica |\n`;
-    md += `| **Fundamento Teórico** | Definición estricta del autor | Validación metodológica en parciales |\n`;
-    md += `| **Dispositivo de Cátedra** | Articulación con casos prácticos | Aplicación clínica e investigación |\n\n`;
 
     onOpenApunteModal({
       titulo: `Guía NEUROSCAN: ${materiaName} - C#${targetClaseNum}`,
