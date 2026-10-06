@@ -15,11 +15,13 @@ function respuesta(statusCode, data) {
 }
 
 function claveValida(recibida, esperada) {
-  if (!recibida || !esperada || esperada.length < 24) return false;
-  if (recibida.length !== esperada.length) return false;
+  const r = (recibida || '').trim();
+  const e = (esperada || '').trim();
+  if (!r || !e || e.length < 20) return false;
+  if (r.length !== e.length) return false;
   let diferencia = 0;
-  for (let i = 0; i < esperada.length; i++) {
-    diferencia |= recibida.charCodeAt(i) ^ esperada.charCodeAt(i);
+  for (let i = 0; i < e.length; i++) {
+    diferencia |= r.charCodeAt(i) ^ e.charCodeAt(i);
   }
   return diferencia === 0;
 }
@@ -27,8 +29,15 @@ function claveValida(recibida, esperada) {
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return respuesta(405, { error: 'Método no permitido' });
 
+  const headers = {};
+  if (event.headers) {
+    for (const k of Object.keys(event.headers)) {
+      headers[k.toLowerCase()] = event.headers[k];
+    }
+  }
+
   const claveEsperada = process.env.PSI_API_TOKEN || '';
-  const recibida = (event.headers && (event.headers['x-app-token'] || event.headers['X-App-Token'])) || '';
+  const recibida = headers['x-app-token'] || headers['x-psi-token'] || headers['authorization'] || '';
   if (!claveValida(recibida, claveEsperada)) return respuesta(401, { error: 'Clave inválida o ausente' });
 
   const groqKey = process.env.GROQ_API_KEY || '';

@@ -125,7 +125,12 @@ async function transcribirFragmento(sesion: Sesion, fragmento: Fragmento): Promi
     const res = await archivo.upload(FUNCION_TRANSCRIBIR, {
       httpMethod: 'POST',
       uploadType: UploadType.BINARY_CONTENT,
-      headers: { 'Content-Type': 'audio/mp4', 'x-app-token': APP_TOKEN },
+      headers: {
+        'Content-Type': 'audio/mp4',
+        'x-app-token': APP_TOKEN,
+        'X-App-Token': APP_TOKEN,
+        'x-psi-token': APP_TOKEN,
+      },
     });
 
     let datos: RespuestaFuncion = {};
