@@ -3591,7 +3591,7 @@ function App() {
       </header>
 
       {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(2.75rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(4rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
         {[
           { id: 'materias', label: 'Aulas', icon: 'layers' },
           { id: 'biblio', label: 'Lecturas', icon: 'book-open' },
@@ -5574,7 +5574,7 @@ function App() {
 function ModalNovedades({ onClose }) {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="titulo-novedades" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 shadow-fluffy space-y-4 max-h-[85vh] overflow-y-auto">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 pb-20 md:pb-5 shadow-fluffy space-y-4 max-h-[85vh] overflow-y-auto">
         <div className="flex items-center gap-2">
           <Icon name="sparkles" className="w-5 h-5 text-app-emerald" />
           <h3 id="titulo-novedades" className="text-lg font-extrabold text-app-text">Novedades de PsiEstudio</h3>
@@ -5657,7 +5657,7 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 pb-20 md:pb-5 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div className="flex items-center gap-2">
             <Icon name="grid" className="w-5 h-5 text-app-emerald" />
