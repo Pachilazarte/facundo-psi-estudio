@@ -11,7 +11,7 @@ import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { archivoFragmento, reintentarFragmento } from '../almacen';
-import { armarContenido, despertar, reintentarAhora } from '../transcripcion';
+import { armarContenido, reintentarAhora } from '../transcripcion';
 import type { Fragmento, Sesion } from '../tipos';
 import { fechaLegible, formatearBytes, formatearTiempo, mensajeDeError } from '../util';
 
