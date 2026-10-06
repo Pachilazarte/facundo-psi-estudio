@@ -1,52 +1,41 @@
-// Tipos compartidos por la grabadora, el almacenamiento y la cola de transcripción.
+// Tipos de la tabla public.cargas_audio y de apuntes (mismos nombres que la web).
 
-export type SegmentoTexto = { start: number; end: number; text: string };
-
-export type EstadoFragmento = 'pendiente' | 'transcripto' | 'error';
-
-export type Fragmento = {
-  orden: number;
-  /** Nombre del archivo dentro de la carpeta de la sesión (nunca se borra). */
-  archivo: string;
-  /** Duración medida por el grabador, en segundos. */
-  duracionSeg: number;
-  estado: EstadoFragmento;
-  intentos: number;
-  ultimoError?: string;
-  texto?: string;
-  duracionTranscripta?: number;
-  segmentos?: SegmentoTexto[];
+export type ParteDesgrabada = {
+  text: string;
+  duration: number;
+  segments: { start: number; end: number; text: string }[];
 };
 
-export type EstadoSesion = 'grabando' | 'pausada' | 'terminada' | 'interrumpida';
+export type EstadoCarga = 'grabando' | 'pendiente' | 'en_proceso' | 'completada' | 'error';
 
-export type TramoEnCurso = {
-  uri: string;
-  iniciadoEn: string;
-  orden: number;
-};
-
-export type Sesion = {
+export type Carga = {
   id: string;
-  materiaId: string | null;
-  materiaNombre: string;
-  claseNum: number;
+  origen: 'archivo' | 'grabacion';
+  nombre: string;
+  materia: string;
+  materia_id: string | null;
+  clase_num: number;
   tema: string;
-  creadoEn: string;
-  actualizadoEn: string;
-  estado: EstadoSesion;
-  fragmentos: Fragmento[];
-  /** Fragmento de audio que se está grabando actualmente en el grabador (por si iOS mata la app). */
-  tramoEnCurso?: TramoEnCurso | null;
-  /** Hay texto nuevo que todavía no se guardó en PsiEstudio (Supabase). */
-  apuntePendiente: boolean;
-  apunteGuardadoEn: string | null;
-  errorGuardado?: string;
+  archivos: string[];
+  partes: Record<string, ParteDesgrabada>;
+  partes_listas: number;
+  partes_total: number;
+  estado: EstadoCarga;
+  error: string | null;
+  apunte_id: string | null;
+  created_at: string;
 };
 
 export type Materia = {
   id: string;
   nombre: string;
   abreviatura?: string | null;
-  color?: string | null;
+};
+
+export type ApunteDesgrabado = {
+  id: string;
+  materia: string;
+  titulo: string;
+  contenido: string;
+  created_at: string;
 };

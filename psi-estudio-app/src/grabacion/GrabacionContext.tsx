@@ -1,7 +1,8 @@
-// La grabadora vive acá, en la raíz de la app, para que seguir navegando no la corte.
-// Graba en fragmentos de SEGMENTO_SEGUNDOS: cada corte guarda un archivo en el teléfono y lo manda a la cola.
+// Grabadora de la app. Igual que la web: cada fragmento de SEGMENTO_SEGUNDOS se sube a la base al cortarse.
+// La grabación se registra en cargas_audio al empezar, así lo ya subido queda recuperable si algo se corta.
+// La grabadora vive en la raíz de la app: cambiar de pestaña no la corta.
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import {
   RecordingPresets,
@@ -12,37 +13,43 @@ import {
 } from 'expo-audio';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { SEGMENTO_SEGUNDOS } from '../config';
-import { crearSesion, guardarSesion, moverGrabacionASesion, obtenerSesion } from '../almacen';
-import { despertar } from '../transcripcion';
-import type { Sesion } from '../tipos';
+import { nombrePendiente, ponerEnPendientes } from '../outbox';
+import { despertarCola, subirPendientes } from '../cola';
+import { actualizarCarga, crearCarga, leerCargas } from '../supabase';
+import type { Carga } from '../tipos';
 import { mensajeDeError } from '../util';
 
 export type Fase = 'inactiva' | 'preparando' | 'grabando' | 'cortando' | 'pausada';
 
-export type DatosNuevaSesion = {
+export type DatosNuevaClase = {
   materiaId: string | null;
   materiaNombre: string;
   claseNum: number;
   tema: string;
 };
 
-type ValorContexto = {
+export type ValorGrabacion = {
   fase: Fase;
-  sesion: Sesion | null;
+  cargaId: string | null;
+  etiqueta: string;
   segundos: number;
   aviso: string | null;
-  iniciar: (datos: DatosNuevaSesion) => Promise<void>;
-  continuar: (sesionId: string) => Promise<void>;
+  iniciar: (datos: DatosNuevaClase) => Promise<void>;
   pausar: () => Promise<void>;
   reanudar: () => Promise<void>;
   terminar: () => Promise<void>;
+  continuar: (carga: Carga) => Promise<void>;
   limpiarAviso: () => void;
 };
 
-const Contexto = createContext<ValorContexto | null>(null);
+const Contexto = createContext<ValorGrabacion | null>(null);
 const ETIQUETA_PANTALLA = 'psi-grabacion';
 
-async function activarModoGrabacion(): Promise<void> {
+function nuevoId(): string {
+  return `grab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+async function modoGrabacion(): Promise<void> {
   await setAudioModeAsync({
     allowsRecording: true,
     playsInSilentMode: true,
@@ -53,43 +60,32 @@ async function activarModoGrabacion(): Promise<void> {
 
 export function GrabacionProvider({ children }: { children: React.ReactNode }) {
   const [fase, setFaseEstado] = useState<Fase>('inactiva');
-  const [sesion, setSesionEstado] = useState<Sesion | null>(null);
+  const [cargaId, setCargaId] = useState<string | null>(null);
+  const [etiqueta, setEtiqueta] = useState('');
   const [segundos, setSegundos] = useState(0);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const faseRef = useRef<Fase>('inactiva');
-  const sesionRef = useRef<Sesion | null>(null);
+  const cargaRef = useRef<{ id: string } | null>(null);
   const ordenRef = useRef(0);
   const segundosBaseRef = useRef(0);
-  const timerCorteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const corteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const relojRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cadenaRef = useRef<Promise<void>>(Promise.resolve());
 
-  const alCambiarEstado = useCallback((estado: RecordingStatus) => {
+  const alCambiarEstado = (estado: RecordingStatus) => {
     if (estado.hasError && estado.error) setAviso(`Problema del grabador: ${estado.error}`);
-    if (estado.mediaServicesDidReset) setAviso('El sistema reinició el audio. Si la grabación se detuvo, tocá Reanudar.');
-  }, []);
-
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, alCambiarEstado);
-  const recorderRef = useRef(recorder);
-  useEffect(() => {
-    recorderRef.current = recorder;
-  }, [recorder]);
+  };
+  const grabadora = useAudioRecorder(RecordingPresets.HIGH_QUALITY, alCambiarEstado);
+  const grabadoraRef = useRef(grabadora);
+  grabadoraRef.current = grabadora;
 
   const setFase = (f: Fase) => {
     faseRef.current = f;
     setFaseEstado(f);
   };
-  const setSesion = (s: Sesion | null) => {
-    sesionRef.current = s;
-    setSesionEstado(s ? { ...s } : null);
-  };
-  const refrescarSesion = () => {
-    const s = sesionRef.current;
-    setSesionEstado(s ? { ...s } : null);
-  };
 
-  /** Todas las operaciones corren una detrás de otra: un toque del usuario nunca pisa un corte automático. */
+  /** Todo corre en serie: un toque del usuario nunca pisa un corte automático. */
   const enSerie = (fn: () => Promise<void>): Promise<void> => {
     const siguiente = cadenaRef.current.catch(() => undefined).then(fn);
     cadenaRef.current = siguiente.catch(() => undefined);
@@ -108,7 +104,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     relojRef.current = setInterval(() => {
       let actual = 0;
       try {
-        actual = recorderRef.current.getStatus().durationMillis / 1000;
+        actual = grabadoraRef.current.getStatus().durationMillis / 1000;
       } catch {
         actual = 0;
       }
@@ -116,80 +112,51 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     }, 1000);
   };
 
-  const cancelarCorteProgramado = () => {
-    if (timerCorteRef.current) {
-      clearTimeout(timerCorteRef.current);
-      timerCorteRef.current = null;
+  const cancelarCorte = () => {
+    if (corteRef.current) {
+      clearTimeout(corteRef.current);
+      corteRef.current = null;
     }
   };
 
   const programarCorte = () => {
-    cancelarCorteProgramado();
-    timerCorteRef.current = setTimeout(() => {
+    cancelarCorte();
+    corteRef.current = setTimeout(() => {
       void enSerie(cortarYSeguir);
     }, SEGMENTO_SEGUNDOS * 1000);
   };
 
   const empezarTramo = async () => {
-    const rec = recorderRef.current;
-    await rec.prepareToRecordAsync();
-    rec.record();
-    const s = sesionRef.current;
-    if (s) {
-      s.tramoEnCurso = {
-        uri: rec.uri || '',
-        iniciadoEn: new Date().toISOString(),
-        orden: ordenRef.current + 1,
-      };
-      await guardarSesion(s);
-    }
+    const g = grabadoraRef.current;
+    await g.prepareToRecordAsync();
+    g.record();
     programarCorte();
   };
 
-  /** Detiene el tramo en curso y lo guarda como fragmento de la sesión. Nunca borra nada. */
+  /** Corta el tramo en curso, lo pasa a la cola de subida y lo sube. Nunca borra nada que no esté en la base. */
   const guardarTramo = async (): Promise<void> => {
-    const rec = recorderRef.current;
-    const s = sesionRef.current;
-    cancelarCorteProgramado();
-    if (!s) return;
+    const g = grabadoraRef.current;
+    const carga = cargaRef.current;
+    cancelarCorte();
+    if (!carga) return;
     let duracionMs = 0;
     try {
-      duracionMs = rec.getStatus().durationMillis;
+      duracionMs = g.getStatus().durationMillis;
     } catch {
       duracionMs = 0;
     }
     try {
-      await rec.stop();
+      await g.stop();
     } catch {
-      // el sistema ya lo había detenido: el archivo igual queda
+      // ya estaba detenido por el sistema: el archivo igual queda
     }
-    const uri = rec.uri;
+    const uri = g.uri;
     if (!uri) return;
-    const orden = ordenRef.current + 1;
-    const { archivo, bytes } = await moverGrabacionASesion(uri, s, orden);
-    if (bytes <= 0) return;
-    ordenRef.current = orden;
-    const duracionSeg = Math.round(duracionMs / 100) / 10;
-    s.tramoEnCurso = null;
-    s.fragmentos.push({ orden, archivo, duracionSeg, estado: 'pendiente', intentos: 0 });
-    segundosBaseRef.current += duracionSeg;
-    await guardarSesion(s);
-    refrescarSesion();
-    despertar();
-  };
-
-  const pasarAPausada = async () => {
-    detenerReloj();
-    cancelarCorteProgramado();
-    const s = sesionRef.current;
-    if (s) {
-      s.estado = 'pausada';
-      s.tramoEnCurso = null;
-      await guardarSesion(s);
-    }
-    setFase('pausada');
-    refrescarSesion();
-    void deactivateKeepAwake(ETIQUETA_PANTALLA);
+    ordenRef.current += 1;
+    const orden = ordenRef.current;
+    ponerEnPendientes(uri, nombrePendiente(carga.id, orden));
+    segundosBaseRef.current += Math.round(duracionMs / 100) / 10;
+    await subirPendientes();
   };
 
   const cortarYSeguir = async () => {
@@ -197,27 +164,33 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     setFase('cortando');
     try {
       await guardarTramo();
-      // Todo corre en serie, así que nadie pudo cambiar la fase mientras se guardaba.
-      if (sesionRef.current) {
+      if (cargaRef.current) {
         await empezarTramo();
         setFase('grabando');
       }
     } catch (e) {
-      setAviso(`Se interrumpió la grabación: ${mensajeDeError(e)}. Lo grabado quedó guardado. Tocá Reanudar para seguir.`);
-      await pasarAPausada();
+      setAviso(`Se interrumpió la grabación: ${mensajeDeError(e)}. Lo grabado ya está guardado. Tocá Reanudar.`);
+      await pasarAPausa();
     }
   };
 
-  const arrancarConSesion = async (s: Sesion) => {
+  const pasarAPausa = async () => {
+    detenerReloj();
+    cancelarCorte();
+    setFase('pausada');
+    void deactivateKeepAwake(ETIQUETA_PANTALLA);
+  };
+
+  const arrancar = async (carga: Carga) => {
     const permiso = await requestRecordingPermissionsAsync();
-    if (!permiso.granted) throw new Error('Sin permiso de micrófono. Habilitalo en Ajustes del iPhone, en PsiEstudio.');
-    await activarModoGrabacion();
-    s.estado = 'grabando';
-    await guardarSesion(s);
-    setSesion(s);
-    ordenRef.current = s.fragmentos.reduce((max, f) => Math.max(max, f.orden), 0);
-    segundosBaseRef.current = s.fragmentos.reduce((acc, f) => acc + (f.duracionSeg || 0), 0);
-    setSegundos(Math.floor(segundosBaseRef.current));
+    if (!permiso.granted) throw new Error('Sin permiso de micrófono. Habilitalo en Ajustes del teléfono, en PsiEstudio.');
+    await modoGrabacion();
+    cargaRef.current = { id: carga.id };
+    setCargaId(carga.id);
+    setEtiqueta(`${carga.materia} · Clase ${carga.clase_num}`);
+    ordenRef.current = carga.archivos.length;
+    segundosBaseRef.current = 0;
+    setSegundos(0);
     setAviso(null);
     await activateKeepAwakeAsync(ETIQUETA_PANTALLA);
     await empezarTramo();
@@ -225,33 +198,58 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     iniciarReloj();
   };
 
-  const iniciar = (datos: DatosNuevaSesion) =>
+  const fallarArranque = async (e: unknown) => {
+    cargaRef.current = null;
+    setCargaId(null);
+    setFase('inactiva');
+    void deactivateKeepAwake(ETIQUETA_PANTALLA);
+    throw e;
+  };
+
+  const iniciar = (datos: DatosNuevaClase) =>
     enSerie(async () => {
       if (faseRef.current !== 'inactiva') throw new Error('Ya hay una grabación en curso');
       setFase('preparando');
+      const carga: Carga = {
+        id: nuevoId(),
+        origen: 'grabacion',
+        nombre: `Grabación · ${datos.materiaNombre} · Clase ${datos.claseNum}`,
+        materia: datos.materiaNombre,
+        materia_id: datos.materiaId,
+        clase_num: datos.claseNum,
+        tema: datos.tema,
+        archivos: [],
+        partes: {},
+        partes_listas: 0,
+        partes_total: 0,
+        estado: 'grabando',
+        error: null,
+        apunte_id: null,
+        created_at: new Date().toISOString(),
+      };
       try {
-        await arrancarConSesion(crearSesion(datos));
+        await crearCarga(carga); // sin registro en la base no se graba
       } catch (e) {
-        setFase('inactiva');
-        setSesion(null);
-        void deactivateKeepAwake(ETIQUETA_PANTALLA);
-        throw e;
+        await fallarArranque(new Error(`No se pudo empezar: ${mensajeDeError(e)}`));
+        return;
+      }
+      try {
+        await arrancar(carga);
+      } catch (e) {
+        await actualizarCarga(carga.id, { estado: 'error', error: 'La grabación no arrancó' }).catch(() => undefined);
+        await fallarArranque(new Error(`No se pudo empezar: ${mensajeDeError(e)}`));
       }
     });
 
-  const continuar = (sesionId: string) =>
+  const continuar = (carga: Carga) =>
     enSerie(async () => {
       if (faseRef.current !== 'inactiva') throw new Error('Ya hay una grabación en curso');
-      const s = obtenerSesion(sesionId);
-      if (!s) throw new Error('No se encontró la clase en el teléfono');
       setFase('preparando');
       try {
-        await arrancarConSesion(s);
+        await actualizarCarga(carga.id, { estado: 'grabando', error: null });
+        await arrancar(carga);
       } catch (e) {
-        setFase('inactiva');
-        setSesion(null);
-        void deactivateKeepAwake(ETIQUETA_PANTALLA);
-        throw e;
+        await fallarArranque(new Error(`No se pudo continuar: ${mensajeDeError(e)}`));
       }
     });
 
@@ -262,74 +260,70 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
       try {
         await guardarTramo();
       } catch (e) {
-        setAviso(`No se pudo guardar el último tramo: ${mensajeDeError(e)}`);
+        setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}. Queda en el teléfono hasta que se suba.`);
       }
-      await pasarAPausada();
+      await pasarAPausa();
     });
 
   const reanudar = () =>
     enSerie(async () => {
-      if (faseRef.current !== 'pausada' || !sesionRef.current) return;
+      if (faseRef.current !== 'pausada' || !cargaRef.current) return;
       setFase('preparando');
       try {
-        await activarModoGrabacion();
+        await modoGrabacion();
         await activateKeepAwakeAsync(ETIQUETA_PANTALLA);
         await empezarTramo();
-        const s = sesionRef.current;
-        s.estado = 'grabando';
-        await guardarSesion(s);
-        refrescarSesion();
         setFase('grabando');
         setAviso(null);
         iniciarReloj();
       } catch (e) {
         setAviso(`No se pudo reanudar: ${mensajeDeError(e)}`);
-        await pasarAPausada();
+        await pasarAPausa();
       }
     });
 
   const terminar = () =>
     enSerie(async () => {
-      const s = sesionRef.current;
-      if (!s) return;
-      if (faseRef.current === 'grabando') {
+      const carga = cargaRef.current;
+      if (!carga) return;
+      if (faseRef.current === 'grabando' || faseRef.current === 'cortando') {
         setFase('cortando');
         try {
           await guardarTramo();
         } catch (e) {
-          setAviso(`No se pudo guardar el último tramo: ${mensajeDeError(e)}`);
+          setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}`);
         }
       }
       detenerReloj();
-      cancelarCorteProgramado();
-      s.estado = 'terminada';
-      s.tramoEnCurso = null;
-      // Fuerza un guardado final en PsiEstudio con el estado "completa" cuando terminen los fragmentos.
-      if (s.fragmentos.length > 0) s.apuntePendiente = true;
-      await guardarSesion(s);
-      setSesion(null);
+      cancelarCorte();
+      try {
+        await subirPendientes();
+        const [registro] = await leerCargas({ ids: [carga.id], conPartes: false, limite: 1 });
+        const subidos = registro ? registro.archivos.length : 0;
+        if (subidos === 0) {
+          await actualizarCarga(carga.id, { estado: 'error', error: 'No se grabó audio' });
+        } else {
+          await actualizarCarga(carga.id, { estado: 'pendiente', error: null });
+        }
+      } catch (e) {
+        setAviso(`Clase cerrada en el teléfono, pero no se pudo avisar a la base: ${mensajeDeError(e)}. Se reintenta solo.`);
+      }
+      cargaRef.current = null;
+      setCargaId(null);
       setFase('inactiva');
       setSegundos(0);
       void deactivateKeepAwake(ETIQUETA_PANTALLA);
-      try {
-        await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
-      } catch {
-        // no es grave
-      }
-      despertar();
+      despertarCola();
     });
 
-  const limpiarAviso = () => setAviso(null);
-
-  // Si la app vuelve del fondo y iOS cortó el micrófono, se guarda lo grabado y queda en pausa (nunca se pierde).
+  // Si la app vuelve del fondo y el sistema cortó el micrófono, se sube lo grabado y queda en pausa.
   useEffect(() => {
-    const suscripcion = AppState.addEventListener('change', (siguiente) => {
-      if (siguiente !== 'active') return;
-      despertar();
+    const suscripcion = AppState.addEventListener('change', (estadoApp) => {
+      if (estadoApp !== 'active') return;
       if (faseRef.current !== 'grabando') return;
       let sigue = true;
       try {
-        sigue = recorderRef.current.getStatus().isRecording;
+        sigue = grabadoraRef.current.getStatus().isRecording;
       } catch {
         sigue = false;
       }
@@ -340,33 +334,35 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
         try {
           await guardarTramo();
         } catch (e) {
-          setAviso(`No se pudo guardar el último tramo: ${mensajeDeError(e)}`);
+          setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}`);
         }
-        await pasarAPausada();
-        setAviso('iOS detuvo la grabación mientras la app estaba en segundo plano. Lo grabado quedó guardado. Tocá Reanudar para seguir.');
+        await pasarAPausa();
+        setAviso('El sistema detuvo la grabación con la app en segundo plano. Lo grabado ya está guardado. Tocá Reanudar.');
       });
     });
     return () => {
       suscripcion.remove();
       detenerReloj();
-      cancelarCorteProgramado();
+      cancelarCorte();
     };
-    // Solo usa refs: no depende de ningún estado.
+    // Solo usa refs: no depende de estado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const valor = useMemo<ValorContexto>(
-    () => ({ fase, sesion, segundos, aviso, iniciar, continuar, pausar, reanudar, terminar, limpiarAviso }),
-    // Las funciones solo usan refs, así que alcanza con el estado visible.
+  const limpiarAviso = () => setAviso(null);
+
+  const valor = useMemo<ValorGrabacion>(
+    () => ({ fase, cargaId, etiqueta, segundos, aviso, iniciar, pausar, reanudar, terminar, continuar, limpiarAviso }),
+    // Las funciones solo usan refs: alcanza con el estado visible.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fase, sesion, segundos, aviso],
+    [fase, cargaId, etiqueta, segundos, aviso],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
 
-export function useGrabacion(): ValorContexto {
-  const valor = useContext(Contexto);
-  if (!valor) throw new Error('useGrabacion debe usarse dentro de GrabacionProvider');
-  return valor;
+export function useGrabacion(): ValorGrabacion {
+  const v = useContext(Contexto);
+  if (!v) throw new Error('useGrabacion debe usarse dentro de GrabacionProvider');
+  return v;
 }

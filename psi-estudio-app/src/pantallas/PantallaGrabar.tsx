@@ -1,76 +1,42 @@
-// Pantalla de grabación: elegir materia y clase, grabar, y ver el estado de cada clase grabada.
-// Nada de lo que aparece acá se puede borrar desde la app: el audio original siempre queda.
+// Pantalla de grabación. Elegís materia y clase, grabás, y ves el estado de cada clase (que vive en la base).
 
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { calcularEspacioAudio, guardarCacheMaterias, leerCacheMaterias } from '../almacen';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { avisarCambioCargas, despertarCola } from '../cola';
 import { useGrabacion } from '../grabacion/GrabacionContext';
-import { useSesiones } from '../hooks';
-import { listarMaterias } from '../supabase';
-import type { Materia, Sesion } from '../tipos';
-import { reintentarAhora, useCola } from '../transcripcion';
-import { fechaLegible, formatearBytes, formatearTiempo, mensajeDeError } from '../util';
-import { DetalleSesion } from './DetalleSesion';
+import { useCargas } from '../hooks';
+import { actualizarCarga, listarMaterias } from '../supabase';
+import type { Carga, Materia } from '../tipos';
+import { fechaLegible, formatearTiempo, mensajeDeError } from '../util';
 
 export function PantallaGrabar({ visible }: { visible: boolean }) {
   const g = useGrabacion();
-  const cola = useCola();
-  const sesiones = useSesiones();
+  const cargas = useCargas();
 
-  const [sesionDetalleId, setSesionDetalleId] = useState<string | null>(null);
-  const [materias, setMaterias] = useState<Materia[]>(() => leerCacheMaterias());
-  const [materiaId, setMateriaId] = useState<string | null>(() => {
-    const inicial = leerCacheMaterias();
-    return inicial.length > 0 ? inicial[0].id : null;
-  });
+  const [materias, setMaterias] = useState<Materia[]>([]);
+  const [errorMaterias, setErrorMaterias] = useState<string | null>(null);
+  const [materiaId, setMateriaId] = useState<string | null>(null);
   const [claseNum, setClaseNum] = useState(1);
   const [tema, setTema] = useState('');
-  const [cargandoMaterias, setCargandoMaterias] = useState(false);
-  const [errorMaterias, setErrorMaterias] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
   const cargarMaterias = useCallback(async () => {
-    setCargandoMaterias(true);
-    setErrorMaterias(null);
     try {
       const lista = await listarMaterias();
       setMaterias(lista);
-      guardarCacheMaterias(lista);
-      setMateriaId((actual) => actual || (lista.length > 0 ? lista[0].id : null));
+      setErrorMaterias(null);
     } catch (e) {
-      setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}. Se usan las materias guardadas.`);
-    } finally {
-      setCargandoMaterias(false);
+      setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}`);
     }
   }, []);
 
   useEffect(() => {
-    let cancelado = false;
-    (async () => {
-      try {
-        const lista = await listarMaterias();
-        if (cancelado) return;
-        setMaterias(lista);
-        guardarCacheMaterias(lista);
-        setMateriaId((actual) => actual || (lista.length > 0 ? lista[0].id : null));
-      } catch (e) {
-        if (cancelado) return;
-        setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}. Se usan las materias guardadas.`);
-      }
-    })();
-    return () => {
-      cancelado = true;
-    };
-  }, []);
+    void cargarMaterias();
+  }, [cargarMaterias]);
+
+  useEffect(() => {
+    if (!materiaId && materias.length > 0) setMateriaId(materias[0].id);
+  }, [materias, materiaId]);
 
   const ejecutar = async (accion: () => Promise<void>, titulo: string) => {
     setOcupado(true);
@@ -92,37 +58,31 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
           materiaNombre: materia ? materia.nombre : 'General',
           claseNum,
           tema: tema.trim(),
-        }),
+        }).then(() => avisarCambioCargas()),
       'No se pudo empezar',
     );
   };
 
   const confirmarTerminar = () => {
-    Alert.alert('Terminar la clase', 'Se guarda lo grabado y se transcribe lo que falte. ¿Terminar?', [
+    Alert.alert('Terminar la clase', 'Se sube lo grabado y se desgraba lo que falte. ¿Terminar?', [
       { text: 'Seguir grabando', style: 'cancel' },
-      { text: 'Terminar', style: 'destructive', onPress: () => void ejecutar(() => g.terminar(), 'No se pudo terminar') },
+      {
+        text: 'Terminar',
+        style: 'destructive',
+        onPress: () => void ejecutar(() => g.terminar().then(() => avisarCambioCargas()), 'No se pudo terminar'),
+      },
     ]);
   };
 
-  const hayGrabacion = g.fase !== 'inactiva';
-  const sesionDetalle = sesionDetalleId ? sesiones.find((s) => s.id === sesionDetalleId) : null;
-  const espacio = calcularEspacioAudio();
+  const reintentar = (carga: Carga) => {
+    void ejecutar(async () => {
+      await actualizarCarga(carga.id, { estado: 'pendiente', error: null });
+      avisarCambioCargas();
+      despertarCola();
+    }, 'No se pudo reintentar');
+  };
 
-  if (sesionDetalle) {
-    return (
-      <View style={[styles.contenedor, !visible && styles.oculta]}>
-        <DetalleSesion
-          sesion={sesionDetalle}
-          onVolver={() => setSesionDetalleId(null)}
-          puedeContinuar={!hayGrabacion && (sesionDetalle.estado === 'pausada' || sesionDetalle.estado === 'interrumpida')}
-          onContinuar={() => {
-            setSesionDetalleId(null);
-            void ejecutar(() => g.continuar(sesionDetalle.id), 'No se pudo continuar');
-          }}
-        />
-      </View>
-    );
-  }
+  const hayGrabacion = g.fase !== 'inactiva';
 
   return (
     <View style={[styles.contenedor, !visible && styles.oculta]}>
@@ -130,17 +90,9 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
         {!hayGrabacion ? (
           <View style={styles.tarjeta}>
             <Text style={styles.titulo}>Nueva clase</Text>
-
-            <View style={styles.filaEntreTitulo}>
-              <Text style={styles.etiqueta}>Materia</Text>
-              <TouchableOpacity onPress={() => void cargarMaterias()} disabled={cargandoMaterias}>
-                <Text style={styles.enlace}>{cargandoMaterias ? 'Actualizando...' : 'Actualizar'}</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.etiqueta}>Materia</Text>
             {errorMaterias ? <Text style={styles.textoError}>{errorMaterias}</Text> : null}
-            {materias.length === 0 && !cargandoMaterias ? (
-              <Text style={styles.textoMuted}>No hay materias cargadas. La clase se guarda como &quot;General&quot;.</Text>
-            ) : null}
+            {materias.length === 0 && !errorMaterias ? <ActivityIndicator color="#10b981" /> : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {materias.map((m) => {
                 const activa = m.id === materiaId;
@@ -178,20 +130,16 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
               {ocupado ? <ActivityIndicator color="white" /> : <Text style={styles.botonGrandeTexto}>Empezar clase</Text>}
             </TouchableOpacity>
             <Text style={styles.textoMuted}>
-              Se graba en fragmentos de 2,5 minutos. Cada fragmento queda guardado en el teléfono y se transcribe solo. Podés ir a
-              PsiEstudio mientras tanto: la grabación sigue.
+              El audio se sube a la base cada 2,5 minutos y la desgrabación queda en el Historial. Podés usar las otras pestañas mientras grabás.
             </Text>
           </View>
         ) : (
           <View style={[styles.tarjeta, styles.tarjetaGrabando]}>
-            <Text style={styles.titulo}>
-              {g.sesion?.materiaNombre} · Clase {g.sesion?.claseNum}
-            </Text>
-            {g.sesion?.tema ? <Text style={styles.textoMuted}>{g.sesion.tema}</Text> : null}
+            <Text style={styles.titulo}>{g.etiqueta}</Text>
             <Text style={styles.reloj}>{formatearTiempo(g.segundos)}</Text>
             <Text style={styles.estadoGrabacion}>
               {g.fase === 'grabando' && 'Grabando'}
-              {g.fase === 'cortando' && 'Guardando fragmento...'}
+              {g.fase === 'cortando' && 'Subiendo fragmento...'}
               {g.fase === 'pausada' && 'En pausa'}
               {g.fase === 'preparando' && 'Preparando...'}
             </Text>
@@ -214,108 +162,44 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
                 <Text style={styles.botonGrandeTexto}>Terminar clase</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.textoMuted}>Mantené la pantalla encendida y la app abierta: iOS puede cortar el micrófono si la bloqueás.</Text>
+            <Text style={styles.textoMuted}>Mantené la pantalla encendida: el teléfono puede cortar el micrófono si se bloquea.</Text>
           </View>
         )}
 
-        <View style={styles.encabezadoLista}>
-          <View>
-            <Text style={styles.titulo}>Clases grabadas</Text>
-            <Text style={styles.textoEspacio}>
-              Audio en el celu: {formatearBytes(espacio.totalBytes)} en {espacio.totalClases} {espacio.totalClases === 1 ? 'clase' : 'clases'}
-            </Text>
-          </View>
-          {cola.pendientes > 0 ? (
-            <TouchableOpacity onPress={reintentarAhora}>
-              <Text style={styles.enlace}>Reintentar pendientes ({cola.pendientes})</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-        {sesiones.length === 0 ? <Text style={styles.textoMuted}>Todavía no hay clases grabadas en este teléfono.</Text> : null}
-        {sesiones.map((s) => (
-          <FilaSesion
-            key={s.id}
-            sesion={s}
-            activa={g.sesion?.id === s.id}
-            puedeContinuar={!hayGrabacion && (s.estado === 'pausada' || s.estado === 'interrumpida')}
-            onContinuar={() => void ejecutar(() => g.continuar(s.id), 'No se pudo continuar')}
-            onAbrirDetalle={() => setSesionDetalleId(s.id)}
-          />
-        ))}
+        <Text style={styles.titulo}>Clases en la base</Text>
+        {cargas.length === 0 ? <Text style={styles.textoMuted}>Todavía no hay clases grabadas o subidas.</Text> : null}
+        {cargas.map((c) => {
+          const actual = g.cargaId === c.id;
+          return (
+            <View key={c.id} style={[styles.fila, actual && styles.filaActiva]}>
+              <Text style={styles.filaTitulo}>
+                {c.materia} · Clase {c.clase_num}
+                {c.tema ? ` · ${c.tema}` : ''}
+              </Text>
+              <Text style={styles.textoMuted}>{fechaLegible(c.created_at)}</Text>
+              {c.estado === 'completada' ? <Text style={styles.ok}>Lista en el Historial</Text> : null}
+              {c.estado === 'pendiente' || c.estado === 'en_proceso' ? (
+                <Text style={styles.filaEstado}>Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}</Text>
+              ) : null}
+              {c.estado === 'grabando' && actual ? <Text style={styles.ok}>Grabando ({c.partes_total || 0} fragmentos subidos)</Text> : null}
+              {c.estado === 'grabando' && !actual ? (
+                <TouchableOpacity onPress={() => reintentar(c)} style={styles.botonSecundario}>
+                  <Text style={styles.botonSecundarioTexto}>Grabación interrumpida: desgrabar lo subido</Text>
+                </TouchableOpacity>
+              ) : null}
+              {c.estado === 'error' ? (
+                <View>
+                  <Text style={styles.textoError}>{c.error}</Text>
+                  <TouchableOpacity onPress={() => reintentar(c)} style={styles.botonSecundario}>
+                    <Text style={styles.botonSecundarioTexto}>Reintentar ({c.partes_listas || 0} partes guardadas)</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
       </ScrollView>
     </View>
-  );
-}
-
-function etiquetaEstado(s: Sesion): string {
-  switch (s.estado) {
-    case 'grabando':
-      return 'Grabando';
-    case 'pausada':
-      return 'En pausa';
-    case 'interrumpida':
-      return 'Interrumpida (la app se cerró)';
-    case 'terminada':
-      return 'Terminada';
-    default:
-      return s.estado;
-  }
-}
-
-function FilaSesion({
-  sesion,
-  activa,
-  puedeContinuar,
-  onContinuar,
-  onAbrirDetalle,
-}: {
-  sesion: Sesion;
-  activa: boolean;
-  puedeContinuar: boolean;
-  onContinuar: () => void;
-  onAbrirDetalle: () => void;
-}) {
-  const total = sesion.fragmentos.length;
-  const listos = sesion.fragmentos.filter((f) => f.estado === 'transcripto').length;
-  const conError = sesion.fragmentos.filter((f) => f.estado === 'error');
-  const duracion = sesion.fragmentos.reduce((acc, f) => acc + (f.duracionSeg || 0), 0);
-
-  let guardado: string;
-  if (total === 0) guardado = 'Sin audio todavía';
-  else if (listos < total) guardado = `Transcribiendo: ${listos} de ${total} fragmentos`;
-  else if (sesion.apuntePendiente) guardado = 'Transcripta. Guardando en PsiEstudio...';
-  else if (sesion.apunteGuardadoEn) guardado = `Guardada en PsiEstudio (${fechaLegible(sesion.apunteGuardadoEn)})`;
-  else guardado = 'Transcripta';
-
-  return (
-    <TouchableOpacity activeOpacity={0.75} onPress={onAbrirDetalle} style={[styles.fila, activa && styles.filaActiva]}>
-      <Text style={styles.filaTitulo}>
-        {sesion.materiaNombre} · Clase {sesion.claseNum}
-        {sesion.tema ? ` · ${sesion.tema}` : ''}
-      </Text>
-      <Text style={styles.textoMuted}>
-        {fechaLegible(sesion.creadoEn)} · {formatearTiempo(duracion)} · {etiquetaEstado(sesion)}
-      </Text>
-      <Text style={styles.filaEstado}>{guardado}</Text>
-      {conError.length > 0 ? (
-        <Text style={styles.textoError} numberOfLines={2}>
-          {conError.length} fragmento(s) con error, se reintentan solos: {conError[0].ultimoError}
-        </Text>
-      ) : null}
-      {sesion.errorGuardado ? (
-        <Text style={styles.textoError} numberOfLines={2}>
-          PsiEstudio: {sesion.errorGuardado}
-        </Text>
-      ) : null}
-      <View style={styles.filaFooter}>
-        <Text style={styles.enlaceDetalle}>Ver desgrabación y audios →</Text>
-        {puedeContinuar ? (
-          <TouchableOpacity onPress={onContinuar} style={styles.botonSecundario}>
-            <Text style={styles.botonSecundarioTexto}>Continuar grabando</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-    </TouchableOpacity>
   );
 }
 
@@ -327,8 +211,6 @@ const styles = StyleSheet.create({
   tarjetaGrabando: { borderColor: '#10b981' },
   titulo: { color: '#e6edf3', fontSize: 18, fontWeight: '700' },
   etiqueta: { color: '#8b98a5', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
-  filaEntreTitulo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  enlace: { color: '#34d399', fontWeight: '700', fontSize: 13 },
   chips: { gap: 8, paddingVertical: 4 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#1e2a38', maxWidth: 220 },
   chipActivo: { backgroundColor: '#10b981' },
@@ -348,14 +230,11 @@ const styles = StyleSheet.create({
   filaBotones: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   reloj: { color: '#e6edf3', fontSize: 44, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'center', marginVertical: 6 },
   estadoGrabacion: { color: '#34d399', textAlign: 'center', fontWeight: '700' },
-  encabezadoLista: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  textoEspacio: { color: '#64748b', fontSize: 11, marginTop: 2 },
   fila: { backgroundColor: '#121a24', borderRadius: 14, padding: 14, gap: 4, borderWidth: 1, borderColor: '#1f2f40' },
   filaActiva: { borderColor: '#10b981' },
   filaTitulo: { color: '#e6edf3', fontWeight: '700', fontSize: 15 },
-  filaEstado: { color: '#cbd5e1', fontSize: 13 },
-  filaFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  enlaceDetalle: { color: '#34d399', fontSize: 12, fontWeight: '700' },
+  filaEstado: { color: '#fbbf24', fontSize: 13 },
+  ok: { color: '#34d399', fontWeight: '700', fontSize: 13 },
   textoMuted: { color: '#8b98a5', fontSize: 12, lineHeight: 17 },
   textoError: { color: '#fca5a5', fontSize: 12 },
 });
