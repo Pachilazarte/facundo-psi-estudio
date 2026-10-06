@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "PsiEstudio",
+    "slug": "psi-estudio-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.facundo.psiestudio",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "PsiEstudio graba las clases para transcribirlas.",
+        "UIBackgroundModes": ["audio"]
+      }
+    },
+    "android": {
+      "package": "com.facundo.psiestudio",
+      "permissions": ["RECORD_AUDIO", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS"],
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0f14",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "PsiEstudio graba las clases para transcribirlas.",
+          "enableBackgroundRecording": true
+        }
+      ]
+    ]
+  }
+}

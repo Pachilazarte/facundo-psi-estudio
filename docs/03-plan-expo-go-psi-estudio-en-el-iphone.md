@@ -4,6 +4,21 @@
 **Para:** Facundo (PC + iPhone, sin cuenta paga de Apple)
 **Estado:** plan. Nada de esto está probado todavía en tu iPhone. La prueba del paso 7 decide si el plan sirve.
 
+> **Actualización (misma fecha): la app ya está construida** en la carpeta `psi-estudio-app/` de este repo (Expo SDK 57).
+> Ya no hace falta crear el proyecto ni pegar el código de la sección 6: ese código quedó como referencia de la idea, pero
+> lo que corre es lo que está en `psi-estudio-app/src/`. Para usarla:
+>
+> ```bash
+> cd psi-estudio-app
+> npm install
+> npx expo start
+> ```
+>
+> Lo que tiene la versión construida y el plan original no tenía: grabación y transcripción que siguen mientras
+> navegás por toda la app (barra de estado arriba), fragmentos guardados en el teléfono con reintentos automáticos,
+> guardado de la desgrabación en PsiEstudio (Supabase) a medida que avanza, y "Continuar grabando" para una clase
+> pausada o interrumpida. El audio nunca se borra. Pasa `npx tsc --noEmit` sin errores; **no está probada en un teléfono**.
+
 ---
 
 ## 0. Antes de empezar: lo que tenés que saber
