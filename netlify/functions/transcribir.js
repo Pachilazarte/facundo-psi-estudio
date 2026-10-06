@@ -39,8 +39,13 @@ exports.handler = async (event) => {
   if (cuerpo.length > MAX_BYTES) return respuesta(413, { error: 'Fragmento demasiado grande' });
 
   const tipo = (event.headers && (event.headers['content-type'] || event.headers['Content-Type'])) || 'audio/wav';
+  // Groq decide el formato por la extensión del nombre: se la sacamos del content-type
+  const extensiones = { 'audio/wav': 'wav', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg' };
+  const tipoBase = tipo.split(';')[0].trim().toLowerCase();
+  const extension = extensiones[tipoBase];
+  if (!extension) return respuesta(415, { error: 'Formato de audio no soportado: ' + tipoBase });
   const form = new FormData();
-  form.append('file', new Blob([cuerpo], { type: tipo }), 'fragmento.wav');
+  form.append('file', new Blob([cuerpo], { type: tipoBase }), 'fragmento.' + extension);
   form.append('model', 'whisper-large-v3');
   form.append('response_format', 'verbose_json');
   form.append('language', 'es');
