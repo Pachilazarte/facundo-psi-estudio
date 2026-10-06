@@ -47,6 +47,9 @@ try {
       examenes: 'id, materia_id, fecha',
       syncQueue: '++id, action, table, timestamp'
     });
+    psiDB.version(2).stores({
+      audioSegments: '++id, sesion, orden'
+    });
   }
 } catch (e) {
   console.warn('Dexie DB init warning:', e);
@@ -8307,218 +8310,218 @@ function GrabadoraDesgrabadorView({
     }
   };
 
-  // Iniciar Grabación Web + Web Speech API en Vivo
+  // ── GRABADORA SEGMENTADA ──
+  // Graba en fragmentos de 150 s. Cada fragmento se guarda en IndexedDB (sobrevive a recargas)
+  // y se transcribe al terminar la clase. Así una clase larga no se acumula en memoria.
+  const SEGMENTO_MS = 150 * 1000;
+  const segmentosRef = useRef([]);
+  const segmentoRecorderRef = useRef(null);
+  const segmentoTimerRef = useRef(null);
+  const segmentoOrdenRef = useRef(0);
+  const sesionGrabacionRef = useRef(null);
+  const grabandoRef = useRef(false);
+
+  const guardarSegmentoDB = async (sesion, orden, blob, tipo) => {
+    if (!psiDB || !psiDB.audioSegments) return;
+    try { await psiDB.audioSegments.add({ sesion, orden, blob, tipo }); }
+    catch (e) { console.warn('No se pudo guardar el fragmento en IndexedDB:', e); }
+  };
+
+  const iniciarSegmento = (stream) => {
+    const mimeType = getSupportedMimeType();
+    const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const trozos = [];
+    const orden = segmentoOrdenRef.current++;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) trozos.push(e.data); };
+    rec.onstop = async () => {
+      const tipo = rec.mimeType || mimeType || 'audio/webm';
+      const blob = new Blob(trozos, { type: tipo });
+      if (blob.size === 0) return;
+      segmentosRef.current.push({ orden, blob, tipo });
+      await guardarSegmentoDB(sesionGrabacionRef.current, orden, blob, tipo);
+    };
+    rec.start(1000);
+    segmentoRecorderRef.current = rec;
+  };
+
+  const cortarSegmento = () => new Promise((resolve) => {
+    const rec = segmentoRecorderRef.current;
+    if (!rec || rec.state === 'inactive') return resolve();
+    rec.addEventListener('stop', () => resolve(), { once: true });
+    rec.stop();
+  });
+
+  const programarRotacion = (stream) => {
+    clearTimeout(segmentoTimerRef.current);
+    segmentoTimerRef.current = setTimeout(async () => {
+      if (!grabandoRef.current) return;
+      await cortarSegmento();
+      if (!grabandoRef.current) return;
+      iniciarSegmento(stream);
+      programarRotacion(stream);
+    }, SEGMENTO_MS);
+  };
+
+  const arrancarTimerVisible = () => {
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    recordingTimerRef.current = setInterval(() => setRecordingSeconds(prev => prev + 1), 1000);
+  };
+
   const handleStartRecording = async () => {
     try {
       await requestWakeLock();
-      if (silentAudioRef.current) {
-        silentAudioRef.current.play().catch(e => console.warn('Silent audio play blocked', e));
-      }
+      if (silentAudioRef.current) silentAudioRef.current.play().catch(() => {});
       triggerHaptic('heavy');
-      if (audioUrl && typeof audioUrl === 'string' && audioUrl.startsWith('blob:')) {
-          URL.revokeObjectURL(audioUrl);
-      }
+      if (audioUrl && typeof audioUrl === 'string' && audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
       setAudioUrl(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Tu navegador no soporta captura de audio o requiere HTTPS.');
       }
-
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       mediaStreamRef.current = stream;
-      audioChunksRef.current = [];
-      liveSegmentsRef.current = [];
-
-      const mimeType = getSupportedMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-          try {
-            localStorage.setItem('psi_active_recording_backup_meta', JSON.stringify({
-              materiaId: targetMateriaId,
-              claseNum: targetClaseNum,
-              tema: temaClase,
-              seconds: recordingSecondsRef.current,
-              timestamp: Date.now(),
-            }));
-          } catch (e) {}
-        }
-      };
-
-      recorder.onstop = () => {
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach(track => track.stop());
-          mediaStreamRef.current = null;
-        }
-        cleanAudioContext();
-      };
-
-      recorder.start(1000);
-      mediaRecorderRef.current = recorder;
+      sesionGrabacionRef.current = 'rec_' + Date.now();
+      segmentosRef.current = [];
+      segmentoOrdenRef.current = 0;
+      grabandoRef.current = true;
+      iniciarSegmento(stream);
+      programarRotacion(stream);
       setRecordingState('recording');
       setRecordingSeconds(0);
       setProcessingError(null);
-
-      // Iniciar Transcriptor en Vivo Web Speech API (Navegador)
-      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRec) {
-        try {
-          const rec = new SpeechRec();
-          rec.continuous = true;
-          rec.interimResults = true;
-          rec.lang = 'es-AR';
-
-          let phraseStartTime = 0;
-          rec.onresult = (event) => {
-            const currentSec = recordingSecondsRef.current || 0;
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-              const text = event.results[i][0].transcript.trim();
-              if (event.results[i].isFinal && text) {
-                const segStart = phraseStartTime;
-                const segEnd = currentSec;
-                phraseStartTime = currentSec;
-
-                const words = text.split(/\s+/).map((w, wIdx, arr) => ({
-                  word: w,
-                  start: segStart + (wIdx * ((segEnd - segStart) / Math.max(1, arr.length))),
-                  end: segStart + ((wIdx + 1) * ((segEnd - segStart) / Math.max(1, arr.length)))
-                }));
-
-                liveSegmentsRef.current.push({
-                  id: liveSegmentsRef.current.length + 1,
-                  start: segStart,
-                  end: Math.max(segStart + 1, segEnd),
-                  timestamp: formatTime(segStart),
-                  text,
-                  words
-                });
-              }
-            }
-          };
-
-          rec.onerror = (e) => {
-            console.warn('[WebSpeech] Advertencia:', e.error);
-          };
-
-          rec.onend = () => {
-            // Reiniciar reconocimiento continuo si seguimos grabando
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-              setTimeout(() => {
-                try { if (speechRecognitionRef.current) speechRecognitionRef.current.start(); } catch (err) {}
-              }, 500);
-            }
-          };
-
-          rec.start();
-          speechRecognitionRef.current = rec;
-        } catch (e) {
-          console.warn('Web Speech API no pudo inicializarse:', e);
-        }
-      }
-
       startCanvasWaveform(stream);
-
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds(prev => prev + 1);
-      }, 1000);
-
-      showToast('Grabación de clase iniciada (Transcribiendo voz en vivo)', 'mic');
+      arrancarTimerVisible();
+      showToast('Grabación de clase iniciada', 'mic');
     } catch (e) {
       console.error('Error al iniciar grabación:', e);
       alert('No se pudo acceder al micrófono: ' + e.message);
     }
   };
 
-  // Pausar Grabación (Recreo / Pausa de clase)
-  const handlePauseRecording = () => {
+  const handlePauseRecording = async () => {
     triggerHaptic('medium');
+    grabandoRef.current = false;
+    clearTimeout(segmentoTimerRef.current);
+    await cortarSegmento();
     releaseWakeLock();
-    if (silentAudioRef.current) {
-      silentAudioRef.current.pause();
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.pause();
-      setRecordingState('paused');
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.stop(); } catch (e) {}
-      }
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      showToast('Grabación pausada (Recreo)', 'pause');
-    }
+    if (silentAudioRef.current) silentAudioRef.current.pause();
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+    setRecordingState('paused');
+    showToast('Grabación pausada (Recreo)', 'pause');
   };
 
-  // Reanudar Grabación tras pausa
   const handleResumeRecording = async () => {
     triggerHaptic('heavy');
     await requestWakeLock();
-    if (silentAudioRef.current) {
-      silentAudioRef.current.play().catch(() => {});
+    if (silentAudioRef.current) silentAudioRef.current.play().catch(() => {});
+    const stream = mediaStreamRef.current;
+    if (!stream || !stream.active) {
+      showToast('El micrófono se cerró. Finalizando...', 'alert-triangle');
+      return handleStopRecording(true);
     }
-    if (mediaRecorderRef.current) {
-      if (mediaRecorderRef.current.state === 'paused') {
-        try { mediaRecorderRef.current.resume(); } catch (e) { console.error('Resume error', e); }
-      } else if (mediaRecorderRef.current.state === 'inactive') {
-        showToast('El sistema operativo detuvo el audio. Finalizando...', 'alert-triangle');
-        return handleStopRecording(true);
-      }
-      setRecordingState('recording');
-      if (speechRecognitionRef.current) {
-        try { speechRecognitionRef.current.start(); } catch (e) {}
-      }
-      recordingTimerRef.current = setInterval(() => {
-        setRecordingSeconds(prev => prev + 1);
-      }, 1000);
-      showToast('Grabación reanudada', 'play');
-    }
+    grabandoRef.current = true;
+    iniciarSegmento(stream);
+    programarRotacion(stream);
+    setRecordingState('recording');
+    arrancarTimerVisible();
+    showToast('Grabación reanudada', 'play');
   };
 
-  // Detener y Finalizar Grabación
   const handleStopRecording = async (shouldProcess = true) => {
     triggerHaptic('medium');
     releaseWakeLock();
-    if (silentAudioRef.current) {
-      silentAudioRef.current.pause();
-    }
-    if (recordingTimerRef.current) {
-      clearInterval(recordingTimerRef.current);
-      recordingTimerRef.current = null;
-    }
-
-    if (speechRecognitionRef.current) {
-      try { speechRecognitionRef.current.stop(); } catch (e) {}
-      speechRecognitionRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
+    if (silentAudioRef.current) silentAudioRef.current.pause();
+    grabandoRef.current = false;
+    clearTimeout(segmentoTimerRef.current);
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
     setRecordingState('processing');
+    await cortarSegmento();
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current = null;
+    }
     cleanAudioContext();
     try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
 
-    setTimeout(async () => {
-      if (audioChunksRef.current.length === 0) {
-          setRecordingState('idle');
-          return;
-      }
-      const mimeType = getSupportedMimeType() || 'audio/webm';
-      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-      const localAudioUrl = URL.createObjectURL(audioBlob);
-      setAudioUrl(localAudioUrl);
+    if (!shouldProcess) {
+      setRecordingState('idle');
+      showToast('Grabación guardada en el celular', 'check');
+      return;
+    }
+    await procesarGrabacionSegmentada();
+  };
 
-      if (shouldProcess) {
-        const ext = mimeType.includes('mp4') ? 'm4a' : 'webm';
-        await processAudioWithBackend(audioBlob, `clase_${targetClaseNum}_${Date.now()}.${ext}`);
-      } else {
-        setRecordingState('idle');
-        showToast('Grabación guardada localmente', 'check');
+  const procesarGrabacionSegmentada = async () => {
+    const segs = [...segmentosRef.current].sort((x, y) => x.orden - y.orden);
+    if (segs.length === 0) { setRecordingState('idle'); return; }
+    const targetMatObj = materias.find(m => m.id === targetMateriaId);
+    const materiaName = targetMatObj ? targetMatObj.nombre : 'Psicología General';
+    const audioCompleto = new Blob(segs.map(s => s.blob), { type: segs[0].tipo });
+
+    setIsProcessing(true);
+    setProcessingError(null);
+    setProcessingProgress(0);
+    try {
+      if (serverOnline) {
+        const ext = segs[0].tipo.includes('mp4') ? 'm4a' : 'webm';
+        await processAudioWithBackend(audioCompleto, `clase_${targetClaseNum}_${Date.now()}.${ext}`);
+        return;
       }
-    }, 400);
+
+      const segmentos = [];
+      let acumulado = 0;
+      let texto = '';
+      for (let i = 0; i < segs.length; i++) {
+        setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${segs.length} en la nube...`);
+        setProcessingProgress(Math.round((i / segs.length) * 100));
+        const res = await fetch('/.netlify/functions/transcribir', {
+          method: 'POST',
+          headers: psiApiHeaders({ 'Content-Type': segs[i].tipo }),
+          body: segs[i].blob,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Error en el fragmento ${i + 1} (${res.status})`);
+        (data.segments || []).forEach((seg) => {
+          const inicio = acumulado + seg.start;
+          segmentos.push({
+            id: segmentos.length + 1,
+            start: inicio,
+            end: acumulado + seg.end,
+            timestamp: formatTime(inicio),
+            text: (seg.text || '').trim(),
+            words: (seg.words || []).map(w => ({ word: w.word, start: acumulado + w.start, end: acumulado + w.end })),
+          });
+        });
+        texto += (data.text || '') + ' ';
+        acumulado += data.duration || 0;
+      }
+
+      const transcript = {
+        version: '2.0.0',
+        subject: materiaName,
+        duration_seconds: acumulado,
+        total_segments: segmentos.length,
+        paragraphs: [texto.trim()],
+        segments: segmentos,
+      };
+      const url = URL.createObjectURL(audioCompleto);
+      setAudioUrl(url);
+      setTranscriptData(transcript);
+      saveSessionToHistory(sesionGrabacionRef.current, materiaName, targetClaseNum, temaClase, transcript, url);
+      setProcessingProgress(100);
+      setActiveSubTab('player');
+      showToast('Desgrabación completada con éxito', 'sparkles');
+
+      if (psiDB && psiDB.audioSegments) {
+        try { await psiDB.audioSegments.where('sesion').equals(sesionGrabacionRef.current).delete(); } catch (e) {}
+      }
+    } catch (e) {
+      console.error('Error transcribiendo la clase:', e);
+      setProcessingError(e.message || 'Error al transcribir la clase');
+      showToast('Los fragmentos quedaron guardados en el celular', 'alert-triangle');
+    } finally {
+      setIsProcessing(false);
+      setRecordingState('idle');
+    }
   };
 
   // Cancelar Inferencia / Procesamiento en curso
