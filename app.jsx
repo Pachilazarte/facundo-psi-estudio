@@ -12,6 +12,9 @@ const SUPABASE_CONFIG = {
   key: localStorage.getItem('psi_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVja2d3eXZiZXZscG5oanJzYXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MzM1ODgsImV4cCI6MjEwNjIwOTU4OH0.MfgjL7yQPidqir2ybVEpcfeAsrioZGIIvgVv_bMyI7I'
 };
 
+// Clave de la app (aceptada por el dueño: queda en el código del frontend)
+const APP_TOKEN = 'h5SUedldWPhWMN6Ja_kzirtUZXSTSo3Q1Zx8EZN9ktU';
+
 let supabaseClient = null;
 try {
   if (window.supabase && SUPABASE_CONFIG.url.startsWith('http')) {
@@ -20,9 +23,7 @@ try {
         // La clave de la app viaja en un header; la base la verifica (ver 0002_clave_de_app.sql)
         fetch: (input, init = {}) => {
           const headers = new Headers(init.headers || {});
-          let clave = '';
-          try { clave = localStorage.getItem('psi_api_token') || ''; } catch (e) {}
-          headers.set('x-app-token', clave);
+          headers.set('x-app-token', APP_TOKEN);
           return fetch(input, { ...init, headers });
         }
       }
@@ -121,9 +122,7 @@ const Icon = ({ name, className = "w-4 h-4", size = 18, style = {}, strokeWidth 
 // ── 2.4 TOKEN DEL SERVIDOR DE AUDIO (header X-PSI-Token) ──
 // El token se guarda en este navegador desde Ajustes. Nunca va en el código.
 function psiApiHeaders(extra = {}) {
-  let token = '';
-  try { token = localStorage.getItem('psi_api_token') || ''; } catch (e) {}
-  return { 'X-PSI-Token': token, ...extra };
+  return { 'X-PSI-Token': APP_TOKEN, ...extra };
 }
 
 // Token automático: el servidor local lo entrega solo a esta web (desde localhost).
@@ -5315,21 +5314,6 @@ function App() {
                   )}
                 </div>
               )}
-            </div>
-
-            {/* Clave de la app: se guarda solo en este navegador */}
-            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
-              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                <Icon name="lock" className="w-4 h-4 text-app-emerald" /> Clave de la app
-              </h3>
-              <p className="text-xs text-app-muted">Pegá tu clave secreta. Se guarda solo en este navegador y permite leer y guardar tus datos.</p>
-              <input
-                type="password"
-                defaultValue={(() => { try { return localStorage.getItem('psi_api_token') || ''; } catch (e) { return ''; } })()}
-                onChange={(e) => { try { localStorage.setItem('psi_api_token', e.target.value.trim()); } catch (err) {} }}
-                placeholder="Clave"
-                className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none font-mono"
-              />
             </div>
 
             {/* Credenciales y Diagnóstico */}
