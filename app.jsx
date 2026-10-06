@@ -50,6 +50,9 @@ try {
     psiDB.version(2).stores({
       audioSegments: '++id, sesion, orden'
     });
+    psiDB.version(3).stores({
+      cargasAudio: '++id, estado, creadoEn'
+    });
   }
 } catch (e) {
   console.warn('Dexie DB init warning:', e);
@@ -8755,6 +8758,179 @@ function GrabadoraDesgrabadorView({
     }
   };
 
+  // ── CARGAS DE AUDIO EN SEGUNDO PLANO ──
+  // Subir un audio no bloquea la app. Se guarda en IndexedDB y un proceso lo desgraba por partes de 150 s.
+  // Cada parte transcripta se guarda al instante: si la página se cierra o falla la red, retoma donde quedó.
+  // El archivo original nunca se borra.
+  const CARGA_PARTE_SEG = 150;
+  const cargasRef = useRef({ procesando: false });
+  const guardarRef = useRef(null);
+  const [cargas, setCargas] = useState([]);
+
+  const refrescarCargas = async () => {
+    if (!psiDB || !psiDB.cargasAudio) return;
+    try {
+      const filas = await psiDB.cargasAudio.orderBy('creadoEn').reverse().toArray();
+      setCargas(filas.map(({ blob, ...resto }) => resto));
+    } catch (e) {
+      console.warn('No se pudieron leer las cargas:', e);
+    }
+  };
+
+  const avisarCargas = () => window.dispatchEvent(new Event('psi-cargas'));
+
+  const encolarCargaAudio = async (file) => {
+    if (!psiDB || !psiDB.cargasAudio) {
+      alert('Este navegador no permite guardar cargas en segundo plano.');
+      return;
+    }
+    const matObj = materias.find((m) => m.id === targetMateriaId);
+    try {
+      await psiDB.cargasAudio.add({
+        nombre: file.name,
+        blob: file,
+        materiaId: matObj ? matObj.id : null,
+        materiaNombre: matObj ? matObj.nombre : 'Psicología General',
+        claseNum: targetClaseNum,
+        tema: temaClase || '',
+        estado: 'pendiente',
+        resultados: {},
+        totalPartes: null,
+        error: null,
+        creadoEn: new Date().toISOString(),
+      });
+      showToast('Audio recibido. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
+    } catch (e) {
+      alert('No se pudo guardar el audio: ' + (e.message || e));
+      return;
+    }
+    refrescarCargas();
+    avisarCargas();
+  };
+
+  const reintentarCarga = async (id) => {
+    await psiDB.cargasAudio.update(id, { estado: 'pendiente', error: null });
+    refrescarCargas();
+    avisarCargas();
+  };
+
+  const armarTranscriptCarga = (job, resultados, total) => {
+    let acumulado = 0;
+    const segmentos = [];
+    let texto = '';
+    for (let i = 0; i < total; i++) {
+      const r = resultados[i];
+      if (!r) continue;
+      (r.segments || []).forEach((seg) => {
+        const inicio = acumulado + seg.start;
+        segmentos.push({
+          id: segmentos.length + 1,
+          start: inicio,
+          end: acumulado + seg.end,
+          timestamp: formatTime(inicio),
+          text: (seg.text || '').trim(),
+          words: (seg.words || []).map((w) => ({ word: w.word, start: acumulado + w.start, end: acumulado + w.end })),
+        });
+      });
+      texto += (r.text || '') + ' ';
+      acumulado += r.duration || 0;
+    }
+    return {
+      version: '2.0.0',
+      subject: job.materiaNombre,
+      duration_seconds: acumulado,
+      total_segments: segmentos.length,
+      paragraphs: [texto.trim()],
+      segments: segmentos,
+    };
+  };
+
+  const procesarUnaCarga = async (id) => {
+    const job = await psiDB.cargasAudio.get(id);
+    if (!job) return;
+    await psiDB.cargasAudio.update(id, { estado: 'en_proceso', error: null });
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const decodificado = await ctx.decodeAudioData(await job.blob.arrayBuffer());
+      try { ctx.close(); } catch (e) {}
+      const PARTE = CARGA_PARTE_SEG * 16000;
+      const total = Math.ceil(decodificado.length / PARTE);
+      await psiDB.cargasAudio.update(id, { totalPartes: total });
+
+      const resultados = { ...(job.resultados || {}) };
+      for (let i = 0; i < total; i++) {
+        if (resultados[i]) continue; // ya transcripta en un intento anterior
+        const desde = i * PARTE;
+        const cantidad = Math.min(PARTE, decodificado.length - desde);
+        const wav = audioBufferToWav16kMono(decodificado, desde, cantidad);
+        let data = null;
+        for (let intento = 1; !data; intento++) {
+          try {
+            const res = await fetch('/.netlify/functions/transcribir', {
+              method: 'POST',
+              headers: psiApiHeaders({ 'Content-Type': 'audio/wav' }),
+              body: wav,
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(json.error || `respuesta ${res.status}`);
+            data = json;
+          } catch (e) {
+            if (intento >= 4) throw new Error(`parte ${i + 1} de ${total}: ${e.message || e}`);
+            await new Promise((r) => setTimeout(r, 4000 * intento));
+          }
+        }
+        resultados[i] = { text: data.text || '', duration: data.duration || cantidad / 16000, segments: data.segments || [] };
+        await psiDB.cargasAudio.update(id, { resultados });
+        refrescarCargas();
+      }
+
+      const transcript = armarTranscriptCarga(job, resultados, total);
+      if (guardarRef.current) await guardarRef.current(job, transcript);
+      await psiDB.cargasAudio.update(id, { estado: 'completada', error: null });
+      showToast(`Desgrabación lista: ${job.nombre}`, 'sparkles');
+    } catch (e) {
+      await psiDB.cargasAudio.update(id, { estado: 'error', error: e.message || String(e) });
+    }
+  };
+
+  const procesarCargas = async () => {
+    if (cargasRef.current.procesando || !psiDB || !psiDB.cargasAudio) return;
+    cargasRef.current.procesando = true;
+    try {
+      for (;;) {
+        if (!navigator.onLine) break;
+        const siguiente = await psiDB.cargasAudio.where('estado').anyOf(['pendiente', 'en_proceso']).first();
+        if (!siguiente) break;
+        await procesarUnaCarga(siguiente.id);
+        refrescarCargas();
+      }
+    } catch (e) {
+      console.warn('Proceso de cargas detenido:', e);
+    } finally {
+      cargasRef.current.procesando = false;
+      refrescarCargas();
+    }
+  };
+
+  // Al terminar, la desgrabación entra al Historial y a Apuntes, igual que una grabación.
+  guardarRef.current = async (job, transcript) => {
+    const url = URL.createObjectURL(job.blob);
+    saveSessionToHistory(`carga_${job.id}_${Date.now()}`, job.materiaNombre, job.claseNum, job.tema, transcript, url);
+  };
+
+  useEffect(() => {
+    refrescarCargas();
+    procesarCargas();
+    const despertar = () => { procesarCargas(); };
+    window.addEventListener('psi-cargas', despertar);
+    window.addEventListener('online', despertar);
+    return () => {
+      window.removeEventListener('psi-cargas', despertar);
+      window.removeEventListener('online', despertar);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Procesar Audio con Pipeline Multicapa (Telemetría Real, sin progresos simulados)
   const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
     setIsProcessing(true);
@@ -9602,9 +9778,7 @@ function GrabadoraDesgrabadorView({
                         };
                         reader.readAsText(file);
                       } else {
-                        const localUrl = URL.createObjectURL(file);
-                        setAudioUrl(localUrl);
-                        processAudioWithBackend(file, file.name);
+                        encolarCargaAudio(file);
                       }
                     }
                   }}
@@ -9616,6 +9790,37 @@ function GrabadoraDesgrabadorView({
                 </label>
               </div>
             </div>
+
+            {/* Cargas en segundo plano: no bloquean nada, se puede seguir usando la app */}
+            {cargas.length > 0 && (
+              <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
+                <h4 className="text-xs font-black uppercase text-app-text flex items-center gap-2">
+                  <Icon name="list" className="w-4 h-4 text-app-emerald" /> Cargas en segundo plano
+                </h4>
+                {cargas.map((c) => {
+                  const listas = c.resultados ? Object.keys(c.resultados).length : 0;
+                  return (
+                    <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-bold text-app-text truncate">{c.nombre}</p>
+                        <p className="text-app-muted truncate">{c.materiaNombre} · Clase {c.claseNum}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en Historial</span>}
+                        {(c.estado === 'pendiente' || c.estado === 'en_proceso') && (
+                          <span className="text-app-amber font-bold">Desgrabando {listas}/{c.totalPartes || '?'}</span>
+                        )}
+                        {c.estado === 'error' && (
+                          <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
+                            Reintentar ({listas} partes guardadas)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Barra de Progreso durante Inferencia con botón de Cancelar */}
             {isProcessing && (

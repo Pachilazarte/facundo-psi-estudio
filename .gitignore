@@ -8,3 +8,4 @@ audio_pipeline/uploaded_sessions/
 .env
 .env.*
 !.env.example
+.playwright-mcp/
