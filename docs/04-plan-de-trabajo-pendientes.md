@@ -8,18 +8,30 @@
 
 ## 0. Resumen de prioridades
 
-| Prioridad | Tarea | Quién | Tamaño |
-|---|---|---|---|
-| 1 | A1. Publicar el deploy nuevo en Netlify | Facundo | S |
-| 2 | A2. Probar la app en el iPhone (pruebas A a D) | Facundo | S |
-| 3 | A3. Verificar que la desgrabación llegue a PsiEstudio | Claude + Facundo | S |
-| 4 | D1. Cerrar el XSS del markdown y agregar CSP | Claude | M |
-| 5 | C4. No perder el tramo en curso si la app se cierra | Claude | M |
-| 6 | B1. Borrar la key vieja de Groq | Facundo | S |
-| 7 | D2. Sincronización sin resurrección de datos | Claude | L |
-| 8 | C2. Ver la desgrabación y el audio dentro de la app | Claude | M |
-| 9 | B3. Decidir qué pasa con PsiVoice | Facundo | S |
-| 10 | Resto de bloques C, D, E, F, G, H, I | Claude | — |
+| Prioridad | Tarea | Quién | Estado | Tamaño |
+|---|---|---|---|---|
+| 1 | A1. Publicar el deploy nuevo en Netlify | Facundo | **Pendiente acción Facundo** | S |
+| 2 | A2. Probar la app en el iPhone (pruebas A a D) | Facundo | **Pendiente acción Facundo** | S |
+| 3 | A3. Verificar que la desgrabación llegue a PsiEstudio | Claude + Facundo | Pendiente (tras A2) | S |
+| 4 | D1. Cerrar el XSS del markdown y agregar CSP | Claude | ✅ **COMPLETADO** | M |
+| 5 | C4. No perder el tramo en curso si la app se cierra | Claude | ✅ **COMPLETADO** | M |
+| 6 | B1. Borrar la key vieja de Groq | Facundo | **Pendiente acción Facundo** | S |
+| 7 | D2. Sincronización sin resurrección de datos | Claude | ✅ **COMPLETADO** | L |
+| 8 | C2. Ver la desgrabación y el audio dentro de la app | Claude | ✅ **COMPLETADO** | M |
+| 9 | C1. Lint y verificación estricta de React | Claude | ✅ **COMPLETADO** | S |
+| 10 | C6. Espacio usado y exportar audio del teléfono | Claude | ✅ **COMPLETADO** | M |
+| 11 | C7. Reintento y detalle por fragmento | Claude | ✅ **COMPLETADO** | S |
+| 12 | C8. Ícono oficial en app nativa | Claude | ✅ **COMPLETADO** | S |
+| 13 | D3. Cuota de almacenamiento defensiva y sin binarios | Claude | ✅ **COMPLETADO** | S |
+| 14 | D4. Service Worker resiliente asset-por-asset | Claude | ✅ **COMPLETADO** | S |
+| 15 | D5. Versión unificada v2.34.0 | Claude | ✅ **COMPLETADO** | S |
+| 16 | D6. Limpieza de código muerto | Claude | ✅ **COMPLETADO** | S |
+| 17 | D7. Zoom y accesibilidad WCAG 1.4.4 | Claude | ✅ **COMPLETADO** | S |
+| 18 | G1. Migración 0003_sync.sql (soft deletes & triggers) | Claude | ✅ **COMPLETADO** | S |
+| 19 | G2. IDs con UUID nativo | Claude | ✅ **COMPLETADO** | S |
+| 20 | G3. Keep-alive idempotente con upsert | Claude | ✅ **COMPLETADO** | S |
+| 21 | G6. Organización y README de migraciones | Claude | ✅ **COMPLETADO** | S |
+| 22 | B3. Decidir qué pasa con PsiVoice | Facundo | Pendiente decisión | S |
 
 ---
 
