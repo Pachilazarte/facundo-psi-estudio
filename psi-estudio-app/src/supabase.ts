@@ -89,8 +89,8 @@ export async function subirArchivo(ruta: string, uriLocal: string, tipo: string)
   if (res.status !== 200) throw new Error(`No se pudo subir el audio (${res.status}): ${res.body.slice(0, 200)}`);
 }
 
-/** Baja un archivo del bucket con un enlace firmado de 1 hora. */
-export async function bajarArchivo(ruta: string): Promise<ArrayBuffer> {
+/** Enlace temporal (1 hora) para escuchar o bajar un archivo del bucket. */
+export async function urlFirmada(ruta: string): Promise<string> {
   const firma = await pedir<{ signedURL: string }>(
     `${SUPABASE_URL}/storage/v1/object/sign/${BUCKET_AUDIOS}/${ruta}`,
     {
@@ -99,7 +99,12 @@ export async function bajarArchivo(ruta: string): Promise<ArrayBuffer> {
       body: JSON.stringify({ expiresIn: 3600 }),
     },
   );
-  const res = await fetch(`${SUPABASE_URL}/storage/v1${firma.signedURL}`);
+  return `${SUPABASE_URL}/storage/v1${firma.signedURL}`;
+}
+
+/** Baja un archivo del bucket (bytes crudos). */
+export async function bajarArchivo(ruta: string): Promise<ArrayBuffer> {
+  const res = await fetch(await urlFirmada(ruta));
   if (!res.ok) throw new Error(`No se pudo bajar el audio (${res.status})`);
   return res.arrayBuffer();
 }

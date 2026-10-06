@@ -8948,13 +8948,29 @@ function GrabadoraDesgrabadorView({
   // ── HISTORIAL: desgrabaciones leídas de la base (cargas completadas + desgrabaciones antiguas) ──
   const [historialDB, setHistorialDB] = useState([]);
   const [expandidoHistorial, setExpandidoHistorial] = useState(null);
+  const [audioAbierto, setAudioAbierto] = useState(null);
+  const [audioUrls, setAudioUrls] = useState({});
+
+  const alternarAudio = async (h) => {
+    if (audioAbierto === h.id) { setAudioAbierto(null); return; }
+    setAudioAbierto(h.id);
+    if (audioUrls[h.id] || !supabaseClient) return;
+    try {
+      const urls = await Promise.all(
+        h.archivos.map((ruta) => supabaseClient.storage.from('audios').createSignedUrl(ruta, 3600).then(({ data }) => (data ? data.signedUrl : null)))
+      );
+      setAudioUrls((prev) => ({ ...prev, [h.id]: urls.filter(Boolean) }));
+    } catch (e) {
+      alert('No se pudo cargar el audio: ' + (e.message || e));
+    }
+  };
 
   const cargarHistorial = async () => {
     if (!supabaseClient) return;
     const [cargasRes, apuRes] = await Promise.all([
       supabaseClient
         .from('cargas_audio')
-        .select('id,materia,clase_num,tema,partes,partes_total,created_at')
+        .select('id,materia,clase_num,tema,partes,partes_total,archivos,created_at')
         .eq('estado', 'completada')
         .order('created_at', { ascending: false })
         .limit(100),
@@ -8968,10 +8984,10 @@ function GrabadoraDesgrabadorView({
     const items = [];
     (cargasRes.data || []).forEach((c) => {
       const { contenido } = armarContenidoApunte(c, c.partes || {}, c.partes_total || 0);
-      items.push({ id: c.id, materia: c.materia, clase: c.clase_num, tema: c.tema, fecha: c.created_at, texto: contenido });
+      items.push({ id: c.id, materia: c.materia, clase: c.clase_num, tema: c.tema, fecha: c.created_at, texto: contenido, archivos: c.archivos || [] });
     });
     (apuRes.data || []).forEach((a) => {
-      items.push({ id: a.id, materia: a.materia, clase: null, tema: a.titulo, fecha: a.created_at, texto: a.contenido || '' });
+      items.push({ id: a.id, materia: a.materia, clase: null, tema: a.titulo, fecha: a.created_at, texto: a.contenido || '', archivos: [] });
     });
     items.sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)));
     setHistorialDB(items);
@@ -10254,6 +10270,18 @@ function GrabadoraDesgrabadorView({
                       <p className="text-[10px] text-app-muted font-mono">{new Date(h.fecha).toLocaleString('es-AR')}</p>
                     </div>
 
+                    {audioAbierto === h.id && (
+                      <div className="space-y-2">
+                        {!audioUrls[h.id] && <p className="text-[11px] text-app-muted">Cargando audio...</p>}
+                        {(audioUrls[h.id] || []).map((u, i) => (
+                          <div key={i} className="space-y-1">
+                            <p className="text-[11px] text-app-muted font-bold">Parte {i + 1} de {(audioUrls[h.id] || []).length}</p>
+                            <audio controls preload="none" src={u} className="w-full" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {expandidoHistorial === h.id && (
                       <pre className="text-xs text-app-text whitespace-pre-wrap max-h-72 overflow-y-auto p-3 rounded-lg bg-app-surface border border-app-border">
                         {h.texto}
@@ -10261,6 +10289,14 @@ function GrabadoraDesgrabadorView({
                     )}
 
                     <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-app-border">
+                      {h.archivos && h.archivos.length > 0 && (
+                        <button
+                          onClick={() => alternarAudio(h)}
+                          className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg hover:border-app-emerald transition-all"
+                        >
+                          {audioAbierto === h.id ? 'Cerrar audio' : 'Escuchar'}
+                        </button>
+                      )}
                       <button
                         onClick={() => setExpandidoHistorial(expandidoHistorial === h.id ? null : h.id)}
                         className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg hover:border-app-emerald transition-all"
