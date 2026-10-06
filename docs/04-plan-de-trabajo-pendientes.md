@@ -24,7 +24,7 @@
 | 12 | C8. Ícono oficial en app nativa | Claude | ✅ **COMPLETADO** | S |
 | 13 | D3. Cuota de almacenamiento defensiva y sin binarios | Claude | ✅ **COMPLETADO** | S |
 | 14 | D4. Service Worker resiliente asset-por-asset | Claude | ✅ **COMPLETADO** | S |
-| 15 | D5. Versión unificada v2.34.0 | Claude | ✅ **COMPLETADO** | S |
+| 15 | D5. Versión unificada v2.35.0 | Claude | ✅ **COMPLETADO** | S |
 | 16 | D6. Limpieza de código muerto | Claude | ✅ **COMPLETADO** | S |
 | 17 | D7. Zoom y accesibilidad WCAG 1.4.4 | Claude | ✅ **COMPLETADO** | S |
 | 18 | G1. Migración 0003_sync.sql (soft deletes & triggers) | Claude | ✅ **COMPLETADO** | S |

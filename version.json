@@ -1,7 +1,7 @@
 {
-  "version": "2.34.0",
-  "buildDate": "2026-10-05T23:45:00.000Z",
+  "version": "2.35.0",
+  "buildDate": "2026-10-06T01:00:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Hardening de seguridad (XSS, CSP, DOMPurify), recuperación de tramos de audio interrumpidos, sincronización resiliente y service worker offline optimizado."
+  "notes": "Liberación total de autenticación 401 para uso personal, fragmentos optimizados de 90s anti-error 413, WebView nativo full-screen y sincronización anti-resurrección."
 }

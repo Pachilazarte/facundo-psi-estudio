@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-v2.34.0';
+const CACHE_NAME = 'psiestudio-v2.35.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -34,7 +34,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      console.log(`[ServiceWorker] Pre-caching v2.34.0 assets`);
+      console.log(`[ServiceWorker] Pre-caching v2.35.0 assets`);
       await Promise.allSettled(
         ASSETS_TO_CACHE.map(async (url) => {
           try {
