@@ -50,8 +50,9 @@ try {
     psiDB.version(2).stores({
       audioSegments: '++id, sesion, orden'
     });
-    psiDB.version(3).stores({
-      cargasAudio: '++id, estado, creadoEn'
+    psiDB.version(4).stores({
+      cargasAudio: null,
+      audioSegments: null
     });
   }
 } catch (e) {
@@ -8405,21 +8406,27 @@ function GrabadoraDesgrabadorView({
     }
   };
 
-  // ── GRABADORA SEGMENTADA ──
-  // Graba en fragmentos de 150 s. Cada fragmento se guarda en IndexedDB (sobrevive a recargas)
-  // y se transcribe al terminar la clase. Así una clase larga no se acumula en memoria.
+  // ── GRABADORA SEGMENTADA (todo va a la base; nada queda en el navegador) ──
+  // Graba en fragmentos de 150 s. Cada fragmento se sube a Supabase Storage apenas se corta.
+  // La grabación se registra en cargas_audio al empezar: lo ya subido queda recuperable aunque se corte.
   const SEGMENTO_MS = 150 * 1000;
-  const segmentosRef = useRef([]);
   const segmentoRecorderRef = useRef(null);
   const segmentoTimerRef = useRef(null);
   const segmentoOrdenRef = useRef(0);
   const sesionGrabacionRef = useRef(null);
   const grabandoRef = useRef(false);
+  const rutasRef = useRef([]);
+  const subidasRef = useRef([]);
 
-  const guardarSegmentoDB = async (sesion, orden, blob, tipo) => {
-    if (!psiDB || !psiDB.audioSegments) return;
-    try { await psiDB.audioSegments.add({ sesion, orden, blob, tipo }); }
-    catch (e) { console.warn('No se pudo guardar el fragmento en IndexedDB:', e); }
+  const subirFragmentoConReintentos = async (ruta, blob, tipo) => {
+    for (let intento = 1; ; intento++) {
+      try {
+        return await subirAudioABase(ruta, blob, tipo);
+      } catch (e) {
+        if (intento >= 5) throw e;
+        await new Promise((r) => setTimeout(r, 3000 * intento));
+      }
+    }
   };
 
   const iniciarSegmento = (stream) => {
@@ -8428,12 +8435,22 @@ function GrabadoraDesgrabadorView({
     const trozos = [];
     const orden = segmentoOrdenRef.current++;
     rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) trozos.push(e.data); };
-    rec.onstop = async () => {
+    rec.onstop = () => {
       const tipo = rec.mimeType || mimeType || 'audio/webm';
       const blob = new Blob(trozos, { type: tipo });
       if (blob.size === 0) return;
-      segmentosRef.current.push({ orden, blob, tipo });
-      await guardarSegmentoDB(sesionGrabacionRef.current, orden, blob, tipo);
+      const sesionId = sesionGrabacionRef.current;
+      const ext = tipo.includes('mp4') ? 'm4a' : 'webm';
+      const ruta = `grabaciones/${sesionId}/${String(orden + 1).padStart(3, '0')}.${ext}`;
+      const subida = subirFragmentoConReintentos(ruta, blob, tipo).then(async () => {
+        rutasRef.current.push({ orden, ruta });
+        await supabaseClient.from('cargas_audio').update({
+          archivos: [...rutasRef.current].sort((a, b) => a.orden - b.orden).map((x) => x.ruta),
+          partes_total: rutasRef.current.length,
+          updated_at: new Date().toISOString(),
+        }).eq('id', sesionId);
+      });
+      subidasRef.current.push(subida);
     };
     rec.start(1000);
     segmentoRecorderRef.current = rec;
@@ -8462,6 +8479,29 @@ function GrabadoraDesgrabadorView({
     recordingTimerRef.current = setInterval(() => setRecordingSeconds(prev => prev + 1), 1000);
   };
 
+  // Cierra la grabación: espera las subidas y deja la fila lista para que el proceso la desgrabe.
+  const finalizarGrabacionEnBase = async () => {
+    const sesionId = sesionGrabacionRef.current;
+    if (!sesionId) return;
+    const resultados = await Promise.allSettled(subidasRef.current);
+    const fallidas = resultados.filter((r) => r.status === 'rejected').length;
+    const archivos = [...rutasRef.current].sort((a, b) => a.orden - b.orden).map((x) => x.ruta);
+    const sinAudio = archivos.length === 0;
+    const { error } = await supabaseClient.from('cargas_audio').update({
+      archivos,
+      partes_total: archivos.length,
+      estado: sinAudio ? 'error' : 'pendiente',
+      error: sinAudio ? 'No se grabó audio' : (fallidas ? `${fallidas} fragmento(s) no se pudieron subir` : null),
+      updated_at: new Date().toISOString(),
+    }).eq('id', sesionId);
+    if (error) showToast('No se pudo cerrar la grabación en la base: ' + error.message, 'alert-triangle');
+    subidasRef.current = [];
+    rutasRef.current = [];
+    sesionGrabacionRef.current = null;
+    refrescarCargas();
+    avisarCargas();
+  };
+
   const handleStartRecording = async () => {
     try {
       await requestWakeLock();
@@ -8472,10 +8512,34 @@ function GrabadoraDesgrabadorView({
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Tu navegador no soporta captura de audio o requiere HTTPS.');
       }
+      if (!supabaseClient) throw new Error('Sin conexión con la base: no se puede grabar sin guardar en la nube.');
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const matObj = materias.find((m) => m.id === targetMateriaId);
+      const sesionId = `grab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const { error } = await supabaseClient.from('cargas_audio').insert([{
+        id: sesionId,
+        origen: 'grabacion',
+        nombre: `Grabación · ${matObj ? matObj.nombre : 'General'} · Clase ${targetClaseNum}`,
+        materia_id: matObj ? matObj.id : null,
+        materia: matObj ? matObj.nombre : 'General',
+        clase_num: targetClaseNum,
+        tema: temaClase || '',
+        archivos: [],
+        partes: {},
+        partes_listas: 0,
+        partes_total: 0,
+        estado: 'grabando',
+      }]);
+      if (error) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error('No se pudo registrar la grabación en la base: ' + error.message);
+      }
+
       mediaStreamRef.current = stream;
-      sesionGrabacionRef.current = 'rec_' + Date.now();
-      segmentosRef.current = [];
+      sesionGrabacionRef.current = sesionId;
+      rutasRef.current = [];
+      subidasRef.current = [];
       segmentoOrdenRef.current = 0;
       grabandoRef.current = true;
       iniciarSegmento(stream);
@@ -8486,9 +8550,10 @@ function GrabadoraDesgrabadorView({
       startCanvasWaveform(stream);
       arrancarTimerVisible();
       showToast('Grabación de clase iniciada', 'mic');
+      refrescarCargas();
     } catch (e) {
       console.error('Error al iniciar grabación:', e);
-      alert('No se pudo acceder al micrófono: ' + e.message);
+      alert('No se pudo empezar: ' + e.message);
     }
   };
 
@@ -8531,92 +8596,13 @@ function GrabadoraDesgrabadorView({
     setRecordingState('processing');
     await cortarSegmento();
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach(t => t.stop());
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
     }
     cleanAudioContext();
-    try { localStorage.removeItem('psi_active_recording_backup_meta'); } catch (e) {}
-
-    if (!shouldProcess) {
-      setRecordingState('idle');
-      showToast('Grabación guardada en el celular', 'check');
-      return;
-    }
-    await procesarGrabacionSegmentada();
-  };
-
-  const procesarGrabacionSegmentada = async () => {
-    const segs = [...segmentosRef.current].sort((x, y) => x.orden - y.orden);
-    if (segs.length === 0) { setRecordingState('idle'); return; }
-    const targetMatObj = materias.find(m => m.id === targetMateriaId);
-    const materiaName = targetMatObj ? targetMatObj.nombre : 'Psicología General';
-    const audioCompleto = new Blob(segs.map(s => s.blob), { type: segs[0].tipo });
-
-    setIsProcessing(true);
-    setProcessingError(null);
-    setProcessingProgress(0);
-    try {
-      if (serverOnline) {
-        const ext = segs[0].tipo.includes('mp4') ? 'm4a' : 'webm';
-        await processAudioWithBackend(audioCompleto, `clase_${targetClaseNum}_${Date.now()}.${ext}`);
-        return;
-      }
-
-      const segmentos = [];
-      let acumulado = 0;
-      let texto = '';
-      for (let i = 0; i < segs.length; i++) {
-        setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${segs.length} en la nube...`);
-        setProcessingProgress(Math.round((i / segs.length) * 100));
-        const res = await fetch('/.netlify/functions/transcribir', {
-          method: 'POST',
-          headers: psiApiHeaders({ 'Content-Type': segs[i].tipo }),
-          body: segs[i].blob,
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Error en el fragmento ${i + 1} (${res.status})`);
-        (data.segments || []).forEach((seg) => {
-          const inicio = acumulado + seg.start;
-          segmentos.push({
-            id: segmentos.length + 1,
-            start: inicio,
-            end: acumulado + seg.end,
-            timestamp: formatTime(inicio),
-            text: (seg.text || '').trim(),
-            words: (seg.words || []).map(w => ({ word: w.word, start: acumulado + w.start, end: acumulado + w.end })),
-          });
-        });
-        texto += (data.text || '') + ' ';
-        acumulado += data.duration || 0;
-      }
-
-      const transcript = {
-        version: '2.0.0',
-        subject: materiaName,
-        duration_seconds: acumulado,
-        total_segments: segmentos.length,
-        paragraphs: [texto.trim()],
-        segments: segmentos,
-      };
-      const url = URL.createObjectURL(audioCompleto);
-      setAudioUrl(url);
-      setTranscriptData(transcript);
-      saveSessionToHistory(sesionGrabacionRef.current, materiaName, targetClaseNum, temaClase, transcript, url);
-      setProcessingProgress(100);
-      setActiveSubTab('player');
-      showToast('Desgrabación completada con éxito', 'sparkles');
-
-      if (psiDB && psiDB.audioSegments) {
-        try { await psiDB.audioSegments.where('sesion').equals(sesionGrabacionRef.current).delete(); } catch (e) {}
-      }
-    } catch (e) {
-      console.error('Error transcribiendo la clase:', e);
-      setProcessingError(e.message || 'Error al transcribir la clase');
-      showToast('Los fragmentos quedaron guardados en el celular', 'alert-triangle');
-    } finally {
-      setIsProcessing(false);
-      setRecordingState('idle');
-    }
+    await finalizarGrabacionEnBase();
+    setRecordingState('idle');
+    showToast('Clase guardada en la base. Se desgraba en segundo plano.', 'check');
   };
 
   // Cancelar Inferencia / Procesamiento en curso
@@ -8758,50 +8744,64 @@ function GrabadoraDesgrabadorView({
     }
   };
 
-  // ── CARGAS DE AUDIO EN SEGUNDO PLANO ──
-  // Subir un audio no bloquea la app. Se guarda en IndexedDB y un proceso lo desgraba por partes de 150 s.
-  // Cada parte transcripta se guarda al instante: si la página se cierra o falla la red, retoma donde quedó.
-  // El archivo original nunca se borra.
+  // ── CARGAS DE AUDIO (archivo subido o grabación): todo en la base ──
+  // Un proceso toma las cargas pendientes de la tabla cargas_audio, lee el audio del bucket "audios",
+  // desgraba por partes de 150 s y guarda cada parte en la base. Si se corta, retoma desde la última parte.
   const CARGA_PARTE_SEG = 150;
   const cargasRef = useRef({ procesando: false });
-  const guardarRef = useRef(null);
   const [cargas, setCargas] = useState([]);
 
+  const subirAudioABase = async (ruta, blob, tipo) => {
+    const { error } = await supabaseClient.storage.from('audios').upload(ruta, blob, { contentType: tipo, upsert: true });
+    if (error) throw new Error('No se pudo subir el audio: ' + error.message);
+    return ruta;
+  };
+
+  const urlAudioDeBase = async (ruta) => {
+    const { data, error } = await supabaseClient.storage.from('audios').createSignedUrl(ruta, 3600);
+    if (error || !data) throw new Error('No se pudo leer el audio: ' + (error ? error.message : 'sin URL'));
+    return data.signedUrl;
+  };
+
   const refrescarCargas = async () => {
-    if (!psiDB || !psiDB.cargasAudio) return;
-    try {
-      const filas = await psiDB.cargasAudio.orderBy('creadoEn').reverse().toArray();
-      setCargas(filas.map(({ blob, ...resto }) => resto));
-    } catch (e) {
-      console.warn('No se pudieron leer las cargas:', e);
-    }
+    if (!supabaseClient) return;
+    const { data, error } = await supabaseClient
+      .from('cargas_audio')
+      .select('id,origen,nombre,materia,clase_num,estado,error,partes_listas,partes_total,apunte_id,created_at')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (!error) setCargas(data || []);
   };
 
   const avisarCargas = () => window.dispatchEvent(new Event('psi-cargas'));
 
   const encolarCargaAudio = async (file) => {
-    if (!psiDB || !psiDB.cargasAudio) {
-      alert('Este navegador no permite guardar cargas en segundo plano.');
-      return;
-    }
+    if (!supabaseClient) { alert('Sin conexión con la base: no se puede subir el audio.'); return; }
+    const id = `carga_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const ext = ((file.name.split('.').pop() || 'audio').toLowerCase()).replace(/[^a-z0-9]/g, '') || 'audio';
+    const ruta = `cargas/${id}/original.${ext}`;
     const matObj = materias.find((m) => m.id === targetMateriaId);
     try {
-      await psiDB.cargasAudio.add({
+      showToast('Subiendo el audio a la base...', 'upload-cloud');
+      await subirAudioABase(ruta, file, file.type || 'audio/mp4');
+      const { error } = await supabaseClient.from('cargas_audio').insert([{
+        id,
+        origen: 'archivo',
         nombre: file.name,
-        blob: file,
-        materiaId: matObj ? matObj.id : null,
-        materiaNombre: matObj ? matObj.nombre : 'Psicología General',
-        claseNum: targetClaseNum,
+        materia_id: matObj ? matObj.id : null,
+        materia: matObj ? matObj.nombre : 'Psicología General',
+        clase_num: targetClaseNum,
         tema: temaClase || '',
+        archivos: [ruta],
+        partes: {},
+        partes_listas: 0,
+        partes_total: 0,
         estado: 'pendiente',
-        resultados: {},
-        totalPartes: null,
-        error: null,
-        creadoEn: new Date().toISOString(),
-      });
-      showToast('Audio recibido. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
+      }]);
+      if (error) throw new Error(error.message);
+      showToast('Audio en la base. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
     } catch (e) {
-      alert('No se pudo guardar el audio: ' + (e.message || e));
+      alert('No se pudo subir el audio: ' + (e.message || e));
       return;
     }
     refrescarCargas();
@@ -8809,99 +8809,130 @@ function GrabadoraDesgrabadorView({
   };
 
   const reintentarCarga = async (id) => {
-    await psiDB.cargasAudio.update(id, { estado: 'pendiente', error: null });
+    await supabaseClient.from('cargas_audio').update({ estado: 'pendiente', error: null, updated_at: new Date().toISOString() }).eq('id', id);
     refrescarCargas();
     avisarCargas();
   };
 
-  const armarTranscriptCarga = (job, resultados, total) => {
-    let acumulado = 0;
-    const segmentos = [];
-    let texto = '';
-    for (let i = 0; i < total; i++) {
-      const r = resultados[i];
-      if (!r) continue;
-      (r.segments || []).forEach((seg) => {
-        const inicio = acumulado + seg.start;
-        segmentos.push({
-          id: segmentos.length + 1,
-          start: inicio,
-          end: acumulado + seg.end,
-          timestamp: formatTime(inicio),
-          text: (seg.text || '').trim(),
-          words: (seg.words || []).map((w) => ({ word: w.word, start: acumulado + w.start, end: acumulado + w.end })),
+  // Llama a la función de Netlify con reintentos. Un fallo transitorio no pierde lo ya desgrabado.
+  const transcribirParte = async (cuerpo, tipo) => {
+    for (let intento = 1; ; intento++) {
+      try {
+        const res = await fetch('/.netlify/functions/transcribir', {
+          method: 'POST',
+          headers: psiApiHeaders({ 'Content-Type': tipo }),
+          body: cuerpo,
         });
-      });
-      texto += (r.text || '') + ' ';
-      acumulado += r.duration || 0;
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json.error || `respuesta ${res.status}`);
+        return json;
+      } catch (e) {
+        if (intento >= 4) throw e;
+        await new Promise((r) => setTimeout(r, 4000 * intento));
+      }
     }
-    return {
-      version: '2.0.0',
-      subject: job.materiaNombre,
-      duration_seconds: acumulado,
-      total_segments: segmentos.length,
-      paragraphs: [texto.trim()],
-      segments: segmentos,
-    };
   };
 
-  const procesarUnaCarga = async (id) => {
-    const job = await psiDB.cargasAudio.get(id);
-    if (!job) return;
-    await psiDB.cargasAudio.update(id, { estado: 'en_proceso', error: null });
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      const decodificado = await ctx.decodeAudioData(await job.blob.arrayBuffer());
-      try { ctx.close(); } catch (e) {}
-      const PARTE = CARGA_PARTE_SEG * 16000;
-      const total = Math.ceil(decodificado.length / PARTE);
-      await psiDB.cargasAudio.update(id, { totalPartes: total });
+  const tipoPorRuta = (ruta) => (ruta.endsWith('.m4a') ? 'audio/mp4' : ruta.endsWith('.wav') ? 'audio/wav' : 'audio/webm');
 
-      const resultados = { ...(job.resultados || {}) };
+  // Arma la desgrabación completa a partir de las partes, con los tiempos corridos.
+  const armarContenidoApunte = (carga, partes, total) => {
+    const lineas = [`DESGRABACIÓN: ${carga.materia} - CLASE #${carga.clase_num}`];
+    if (carga.tema) lineas.push(`Tema: ${carga.tema}`);
+    lineas.push('');
+    let acumulado = 0;
+    for (let i = 0; i < total; i++) {
+      const r = partes[i];
+      if (!r) continue;
+      const segs = (r.segments || []).filter((s) => (s.text || '').trim());
+      if (segs.length > 0) {
+        segs.forEach((seg) => lineas.push(`[${formatTime(acumulado + seg.start)}] ${seg.text.trim()}`));
+      } else if ((r.text || '').trim()) {
+        lineas.push(`[${formatTime(acumulado)}] ${r.text.trim()}`);
+      }
+      acumulado += r.duration || 0;
+    }
+    return { contenido: lineas.join('\n'), duracion: acumulado };
+  };
+
+  const marcar = (id, cambios) =>
+    supabaseClient.from('cargas_audio').update({ ...cambios, updated_at: new Date().toISOString() }).eq('id', id);
+
+  const procesarUnaCarga = async (carga) => {
+    await marcar(carga.id, { estado: 'en_proceso', error: null });
+    try {
+      let decodificado = null;
+      let total;
+      if (carga.origen === 'archivo') {
+        const blob = await (await fetch(await urlAudioDeBase(carga.archivos[0]))).blob();
+        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        decodificado = await ctx.decodeAudioData(await blob.arrayBuffer());
+        try { ctx.close(); } catch (e) {}
+        total = Math.ceil(decodificado.length / (CARGA_PARTE_SEG * 16000));
+      } else {
+        total = carga.archivos.length;
+      }
+      await marcar(carga.id, { partes_total: total });
+
+      const partes = { ...(carga.partes || {}) };
       for (let i = 0; i < total; i++) {
-        if (resultados[i]) continue; // ya transcripta en un intento anterior
-        const desde = i * PARTE;
-        const cantidad = Math.min(PARTE, decodificado.length - desde);
-        const wav = audioBufferToWav16kMono(decodificado, desde, cantidad);
-        let data = null;
-        for (let intento = 1; !data; intento++) {
-          try {
-            const res = await fetch('/.netlify/functions/transcribir', {
-              method: 'POST',
-              headers: psiApiHeaders({ 'Content-Type': 'audio/wav' }),
-              body: wav,
-            });
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(json.error || `respuesta ${res.status}`);
-            data = json;
-          } catch (e) {
-            if (intento >= 4) throw new Error(`parte ${i + 1} de ${total}: ${e.message || e}`);
-            await new Promise((r) => setTimeout(r, 4000 * intento));
-          }
+        if (partes[i]) continue; // ya desgrabada en un intento anterior
+        let cuerpo;
+        let tipo;
+        if (decodificado) {
+          const PARTE = CARGA_PARTE_SEG * 16000;
+          const desde = i * PARTE;
+          const cantidad = Math.min(PARTE, decodificado.length - desde);
+          cuerpo = audioBufferToWav16kMono(decodificado, desde, cantidad);
+          tipo = 'audio/wav';
+        } else {
+          const ruta = carga.archivos[i];
+          cuerpo = await (await fetch(await urlAudioDeBase(ruta))).blob();
+          tipo = tipoPorRuta(ruta);
         }
-        resultados[i] = { text: data.text || '', duration: data.duration || cantidad / 16000, segments: data.segments || [] };
-        await psiDB.cargasAudio.update(id, { resultados });
+        const data = await transcribirParte(cuerpo, tipo);
+        partes[i] = { text: data.text || '', duration: data.duration || 0, segments: data.segments || [] };
+        await marcar(carga.id, { partes, partes_listas: Object.keys(partes).length });
         refrescarCargas();
       }
 
-      const transcript = armarTranscriptCarga(job, resultados, total);
-      if (guardarRef.current) await guardarRef.current(job, transcript);
-      await psiDB.cargasAudio.update(id, { estado: 'completada', error: null });
-      showToast(`Desgrabación lista: ${job.nombre}`, 'sparkles');
+      const { contenido } = armarContenidoApunte(carga, partes, total);
+      const apunte = {
+        id: `desgrab_${carga.id}`,
+        materia_id: carga.materia_id,
+        materia: carga.materia,
+        unidad: 'Unidad 1',
+        titulo: `Desgrabación: Clase ${carga.clase_num} - ${carga.tema || 'Audio'}`,
+        tipo: 'texto',
+        contenido,
+        va_parcial: false,
+        nro_parcial: 1,
+        created_at: carga.created_at,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabaseClient.from('apuntes').upsert([apunte], { onConflict: 'id' });
+      if (error) throw new Error('No se pudo guardar la desgrabación: ' + error.message);
+      await marcar(carga.id, { estado: 'completada', error: null, apunte_id: apunte.id });
+      showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
     } catch (e) {
-      await psiDB.cargasAudio.update(id, { estado: 'error', error: e.message || String(e) });
+      await marcar(carga.id, { estado: 'error', error: e.message || String(e) });
     }
   };
 
   const procesarCargas = async () => {
-    if (cargasRef.current.procesando || !psiDB || !psiDB.cargasAudio) return;
+    if (cargasRef.current.procesando || !supabaseClient) return;
     cargasRef.current.procesando = true;
     try {
       for (;;) {
         if (!navigator.onLine) break;
-        const siguiente = await psiDB.cargasAudio.where('estado').anyOf(['pendiente', 'en_proceso']).first();
-        if (!siguiente) break;
-        await procesarUnaCarga(siguiente.id);
+        const { data, error } = await supabaseClient
+          .from('cargas_audio')
+          .select('*')
+          .in('estado', ['pendiente', 'en_proceso'])
+          .order('created_at', { ascending: true })
+          .limit(1);
+        if (error || !data || data.length === 0) break;
+        await procesarUnaCarga(data[0]);
         refrescarCargas();
       }
     } catch (e) {
@@ -8910,12 +8941,6 @@ function GrabadoraDesgrabadorView({
       cargasRef.current.procesando = false;
       refrescarCargas();
     }
-  };
-
-  // Al terminar, la desgrabación entra al Historial y a Apuntes, igual que una grabación.
-  guardarRef.current = async (job, transcript) => {
-    const url = URL.createObjectURL(job.blob);
-    saveSessionToHistory(`carga_${job.id}_${Date.now()}`, job.materiaNombre, job.claseNum, job.tema, transcript, url);
   };
 
   useEffect(() => {
@@ -9791,34 +9816,39 @@ function GrabadoraDesgrabadorView({
               </div>
             </div>
 
-            {/* Cargas en segundo plano: no bloquean nada, se puede seguir usando la app */}
+            {/* Cargas en segundo plano: todo queda en la base; se puede seguir usando la app */}
             {cargas.length > 0 && (
               <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
                 <h4 className="text-xs font-black uppercase text-app-text flex items-center gap-2">
-                  <Icon name="list" className="w-4 h-4 text-app-emerald" /> Cargas en segundo plano
+                  <Icon name="list" className="w-4 h-4 text-app-emerald" /> Cargas en segundo plano (guardadas en la base)
                 </h4>
-                {cargas.map((c) => {
-                  const listas = c.resultados ? Object.keys(c.resultados).length : 0;
-                  return (
-                    <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
-                      <div className="min-w-0">
-                        <p className="font-bold text-app-text truncate">{c.nombre}</p>
-                        <p className="text-app-muted truncate">{c.materiaNombre} · Clase {c.claseNum}</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en Historial</span>}
-                        {(c.estado === 'pendiente' || c.estado === 'en_proceso') && (
-                          <span className="text-app-amber font-bold">Desgrabando {listas}/{c.totalPartes || '?'}</span>
-                        )}
-                        {c.estado === 'error' && (
-                          <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
-                            Reintentar ({listas} partes guardadas)
-                          </button>
-                        )}
-                      </div>
+                {cargas.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
+                    <div className="min-w-0">
+                      <p className="font-bold text-app-text truncate">{c.nombre}</p>
+                      <p className="text-app-muted truncate">{c.materia} · Clase {c.clase_num}</p>
                     </div>
-                  );
-                })}
+                    <div className="text-right shrink-0">
+                      {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en Apuntes</span>}
+                      {(c.estado === 'pendiente' || c.estado === 'en_proceso') && (
+                        <span className="text-app-amber font-bold">Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}</span>
+                      )}
+                      {c.estado === 'grabando' && sesionGrabacionRef.current !== c.id && (
+                        <button onClick={() => reintentarCarga(c.id)} className="text-app-amber font-bold underline">
+                          Grabación interrumpida: desgrabar lo subido
+                        </button>
+                      )}
+                      {c.estado === 'grabando' && sesionGrabacionRef.current === c.id && (
+                        <span className="text-app-emerald font-bold">Grabando ({c.partes_total || 0} fragmentos guardados)</span>
+                      )}
+                      {c.estado === 'error' && (
+                        <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
+                          Reintentar ({c.partes_listas || 0} partes guardadas)
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
