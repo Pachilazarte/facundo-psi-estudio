@@ -8650,9 +8650,8 @@ function GrabadoraDesgrabadorView({
   const transcribeViaNetlify = async (audioBlob, signal, materiaName) => {
     const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
     const decodificado = await ctx.decodeAudioData(await audioBlob.arrayBuffer());
-    try { ctx.close(); } catch (e) {}
-
-    const FRAGMENTO = 150 * 16000;
+    // Transcribir en fragmentos de 90 s (≈2,8 MB WAV), 100% seguro bajo el límite de 5,5 MB de Netlify
+    const FRAGMENTO = 90 * 16000;
     const total = Math.ceil(decodificado.length / FRAGMENTO);
     const segmentos = [];
     let textoCompleto = '';
