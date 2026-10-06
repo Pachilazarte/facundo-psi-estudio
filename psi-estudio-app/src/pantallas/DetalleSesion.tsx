@@ -119,7 +119,7 @@ export function DetalleSesion({
 
   const handleReintentarFragmento = async (orden: number) => {
     await reintentarFragmento(sesion.id, orden);
-    despertar();
+    reintentarAhora();
   };
 
   const duracionTotal = fragmentosOrdenados.reduce((acc, f) => acc + (f.duracionSeg || 0), 0);
