@@ -367,6 +367,8 @@ function parseMarkdownToHTML(md) {
   }
 
   return html;
+}
+
 function generarUUID(prefijo = '') {
   let id = '';
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -405,21 +407,32 @@ function safeGetLocalStorage(key, fallback = []) {
   }
 }
 
+function stripLargeBinaryFields(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(stripLargeBinaryFields);
+  const clone = { ...obj };
+  const binaryKeys = ['pdfData', 'pdf_data', 'fileData', 'archivo_pdf', 'dataUrl', 'blob', 'audioData'];
+  for (const k of binaryKeys) {
+    if (k in clone) delete clone[k];
+  }
+  if (Array.isArray(clone.grabaciones)) {
+    clone.grabaciones = clone.grabaciones.map(g => ({ ...g, url: (typeof g.url === 'string' && g.url.startsWith('data:') ? '' : g.url) }));
+  }
+  if (Array.isArray(clone.imagenes)) {
+    clone.imagenes = clone.imagenes.map(img => ({ ...img, url: (typeof img.url === 'string' && img.url.startsWith('data:') ? '' : img.url) }));
+  }
+  return clone;
+}
+
 function safeSetLocalStorage(key, data) {
   try {
-    let sanitized = data;
-    if (Array.isArray(data)) {
-      sanitized = data.map(item => {
-        if (!item) return item;
-        const clone = { ...item };
-        // Si tiene archivo PDF binario, no meterlo a localStorage para no saturar quota (IndexedDB lo guarda completo)
-        if (clone.pdfData) delete clone.pdfData;
-        return clone;
-      });
-    }
+    const sanitized = stripLargeBinaryFields(data);
     localStorage.setItem(key, typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized));
   } catch (err) {
-    console.warn(`QuotaExceededError o error guardando '${key}' en localStorage:`, err);
+    console.warn(`[Storage] QuotaExceededError o error guardando '${key}' en localStorage:`, err);
+    if (typeof window !== 'undefined' && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014)) {
+      window.dispatchEvent(new CustomEvent('psi-storage-quota-warning', { detail: { key, message: err?.message } }));
+    }
   }
 }
 
@@ -1686,7 +1699,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.33.0';
+  const currentVersion = 'v2.34.0';
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1746,6 +1759,15 @@ function App() {
         });
       }).catch(err => console.warn('[SW] Error registro:', err));
     }
+  }, []);
+
+  // Alerta de límite de cuota de almacenamiento local
+  useEffect(() => {
+    const handleQuotaWarning = () => {
+      showToast('⚠️ Cuota de almacenamiento del navegador alcanzada. Datos preservados en IndexedDB.', 'alert-triangle');
+    };
+    window.addEventListener('psi-storage-quota-warning', handleQuotaWarning);
+    return () => window.removeEventListener('psi-storage-quota-warning', handleQuotaWarning);
   }, []);
 
   const checkForUpdates = async (manual = true) => {
@@ -1857,9 +1879,15 @@ function App() {
             }
             return item;
           });
-          await psiDB[tableName].bulkPut(mergedItems);
+          await psiDB[tableName].clear();
+          if (mergedItems.length > 0) {
+            await psiDB[tableName].bulkPut(mergedItems);
+          }
         } else {
-          await psiDB[tableName].bulkPut(items);
+          await psiDB[tableName].clear();
+          if (items.length > 0) {
+            await psiDB[tableName].bulkPut(items);
+          }
         }
       } catch (e) {
         console.warn(`IndexedDB save error (${tableName}):`, e);
@@ -2052,76 +2080,69 @@ function App() {
         supabaseClient.from('examenes').select('*').order('fecha')
       ]);
 
+      const isPendingLocalInsert = (table, id) => {
+        return syncQueue.some(q => q.table === table && (q.action === 'INSERT' || q.action === 'UPDATE') && q.payload?.id === id);
+      };
+
       if (matsRes.status === 'fulfilled' && Array.isArray(matsRes.value.data)) {
         matsRes.value.data.forEach(m => {
-          if (isRecordDeleted('materias', m.id)) {
-            supabaseClient.from('materias').delete().eq('id', m.id).then(() => {}).catch(() => {});
+          if (m.deleted_at || isRecordDeleted('materias', m.id)) {
+            addDeletedRecord('materias', m.id);
           }
         });
         setMaterias(prev => {
-          let merged = matsRes.value.data.filter(m => !isRecordDeleted('materias', m.id));
-          prev.filter(p => !isRecordDeleted('materias', p.id)).forEach(p => {
-            if (!merged.find(m => m.id === p.id)) merged.push(p);
+          let serverActive = matsRes.value.data.filter(m => !m.deleted_at && !isRecordDeleted('materias', m.id));
+          prev.filter(p => !isRecordDeleted('materias', p.id) && isPendingLocalInsert('materias', p.id)).forEach(p => {
+            if (!serverActive.find(m => m.id === p.id)) serverActive.push(p);
           });
-          [...ACADEMIC_MASTER_SEEDS.materias].reverse().forEach(m => {
-            if (isRecordDeleted('materias', m.id)) return;
-            const idx = merged.findIndex(x => x.id === m.id || x.nombre.toLowerCase() === m.nombre.toLowerCase());
-            if (idx === -1) merged.unshift(m);
-            else merged[idx] = { ...m, ...merged[idx] };
-          });
-          safeSetLocalStorage('psi_materias_cache', merged);
-          saveToIndexedDB('materias', merged);
-          return merged;
+          safeSetLocalStorage('psi_materias_cache', serverActive);
+          saveToIndexedDB('materias', serverActive);
+          return serverActive;
         });
       }
 
       if (bibRes.status === 'fulfilled' && Array.isArray(bibRes.value.data)) {
         bibRes.value.data.forEach(b => {
-          if (isRecordDeleted('bibliografia', b.id)) {
-            supabaseClient.from('bibliografia').delete().eq('id', b.id).then(() => {}).catch(() => {});
+          if (b.deleted_at || isRecordDeleted('bibliografia', b.id)) {
+            addDeletedRecord('bibliografia', b.id);
           }
         });
         setBiblio(prev => {
-          let merged = bibRes.value.data.filter(b => !isRecordDeleted('bibliografia', b.id));
-          prev.filter(p => !isRecordDeleted('bibliografia', p.id)).forEach(p => {
-            if (!merged.find(b => b.id === p.id)) merged.push(p);
+          let serverActive = bibRes.value.data.filter(b => !b.deleted_at && !isRecordDeleted('bibliografia', b.id));
+          prev.filter(p => !isRecordDeleted('bibliografia', p.id) && isPendingLocalInsert('bibliografia', p.id)).forEach(p => {
+            if (!serverActive.find(b => b.id === p.id)) serverActive.push(p);
           });
-          [...ACADEMIC_MASTER_SEEDS.bibliografia].reverse().forEach(b => {
-            if (isRecordDeleted('bibliografia', b.id)) return;
-            const idx = merged.findIndex(x => x.id === b.id || (x.titulo_texto === b.titulo_texto && x.materia_id === b.materia_id));
-            if (idx === -1) merged.unshift(b);
-          });
-          safeSetLocalStorage('psi_biblio_cache', merged);
-          saveToIndexedDB('bibliografia', merged);
-          return merged;
+          safeSetLocalStorage('psi_biblio_cache', serverActive);
+          saveToIndexedDB('bibliografia', serverActive);
+          return serverActive;
         });
       }
 
       if (claRes.status === 'fulfilled' && Array.isArray(claRes.value.data)) {
         claRes.value.data.forEach(c => {
-          if (isRecordDeleted('clases', c.id)) {
-            supabaseClient.from('clases').delete().eq('id', c.id).then(() => {}).catch(() => {});
+          if (c.deleted_at || isRecordDeleted('clases', c.id)) {
+            addDeletedRecord('clases', c.id);
           }
         });
         setClases(prev => {
-          let merged = claRes.value.data.filter(c => !isRecordDeleted('clases', c.id));
-          prev.filter(p => !isRecordDeleted('clases', p.id)).forEach(p => {
-            if (!merged.find(c => c.id === p.id)) merged.push(p);
+          let serverActive = claRes.value.data.filter(c => !c.deleted_at && !isRecordDeleted('clases', c.id));
+          prev.filter(p => !isRecordDeleted('clases', p.id) && isPendingLocalInsert('clases', p.id)).forEach(p => {
+            if (!serverActive.find(c => c.id === p.id)) serverActive.push(p);
           });
-          safeSetLocalStorage('psi_clases_cache', merged);
-          saveToIndexedDB('clases', merged);
-          return merged;
+          safeSetLocalStorage('psi_clases_cache', serverActive);
+          saveToIndexedDB('clases', serverActive);
+          return serverActive;
         });
       }
 
       if (apuRes.status === 'fulfilled' && Array.isArray(apuRes.value.data)) {
         apuRes.value.data.forEach(a => {
-          if (isRecordDeleted('apuntes', a.id)) {
-            supabaseClient.from('apuntes').delete().eq('id', a.id).then(() => {}).catch(() => {});
+          if (a.deleted_at || isRecordDeleted('apuntes', a.id)) {
+            addDeletedRecord('apuntes', a.id);
           }
         });
         setApuntes(prev => {
-          let incoming = apuRes.value.data.filter(a => !isRecordDeleted('apuntes', a.id));
+          let incoming = apuRes.value.data.filter(a => !a.deleted_at && !isRecordDeleted('apuntes', a.id));
           let merged = incoming.map(inc => {
             const match = prev.find(p => p.id === inc.id);
             if (match) {
@@ -2135,13 +2156,8 @@ function App() {
             }
             return inc;
           });
-          prev.filter(p => !isRecordDeleted('apuntes', p.id)).forEach(p => {
+          prev.filter(p => !isRecordDeleted('apuntes', p.id) && isPendingLocalInsert('apuntes', p.id)).forEach(p => {
             if (!merged.find(a => a.id === p.id)) merged.push(p);
-          });
-          [...ACADEMIC_MASTER_SEEDS.apuntes].reverse().forEach(a => {
-            if (isRecordDeleted('apuntes', a.id)) return;
-            const idx = merged.findIndex(x => x.id === a.id || (x.titulo === a.titulo && x.materia_id === a.materia_id));
-            if (idx === -1) merged.unshift(a);
           });
           safeSetLocalStorage('psi_apuntes_cache', merged);
           saveToIndexedDB('apuntes', merged);
@@ -2151,12 +2167,12 @@ function App() {
 
       if (pdfRes.status === 'fulfilled' && Array.isArray(pdfRes.value.data)) {
         pdfRes.value.data.forEach(p => {
-          if (isRecordDeleted('documentos_pdf', p.id)) {
-            supabaseClient.from('documentos_pdf').delete().eq('id', p.id).then(() => {}).catch(() => {});
+          if (p.deleted_at || isRecordDeleted('documentos_pdf', p.id)) {
+            addDeletedRecord('documentos_pdf', p.id);
           }
         });
         setPdfs(prev => {
-          let incoming = pdfRes.value.data.filter(p => !isRecordDeleted('documentos_pdf', p.id));
+          let incoming = pdfRes.value.data.filter(p => !p.deleted_at && !isRecordDeleted('documentos_pdf', p.id));
           let merged = incoming.map(inc => {
             const match = prev.find(p => p.id === inc.id);
             if (match) {
@@ -2170,13 +2186,8 @@ function App() {
             }
             return inc;
           });
-          prev.filter(p => !isRecordDeleted('documentos_pdf', p.id)).forEach(p => {
+          prev.filter(p => !isRecordDeleted('documentos_pdf', p.id) && isPendingLocalInsert('documentos_pdf', p.id)).forEach(p => {
             if (!merged.find(m => m.id === p.id)) merged.push(p);
-          });
-          [...ACADEMIC_MASTER_SEEDS.documentos_pdf].reverse().forEach(p => {
-            if (isRecordDeleted('documentos_pdf', p.id)) return;
-            const idx = merged.findIndex(x => x.id === p.id || (x.nombre_archivo === p.nombre_archivo && x.materia_id === p.materia_id));
-            if (idx === -1) merged.unshift(p);
           });
           safeSetLocalStorage('psi_pdfs_cache', merged);
           saveToIndexedDB('documentos_pdf', merged);
@@ -2186,40 +2197,36 @@ function App() {
 
       if (exRes.status === 'fulfilled' && Array.isArray(exRes.value.data)) {
         exRes.value.data.forEach(e => {
-          if (isRecordDeleted('examenes', e.id)) {
-            supabaseClient.from('examenes').delete().eq('id', e.id).then(() => {}).catch(() => {});
+          if (e.deleted_at || isRecordDeleted('examenes', e.id)) {
+            addDeletedRecord('examenes', e.id);
           }
         });
         setExamenes(prev => {
-          let merged = exRes.value.data.filter(e => !isRecordDeleted('examenes', e.id));
-          prev.filter(p => !isRecordDeleted('examenes', p.id)).forEach(p => {
-            if (!merged.find(e => e.id === p.id)) merged.push(p);
+          let serverActive = exRes.value.data.filter(e => !e.deleted_at && !isRecordDeleted('examenes', e.id));
+          prev.filter(p => !isRecordDeleted('examenes', p.id) && isPendingLocalInsert('examenes', p.id)).forEach(p => {
+            if (!serverActive.find(e => e.id === p.id)) serverActive.push(p);
           });
-          [...ACADEMIC_MASTER_SEEDS.examenes].reverse().forEach(e => {
-            if (isRecordDeleted('examenes', e.id)) return;
-            const idx = merged.findIndex(x => x.id === e.id || (x.nombre === e.nombre && x.materia_id === e.materia_id));
-            if (idx === -1) merged.unshift(e);
-          });
-          safeSetLocalStorage('psi_examenes_cache', merged);
-          saveToIndexedDB('examenes', merged);
-          return merged;
+          safeSetLocalStorage('psi_examenes_cache', serverActive);
+          saveToIndexedDB('examenes', serverActive);
+          return serverActive;
         });
       }
 
-      // Auto-sincronización transparente e instantánea a Supabase
-      setTimeout(() => {
-        syncAllLocalDataToCloud(true);
-      }, 1000);
+      // Procesa la cola offline de forma ordenada si hay pendientes
+      if (syncQueue && syncQueue.length > 0) {
+        processSyncQueue();
+      }
     } catch (err) {
-      console.warn('Sync error:', err);
+      console.warn('Sync fetch error:', err);
     }
   };
 
   const enqueueAction = async (action, table, payload) => {
-    const item = { id: Date.now(), action, table, payload, timestamp: new Date().toISOString() };
+    const cleanPayload = stripLargeBinaryFields(payload);
+    const item = { id: Date.now(), action, table, payload: cleanPayload, timestamp: new Date().toISOString() };
     const newQueue = [...syncQueue, item];
     setSyncQueue(newQueue);
-    localStorage.setItem('psi_sync_queue', JSON.stringify(newQueue));
+    safeSetLocalStorage('psi_sync_queue', newQueue);
     if (psiDB && psiDB.syncQueue) {
       try {
         await psiDB.syncQueue.add(item);
@@ -2375,7 +2382,7 @@ function App() {
     }
 
     setSyncQueue(remainingQueue);
-    localStorage.setItem('psi_sync_queue', JSON.stringify(remainingQueue));
+    safeSetLocalStorage('psi_sync_queue', remainingQueue);
     if (psiDB && psiDB.syncQueue) {
       try {
         await psiDB.syncQueue.clear();
@@ -2843,10 +2850,17 @@ function App() {
         else await supabaseClient.from('apuntes').insert([cleanPayload]);
       } catch (e) {
         console.warn('Error sincronizando apunte en Supabase:', e);
-        enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', payload);
+        enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', cleanPayload);
       }
     } else {
-      enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', payload);
+      const { pdfName, numPages, saveToPdfDocs, pdfData, ...cleanOfflinePayload } = payload;
+      if (cleanOfflinePayload.nro_parcial) {
+        const matchedNum = String(cleanOfflinePayload.nro_parcial).match(/\d+/);
+        cleanOfflinePayload.nro_parcial = matchedNum ? parseInt(matchedNum[0], 10) : 1;
+      } else {
+        cleanOfflinePayload.nro_parcial = 1;
+      }
+      enqueueAction(isEdit ? 'UPDATE' : 'INSERT', 'apuntes', cleanOfflinePayload);
     }
   };
 
@@ -3325,7 +3339,7 @@ function App() {
 
       if (results.errors.length === 0) {
         setSyncQueue([]);
-        localStorage.setItem('psi_sync_queue', '[]');
+        safeSetLocalStorage('psi_sync_queue', []);
         if (psiDB && psiDB.syncQueue) {
           try { await psiDB.syncQueue.clear(); } catch (e) {}
         }
@@ -8181,9 +8195,6 @@ function GrabadoraDesgrabadorView({
   // Historial de sesiones guardadas localmente
   const [savedSessions, setSavedSessions] = useState(() => safeGetLocalStorage('psi_audio_sessions_history', []));
 
-  // Sin key por defecto en el código: la key de Groq la pone el usuario en Ajustes si quiere usar la nube.
-  const DEFAULT_GROQ_KEY = '';
-  const [whisperApiKey, setWhisperApiKey] = useState(() => localStorage.getItem('psi_whisper_api_key') || DEFAULT_GROQ_KEY);
   const speechRecognitionRef = useRef(null);
   const liveSegmentsRef = useRef([]);
   const recordingSecondsRef = useRef(0);

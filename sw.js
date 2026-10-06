@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-v2.26.0';
+const CACHE_NAME = 'psiestudio-v2.34.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,6 +11,12 @@ const ASSETS_TO_CACHE = [
   './icon-512.png',
   './manifest.json',
   './version.json',
+  'https://cdn.tailwindcss.com',
+  'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js',
+  'https://unpkg.com/react@18/umd/react.production.min.js',
+  'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+  'https://unpkg.com/@babel/standalone/babel.min.js',
+  'https://unpkg.com/lucide@latest',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
@@ -27,9 +33,23 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[ServiceWorker] Pre-caching v2.19.0 assets');
-      return cache.addAll(ASSETS_TO_CACHE).catch(err => console.warn('[ServiceWorker] Pre-cache warning:', err));
+    caches.open(CACHE_NAME).then(async (cache) => {
+      console.log(`[ServiceWorker] Pre-caching v2.34.0 assets`);
+      await Promise.allSettled(
+        ASSETS_TO_CACHE.map(async (url) => {
+          try {
+            const response = await fetch(url, { mode: url.startsWith('http') ? 'cors' : 'same-origin' });
+            if (response && (response.status === 200 || response.type === 'opaque')) {
+              await cache.put(url, response);
+            } else {
+              console.warn(`[ServiceWorker] Respuesta no cacheable para ${url}: ${response ? response.status : 'null'}`);
+            }
+          } catch (err) {
+            console.warn(`[ServiceWorker] Pre-cache omitido para ${url}:`, err);
+          }
+        })
+      );
+      console.log(`[ServiceWorker] Pre-caching completado con resiliencia`);
     })
   );
 });

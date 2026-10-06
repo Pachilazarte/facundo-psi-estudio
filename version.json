@@ -1,7 +1,7 @@
 {
-  "version": "2.27.0",
-  "buildDate": "2026-10-05T01:30:00.000Z",
+  "version": "2.34.0",
+  "buildDate": "2026-10-05T23:45:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Auditoría Defensiva Atómica completada (32 defectos resueltos). Estabilización total del motor DSP, transcripción Whisper con lazy loading y fallback inteligente de UI."
+  "notes": "Hardening de seguridad (XSS, CSP, DOMPurify), recuperación de tramos de audio interrumpidos, sincronización resiliente y service worker offline optimizado."
 }
