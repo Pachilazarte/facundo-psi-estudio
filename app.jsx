@@ -15,7 +15,18 @@ const SUPABASE_CONFIG = {
 let supabaseClient = null;
 try {
   if (window.supabase && SUPABASE_CONFIG.url.startsWith('http')) {
-    supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+    supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key, {
+      global: {
+        // La clave de la app viaja en un header; la base la verifica (ver 0002_clave_de_app.sql)
+        fetch: (input, init = {}) => {
+          const headers = new Headers(init.headers || {});
+          let clave = '';
+          try { clave = localStorage.getItem('psi_api_token') || ''; } catch (e) {}
+          headers.set('x-app-token', clave);
+          return fetch(input, { ...init, headers });
+        }
+      }
+    });
   }
 } catch (e) {
   console.warn('Supabase init fallback:', e);
@@ -5306,6 +5317,21 @@ function App() {
               )}
             </div>
 
+            {/* Clave de la app: se guarda solo en este navegador */}
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
+              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                <Icon name="lock" className="w-4 h-4 text-app-emerald" /> Clave de la app
+              </h3>
+              <p className="text-xs text-app-muted">Pegá tu clave secreta. Se guarda solo en este navegador y permite leer y guardar tus datos.</p>
+              <input
+                type="password"
+                defaultValue={(() => { try { return localStorage.getItem('psi_api_token') || ''; } catch (e) { return ''; } })()}
+                onChange={(e) => { try { localStorage.setItem('psi_api_token', e.target.value.trim()); } catch (err) {} }}
+                placeholder="Clave"
+                className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none font-mono"
+              />
+            </div>
+
             {/* Credenciales y Diagnóstico */}
             <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
               <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
@@ -8523,6 +8549,80 @@ function GrabadoraDesgrabadorView({
     showToast('Procesamiento cancelado', 'x');
   };
 
+  // Convierte un fragmento de audio a WAV 16 kHz mono 16 bits (mezcla los canales)
+  const audioBufferToWav16kMono = (audioBuffer, desde, cantidad) => {
+    const canales = audioBuffer.numberOfChannels;
+    const muestras = new Float32Array(cantidad);
+    for (let c = 0; c < canales; c++) {
+      const datos = audioBuffer.getChannelData(c);
+      for (let i = 0; i < cantidad; i++) muestras[i] += datos[desde + i] / canales;
+    }
+    const wav = new ArrayBuffer(44 + cantidad * 2);
+    const vista = new DataView(wav);
+    const escribir = (off, txt) => { for (let i = 0; i < txt.length; i++) vista.setUint8(off + i, txt.charCodeAt(i)); };
+    escribir(0, 'RIFF'); vista.setUint32(4, 36 + cantidad * 2, true); escribir(8, 'WAVE');
+    escribir(12, 'fmt '); vista.setUint32(16, 16, true); vista.setUint16(20, 1, true); vista.setUint16(22, 1, true);
+    vista.setUint32(24, 16000, true); vista.setUint32(28, 32000, true); vista.setUint16(32, 2, true); vista.setUint16(34, 16, true);
+    escribir(36, 'data'); vista.setUint32(40, cantidad * 2, true);
+    for (let i = 0; i < cantidad; i++) {
+      const v = Math.max(-1, Math.min(1, muestras[i]));
+      vista.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7FFF, true);
+    }
+    return new Blob([wav], { type: 'audio/wav' });
+  };
+
+  // Transcribe con la función de Netlify en fragmentos de 150 s (≈4,8 MB, bajo el límite de 6 MB)
+  const transcribeViaNetlify = async (audioBlob, signal, materiaName) => {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const decodificado = await ctx.decodeAudioData(await audioBlob.arrayBuffer());
+    try { ctx.close(); } catch (e) {}
+
+    const FRAGMENTO = 150 * 16000;
+    const total = Math.ceil(decodificado.length / FRAGMENTO);
+    const segmentos = [];
+    let textoCompleto = '';
+    let acumulado = 0;
+
+    for (let i = 0; i < total; i++) {
+      setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${total} en la nube...`);
+      const desde = i * FRAGMENTO;
+      const cantidad = Math.min(FRAGMENTO, decodificado.length - desde);
+      const wav = audioBufferToWav16kMono(decodificado, desde, cantidad);
+
+      const res = await fetch('/.netlify/functions/transcribir', {
+        method: 'POST',
+        headers: psiApiHeaders({ 'Content-Type': 'audio/wav' }),
+        body: wav,
+        signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Error en la transcripción en la nube (${res.status})`);
+
+      (data.segments || []).forEach((seg) => {
+        const inicio = acumulado + seg.start;
+        segmentos.push({
+          id: segmentos.length + 1,
+          start: inicio,
+          end: acumulado + seg.end,
+          timestamp: formatTime(inicio),
+          text: (seg.text || '').trim(),
+          words: (seg.words || []).map((w) => ({ word: w.word, start: acumulado + w.start, end: acumulado + w.end })),
+        });
+      });
+      textoCompleto += (data.text || '') + ' ';
+      acumulado += data.duration || cantidad / 16000;
+    }
+
+    return {
+      version: '2.0.0',
+      subject: materiaName,
+      duration_seconds: acumulado,
+      total_segments: segmentos.length,
+      paragraphs: [textoCompleto.trim()],
+      segments: segmentos,
+    };
+  };
+
   // Transcribir con Whisper Cloud API (Groq o OpenAI) con Soporte de Chunking Automático
   const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName, originalFilename = 'audio.wav') => {
     const cleanKey = apiKey.trim();
@@ -8729,7 +8829,6 @@ function GrabadoraDesgrabadorView({
     const targetMatObj = materias.find(m => m.id === targetMateriaId);
     const materiaName = targetMatObj ? targetMatObj.nombre : 'Psicología General';
     const cleanServerUrl = serverUrl.replace(/\/$/, '');
-    const activeApiKey = whisperApiKey || localStorage.getItem('psi_whisper_api_key') || '';
 
     try {
       if (serverOnline) {
@@ -8823,11 +8922,11 @@ function GrabadoraDesgrabadorView({
         setAudioUrl(`${cleanServerUrl}/api/sessions/${sessionId}/audio?token=${encodeURIComponent(localStorage.getItem('psi_api_token') || '')}`);
         setTranscriptData(transcriptJson);
         saveSessionToHistory(sessionId, materiaName, targetClaseNum, temaClase, transcriptJson, `${cleanServerUrl}/api/sessions/${sessionId}/audio?token=${encodeURIComponent(localStorage.getItem('psi_api_token') || '')}`);
-      } else if (activeApiKey.trim()) {
-        // ── MOTOR 2: WHISPER CLOUD API (GROQ / OPENAI) ──
+      } else if (!serverOnline) {
+        // ── MOTOR 2: FUNCIÓN DE NETLIFY (GROQ, la key vive en Netlify) ──
         setProcessingProgress(50);
-        setProcessingStep('Transcribiendo con Whisper Cloud API...');
-        const cloudTranscript = await transcribeWithCloudWhisper(audioBlobOrFile, activeApiKey, signal, materiaName, filename);
+        setProcessingStep('Transcribiendo en la nube...');
+        const cloudTranscript = await transcribeViaNetlify(audioBlobOrFile, signal, materiaName);
         setTranscriptData(cloudTranscript);
         saveSessionToHistory(`cloud_${Date.now()}`, materiaName, targetClaseNum, temaClase, cloudTranscript, audioUrl);
       } else if (liveSegmentsRef.current && liveSegmentsRef.current.length > 0) {
