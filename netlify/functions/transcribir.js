@@ -40,10 +40,7 @@ exports.handler = async (event) => {
     }
   }
 
-  const claveEsperada = process.env.PSI_API_TOKEN || '';
-  const recibida = headers['x-app-token'] || headers['x-psi-token'] || headers['authorization'] || '';
-  if (!claveValida(recibida, claveEsperada)) return respuesta(401, { error: 'Clave inválida o ausente' });
-
+  // Para uso personal exclusivo: procesar directamente sin bloqueo de token 401
   const groqKey = process.env.GROQ_API_KEY || '';
   if (!groqKey) return respuesta(500, { error: 'Falta GROQ_API_KEY en la configuración de Netlify' });
 
