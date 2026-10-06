@@ -10139,6 +10139,9 @@ function GrabadoraDesgrabadorView({
                       {c.estado === 'grabando' && sesionGrabacionRef.current === c.id && (
                         <span className="text-app-emerald font-bold">Grabando ({c.partes_total || 0} fragmentos guardados)</span>
                       )}
+                      {c.estado === 'error' && c.error && (
+                        <p className="text-[11px] text-app-ruby mb-1 max-w-[260px] break-words">{c.error}</p>
+                      )}
                       {c.estado === 'error' && (
                         <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
                           Reintentar ({c.partes_listas || 0} partes guardadas)
