@@ -17,7 +17,7 @@ import { nombrePendiente, ponerEnPendientes } from '../outbox';
 import { despertarCola, subirPendientes } from '../cola';
 import { actualizarCarga, crearCarga, leerCargas } from '../supabase';
 import type { Carga } from '../tipos';
-import { mensajeDeError } from '../util';
+import { AvisoError, avisoDe, detalleTecnico } from '../util';
 
 export type Fase = 'inactiva' | 'preparando' | 'grabando' | 'cortando' | 'pausada';
 
@@ -74,11 +74,16 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
   const cadenaRef = useRef<Promise<void>>(Promise.resolve());
 
   const alCambiarEstado = (estado: RecordingStatus) => {
-    if (estado.hasError && estado.error) setAviso(`Problema del grabador: ${estado.error}`);
+    if (estado.hasError && estado.error) {
+      console.warn('[PsiEstudio] micrófono', estado.error);
+      setAviso('Hubo un problema con el micrófono. Probá de nuevo.');
+    }
   };
   const grabadora = useAudioRecorder(RecordingPresets.HIGH_QUALITY, alCambiarEstado);
   const grabadoraRef = useRef(grabadora);
-  grabadoraRef.current = grabadora;
+  useEffect(() => {
+    grabadoraRef.current = grabadora;
+  });
 
   const setFase = (f: Fase) => {
     faseRef.current = f;
@@ -169,7 +174,8 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
         setFase('grabando');
       }
     } catch (e) {
-      setAviso(`Se interrumpió la grabación: ${mensajeDeError(e)}. Lo grabado ya está guardado. Tocá Reanudar.`);
+      console.warn('[PsiEstudio] grabación interrumpida', detalleTecnico(e));
+      setAviso('Se interrumpió la grabación. Lo grabado ya está guardado. Tocá Reanudar.');
       await pasarAPausa();
     }
   };
@@ -183,7 +189,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
 
   const arrancar = async (carga: Carga) => {
     const permiso = await requestRecordingPermissionsAsync();
-    if (!permiso.granted) throw new Error('Sin permiso de micrófono. Habilitalo en Ajustes del teléfono, en PsiEstudio.');
+    if (!permiso.granted) throw new AvisoError('Sin permiso de micrófono. Habilitalo en Ajustes del teléfono, en PsiEstudio.');
     await modoGrabacion();
     cargaRef.current = { id: carga.id };
     setCargaId(carga.id);
@@ -208,7 +214,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
 
   const iniciar = (datos: DatosNuevaClase) =>
     enSerie(async () => {
-      if (faseRef.current !== 'inactiva') throw new Error('Ya hay una grabación en curso');
+      if (faseRef.current !== 'inactiva') throw new AvisoError('Ya hay una grabación en curso');
       setFase('preparando');
       const carga: Carga = {
         id: nuevoId(),
@@ -230,26 +236,26 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
       try {
         await crearCarga(carga); // sin registro en la base no se graba
       } catch (e) {
-        await fallarArranque(new Error(`No se pudo empezar: ${mensajeDeError(e)}`));
+        await fallarArranque(new AvisoError(avisoDe('No se pudo empezar la clase', e)));
         return;
       }
       try {
         await arrancar(carga);
       } catch (e) {
         await actualizarCarga(carga.id, { estado: 'error', error: 'La grabación no arrancó' }).catch(() => undefined);
-        await fallarArranque(new Error(`No se pudo empezar: ${mensajeDeError(e)}`));
+        await fallarArranque(new AvisoError(avisoDe('No se pudo empezar la clase', e)));
       }
     });
 
   const continuar = (carga: Carga) =>
     enSerie(async () => {
-      if (faseRef.current !== 'inactiva') throw new Error('Ya hay una grabación en curso');
+      if (faseRef.current !== 'inactiva') throw new AvisoError('Ya hay una grabación en curso');
       setFase('preparando');
       try {
         await actualizarCarga(carga.id, { estado: 'grabando', error: null });
         await arrancar(carga);
       } catch (e) {
-        await fallarArranque(new Error(`No se pudo continuar: ${mensajeDeError(e)}`));
+        await fallarArranque(new AvisoError(avisoDe('No se pudo continuar la clase', e)));
       }
     });
 
@@ -260,7 +266,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
       try {
         await guardarTramo();
       } catch (e) {
-        setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}. Queda en el teléfono hasta que se suba.`);
+        setAviso(avisoDe('No se pudo guardar el último tramo. Queda en el teléfono', e));
       }
       await pasarAPausa();
     });
@@ -277,7 +283,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
         setAviso(null);
         iniciarReloj();
       } catch (e) {
-        setAviso(`No se pudo reanudar: ${mensajeDeError(e)}`);
+        setAviso(avisoDe('No se pudo reanudar la grabación', e));
         await pasarAPausa();
       }
     });
@@ -291,7 +297,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
         try {
           await guardarTramo();
         } catch (e) {
-          setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}`);
+          setAviso(avisoDe('No se pudo guardar el último tramo', e));
         }
       }
       detenerReloj();
@@ -306,7 +312,8 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
           await actualizarCarga(carga.id, { estado: 'pendiente', error: null });
         }
       } catch (e) {
-        setAviso(`Clase cerrada en el teléfono, pero no se pudo avisar a la base: ${mensajeDeError(e)}. Se reintenta solo.`);
+        console.warn('[PsiEstudio] cierre de clase', detalleTecnico(e));
+        setAviso('La clase quedó guardada en el teléfono. Se va a enviar sola cuando haya conexión.');
       }
       cargaRef.current = null;
       setCargaId(null);
@@ -334,10 +341,10 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
         try {
           await guardarTramo();
         } catch (e) {
-          setAviso(`No se pudo subir el último tramo: ${mensajeDeError(e)}`);
+          setAviso(avisoDe('No se pudo guardar el último tramo', e));
         }
         await pasarAPausa();
-        setAviso('El sistema detuvo la grabación con la app en segundo plano. Lo grabado ya está guardado. Tocá Reanudar.');
+        setAviso('El teléfono detuvo la grabación porque la app estaba en segundo plano. Lo grabado ya está guardado. Tocá Reanudar.');
       });
     });
     return () => {

@@ -5,6 +5,7 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { SITIO_URL } from '../config';
+import { tema } from '../tema';
 
 export function PantallaSitio({ visible }: { visible: boolean }) {
   return (
@@ -17,7 +18,7 @@ export function PantallaSitio({ visible }: { visible: boolean }) {
         startInLoadingState
         renderLoading={() => (
           <View style={styles.cargando}>
-            <ActivityIndicator color="#10b981" />
+            <ActivityIndicator color={tema.acentoIcono} />
           </View>
         )}
         style={styles.web}
@@ -27,7 +28,7 @@ export function PantallaSitio({ visible }: { visible: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  contenedor: { flex: 1, backgroundColor: '#FBF8F3' },
+  contenedor: { flex: 1, backgroundColor: tema.fondo },
   oculta: { display: 'none' },
   web: { flex: 1 },
   cargando: {
@@ -38,6 +39,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FBF8F3',
+    backgroundColor: tema.fondo,
   },
 });

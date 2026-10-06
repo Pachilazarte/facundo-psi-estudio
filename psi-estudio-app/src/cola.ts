@@ -8,7 +8,7 @@ import { APP_TOKEN, FUNCION_TRANSCRIBIR } from './config';
 import { leerNombrePendiente, pendientesDeSubida } from './outbox';
 import { actualizarCarga, bajarArchivo, leerCargas, subirArchivo } from './supabase';
 import type { Carga, ParteDesgrabada } from './tipos';
-import { mensajeDeError } from './util';
+import { detalleTecnico } from './util';
 
 export type EstadoCola = {
   fragmentosSinSubir: number;
@@ -73,7 +73,8 @@ export async function subirPendientes(): Promise<void> {
         await actualizarCarga(info.cargaId, { archivos: rutas, partes_total: rutas.length });
         archivo.delete(); // ya está en la base: el teléfono no guarda copia
       } catch (e) {
-        cambiar({ ultimoError: `Fragmento ${info.orden}: ${mensajeDeError(e)}. Se reintenta solo.` });
+        console.warn('[PsiEstudio] parte no guardada', info.orden, detalleTecnico(e));
+        cambiar({ ultimoError: 'No se pudo guardar una parte de la clase. Se reintenta sola.' });
         programarReintento(30000);
         break;
       }
@@ -123,7 +124,8 @@ async function desgrabarCarga(carga: Carga): Promise<void> {
     }
     await actualizarCarga(carga.id, { estado: 'completada', error: null });
   } catch (e) {
-    const msg = mensajeDeError(e);
+    console.warn('[PsiEstudio] desgrabación no terminó', carga.id, detalleTecnico(e));
+    const msg = 'No se pudo desgrabar esta clase. Podés reintentarla desde la lista.';
     cambiar({ ultimoError: `${carga.nombre}: ${msg}` });
     await actualizarCarga(carga.id, { estado: 'error', error: msg });
   }
@@ -140,7 +142,8 @@ export async function desgrabarPendientes(): Promise<void> {
       await desgrabarCarga(carga);
     }
   } catch (e) {
-    cambiar({ ultimoError: `Sin conexión con la base: ${mensajeDeError(e)}. Se reintenta solo.` });
+    console.warn('[PsiEstudio] sin conexión al desgrabar', detalleTecnico(e));
+    cambiar({ ultimoError: 'No hay conexión a internet. Se reintenta sola.' });
     programarReintento(30000);
   } finally {
     desgrabando = false;

@@ -1,4 +1,8 @@
-export function mensajeDeError(e: unknown): string {
+/** Error cuyo mensaje ya está escrito para la persona. Cualquier otro error se muestra con avisoDe. */
+export class AvisoError extends Error {}
+
+/** Detalle técnico del error. Solo para la consola: nunca se muestra en pantalla. */
+export function detalleTecnico(e: unknown): string {
   if (e instanceof Error) return e.message;
   if (typeof e === 'string') return e;
   try {
@@ -6,6 +10,12 @@ export function mensajeDeError(e: unknown): string {
   } catch {
     return String(e);
   }
+}
+
+/** Frase para la persona. Lo técnico queda en la consola. */
+export function avisoDe(accion: string, e: unknown): string {
+  console.warn(`[PsiEstudio] ${accion}:`, detalleTecnico(e));
+  return `${accion}. Probá de nuevo en unos segundos.`;
 }
 
 /** mm:ss, o hh:mm:ss si pasa de una hora (para el reloj visible). */

@@ -1,13 +1,15 @@
-// Pantalla de grabación. Elegís materia y clase, grabás, y ves el estado de cada clase (que vive en la base).
+// Pantalla de grabación: elegís materia y clase, grabás, y ves el estado de cada clase.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { avisarCambioCargas, despertarCola } from '../cola';
+import { Boton } from '../componentes/Boton';
 import { useGrabacion } from '../grabacion/GrabacionContext';
 import { useCargas } from '../hooks';
 import { actualizarCarga, listarMaterias } from '../supabase';
+import { TOQUE_MINIMO, tema } from '../tema';
 import type { Carga, Materia } from '../tipos';
-import { fechaLegible, formatearTiempo, mensajeDeError } from '../util';
+import { AvisoError, avisoDe, detalleTecnico, fechaLegible, formatearTiempo } from '../util';
 
 export function PantallaGrabar({ visible }: { visible: boolean }) {
   const g = useGrabacion();
@@ -17,7 +19,7 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
   const [errorMaterias, setErrorMaterias] = useState<string | null>(null);
   const [materiaId, setMateriaId] = useState<string | null>(null);
   const [claseNum, setClaseNum] = useState(1);
-  const [tema, setTema] = useState('');
+  const [temaClase, setTemaClase] = useState('');
   const [ocupado, setOcupado] = useState(false);
 
   const cargarMaterias = useCallback(async () => {
@@ -26,45 +28,47 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
       setMaterias(lista);
       setErrorMaterias(null);
     } catch (e) {
-      setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}`);
+      setErrorMaterias(avisoDe('No se pudieron cargar las materias', e));
     }
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial de las materias desde la base
     void cargarMaterias();
   }, [cargarMaterias]);
 
-  useEffect(() => {
-    if (!materiaId && materias.length > 0) setMateriaId(materias[0].id);
-  }, [materias, materiaId]);
+  const materiaActiva = materiaId ?? materias[0]?.id ?? null;
 
   const ejecutar = async (accion: () => Promise<void>, titulo: string) => {
     setOcupado(true);
     try {
       await accion();
     } catch (e) {
-      Alert.alert(titulo, mensajeDeError(e));
+      console.warn('[PsiEstudio]', titulo, detalleTecnico(e));
+      Alert.alert(titulo, e instanceof AvisoError ? e.message : avisoDe(titulo, e));
     } finally {
       setOcupado(false);
     }
   };
 
   const empezar = () => {
-    const materia = materias.find((m) => m.id === materiaId) ?? null;
+    const materia = materias.find((m) => m.id === materiaActiva) ?? null;
     void ejecutar(
       () =>
-        g.iniciar({
-          materiaId: materia ? materia.id : null,
-          materiaNombre: materia ? materia.nombre : 'General',
-          claseNum,
-          tema: tema.trim(),
-        }).then(() => avisarCambioCargas()),
+        g
+          .iniciar({
+            materiaId: materia ? materia.id : null,
+            materiaNombre: materia ? materia.nombre : 'General',
+            claseNum,
+            tema: temaClase.trim(),
+          })
+          .then(() => avisarCambioCargas()),
       'No se pudo empezar',
     );
   };
 
   const confirmarTerminar = () => {
-    Alert.alert('Terminar la clase', 'Se sube lo grabado y se desgraba lo que falte. ¿Terminar?', [
+    Alert.alert('Terminar la clase', 'Se guarda lo grabado y se desgraba lo que falta. ¿Terminar?', [
       { text: 'Seguir grabando', style: 'cancel' },
       {
         text: 'Terminar',
@@ -83,6 +87,7 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
   };
 
   const hayGrabacion = g.fase !== 'inactiva';
+  const ocupadoGrabando = ocupado || g.fase === 'preparando' || g.fase === 'cortando';
 
   return (
     <View style={[styles.contenedor, !visible && styles.oculta]}>
@@ -90,47 +95,62 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
         {!hayGrabacion ? (
           <View style={styles.tarjeta}>
             <Text style={styles.titulo}>Nueva clase</Text>
+
             <Text style={styles.etiqueta}>Materia</Text>
             {errorMaterias ? <Text style={styles.textoError}>{errorMaterias}</Text> : null}
-            {materias.length === 0 && !errorMaterias ? <ActivityIndicator color="#10b981" /> : null}
+            {materias.length === 0 && !errorMaterias ? <ActivityIndicator color={tema.acentoIcono} /> : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {materias.map((m) => {
-                const activa = m.id === materiaId;
+                const activa = m.id === materiaActiva;
                 return (
-                  <TouchableOpacity key={m.id} onPress={() => setMateriaId(m.id)} style={[styles.chip, activa && styles.chipActivo]}>
+                  <Pressable
+                    key={m.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: activa }}
+                    onPress={() => setMateriaId(m.id)}
+                    style={[styles.chip, activa && styles.chipActivo]}
+                  >
                     <Text style={[styles.chipTexto, activa && styles.chipTextoActivo]} numberOfLines={1}>
                       {m.abreviatura || m.nombre}
                     </Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 );
               })}
             </ScrollView>
 
             <Text style={styles.etiqueta}>Número de clase</Text>
             <View style={styles.filaNumero}>
-              <TouchableOpacity onPress={() => setClaseNum((n) => Math.max(1, n - 1))} style={styles.botonNumero}>
-                <Text style={styles.botonNumeroTexto}>-</Text>
-              </TouchableOpacity>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Restar una clase"
+                onPress={() => setClaseNum((n) => Math.max(1, n - 1))}
+                style={styles.botonNumero}
+              >
+                <Text style={styles.botonNumeroTexto}>−</Text>
+              </Pressable>
               <Text style={styles.numero}>{claseNum}</Text>
-              <TouchableOpacity onPress={() => setClaseNum((n) => n + 1)} style={styles.botonNumero}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Sumar una clase"
+                onPress={() => setClaseNum((n) => n + 1)}
+                style={styles.botonNumero}
+              >
                 <Text style={styles.botonNumeroTexto}>+</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
 
             <Text style={styles.etiqueta}>Tema (opcional)</Text>
             <TextInput
-              value={tema}
-              onChangeText={setTema}
+              value={temaClase}
+              onChangeText={setTemaClase}
               placeholder="Ej: Transferencia y contratransferencia"
-              placeholderTextColor="#64748b"
+              placeholderTextColor={tema.textoSuave}
               style={styles.entrada}
             />
 
-            <TouchableOpacity onPress={empezar} disabled={ocupado} style={[styles.botonGrande, ocupado && styles.deshabilitado]}>
-              {ocupado ? <ActivityIndicator color="white" /> : <Text style={styles.botonGrandeTexto}>Empezar clase</Text>}
-            </TouchableOpacity>
-            <Text style={styles.textoMuted}>
-              El audio se sube a la base cada 2,5 minutos y la desgrabación queda en el Historial. Podés usar las otras pestañas mientras grabás.
+            <Boton texto="Empezar clase" icono="mic" variante="principal" onPress={empezar} cargando={ocupado} style={styles.botonEmpezar} />
+            <Text style={styles.textoSuave}>
+              Cada 2 minutos y medio la clase se guarda sola. La desgrabación aparece en el Historial. Podés usar las otras pestañas mientras grabás.
             </Text>
           </View>
         ) : (
@@ -139,35 +159,26 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
             <Text style={styles.reloj}>{formatearTiempo(g.segundos)}</Text>
             <Text style={styles.estadoGrabacion}>
               {g.fase === 'grabando' && 'Grabando'}
-              {g.fase === 'cortando' && 'Subiendo fragmento...'}
+              {g.fase === 'cortando' && 'Guardando una parte...'}
               {g.fase === 'pausada' && 'En pausa'}
               {g.fase === 'preparando' && 'Preparando...'}
             </Text>
+
             <View style={styles.filaBotones}>
               {g.fase === 'grabando' ? (
-                <TouchableOpacity onPress={() => void ejecutar(() => g.pausar(), 'No se pudo pausar')} disabled={ocupado} style={styles.botonSecundario}>
-                  <Text style={styles.botonSecundarioTexto}>Pausar</Text>
-                </TouchableOpacity>
+                <Boton texto="Pausar" icono="pause" onPress={() => void ejecutar(() => g.pausar(), 'No se pudo pausar')} disabled={ocupado} style={styles.flexible} />
               ) : null}
               {g.fase === 'pausada' ? (
-                <TouchableOpacity onPress={() => void ejecutar(() => g.reanudar(), 'No se pudo reanudar')} disabled={ocupado} style={styles.botonSecundario}>
-                  <Text style={styles.botonSecundarioTexto}>Reanudar</Text>
-                </TouchableOpacity>
+                <Boton texto="Reanudar" icono="play" onPress={() => void ejecutar(() => g.reanudar(), 'No se pudo reanudar')} disabled={ocupado} style={styles.flexible} />
               ) : null}
-              <TouchableOpacity
-                onPress={confirmarTerminar}
-                disabled={ocupado || g.fase === 'preparando' || g.fase === 'cortando'}
-                style={[styles.botonTerminar, (ocupado || g.fase === 'preparando' || g.fase === 'cortando') && styles.deshabilitado]}
-              >
-                <Text style={styles.botonGrandeTexto}>Terminar clase</Text>
-              </TouchableOpacity>
             </View>
-            <Text style={styles.textoMuted}>Mantené la pantalla encendida: el teléfono puede cortar el micrófono si se bloquea.</Text>
+            <Boton texto="Terminar clase" icono="square" variante="peligro" onPress={confirmarTerminar} disabled={ocupadoGrabando} />
+            <Text style={styles.textoSuave}>Mantené la pantalla encendida: el teléfono puede cortar el micrófono si se bloquea.</Text>
           </View>
         )}
 
-        <Text style={styles.titulo}>Clases en la base</Text>
-        {cargas.length === 0 ? <Text style={styles.textoMuted}>Todavía no hay clases grabadas o subidas.</Text> : null}
+        <Text style={styles.titulo}>Tus clases</Text>
+        {cargas.length === 0 ? <Text style={styles.textoSuave}>Todavía no hay clases. Grabá una o subí un audio desde la web.</Text> : null}
         {cargas.map((c) => {
           const actual = g.cargaId === c.id;
           return (
@@ -176,23 +187,21 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
                 {c.materia} · Clase {c.clase_num}
                 {c.tema ? ` · ${c.tema}` : ''}
               </Text>
-              <Text style={styles.textoMuted}>{fechaLegible(c.created_at)}</Text>
+              <Text style={styles.textoSuave}>{fechaLegible(c.created_at)}</Text>
               {c.estado === 'completada' ? <Text style={styles.ok}>Lista en el Historial</Text> : null}
               {c.estado === 'pendiente' || c.estado === 'en_proceso' ? (
-                <Text style={styles.filaEstado}>Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}</Text>
+                <Text style={styles.filaEstado}>
+                  Desgrabando {c.partes_listas || 0} de {c.partes_total || '?'}
+                </Text>
               ) : null}
-              {c.estado === 'grabando' && actual ? <Text style={styles.ok}>Grabando ({c.partes_total || 0} fragmentos subidos)</Text> : null}
+              {c.estado === 'grabando' && actual ? <Text style={styles.ok}>Grabando ({c.partes_total || 0} partes guardadas)</Text> : null}
               {c.estado === 'grabando' && !actual ? (
-                <TouchableOpacity onPress={() => reintentar(c)} style={styles.botonSecundario}>
-                  <Text style={styles.botonSecundarioTexto}>Grabación interrumpida: desgrabar lo subido</Text>
-                </TouchableOpacity>
+                <Boton texto="Desgrabar lo que se guardó" icono="refresh-cw" onPress={() => reintentar(c)} />
               ) : null}
               {c.estado === 'error' ? (
-                <View>
-                  <Text style={styles.textoError}>{c.error}</Text>
-                  <TouchableOpacity onPress={() => reintentar(c)} style={styles.botonSecundario}>
-                    <Text style={styles.botonSecundarioTexto}>Reintentar ({c.partes_listas || 0} partes guardadas)</Text>
-                  </TouchableOpacity>
+                <View style={styles.bloqueError}>
+                  <Text style={styles.textoError}>No se pudo desgrabar esta clase.</Text>
+                  <Boton texto={`Reintentar (${c.partes_listas || 0} partes guardadas)`} icono="refresh-cw" onPress={() => reintentar(c)} />
                 </View>
               ) : null}
             </View>
@@ -204,37 +213,69 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  contenedor: { flex: 1, backgroundColor: '#0b0f14' },
+  contenedor: { flex: 1, backgroundColor: tema.fondo },
   oculta: { display: 'none' },
   contenido: { padding: 16, gap: 14, paddingBottom: 40 },
-  tarjeta: { backgroundColor: '#121a24', borderRadius: 16, padding: 16, gap: 10, borderWidth: 1, borderColor: '#1f2f40' },
-  tarjetaGrabando: { borderColor: '#10b981' },
-  titulo: { color: '#e6edf3', fontSize: 18, fontWeight: '700' },
-  etiqueta: { color: '#8b98a5', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
+  tarjeta: {
+    backgroundColor: tema.superficie,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: tema.borde,
+  },
+  tarjetaGrabando: { borderColor: tema.acentoIcono, borderWidth: 2 },
+  titulo: { color: tema.texto, fontSize: 19, fontWeight: '800' },
+  etiqueta: { color: tema.textoSuave, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 },
   chips: { gap: 8, paddingVertical: 4 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: '#1e2a38', maxWidth: 220 },
-  chipActivo: { backgroundColor: '#10b981' },
-  chipTexto: { color: '#e6edf3', fontWeight: '600' },
-  chipTextoActivo: { color: '#06261b' },
+  chip: {
+    minHeight: TOQUE_MINIMO,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: tema.superficieSuave,
+    borderWidth: 1,
+    borderColor: tema.borde,
+    maxWidth: 220,
+  },
+  chipActivo: { backgroundColor: tema.acento, borderColor: tema.acento },
+  chipTexto: { color: tema.texto, fontWeight: '600', fontSize: 15 },
+  chipTextoActivo: { color: tema.textoSobreAcento },
   filaNumero: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  botonNumero: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#1e2a38', alignItems: 'center', justifyContent: 'center' },
-  botonNumeroTexto: { color: '#e6edf3', fontSize: 20, fontWeight: '700' },
-  numero: { color: '#e6edf3', fontSize: 22, fontWeight: '800', minWidth: 32, textAlign: 'center' },
-  entrada: { backgroundColor: '#0b0f14', borderWidth: 1, borderColor: '#1f2f40', borderRadius: 10, padding: 12, color: '#e6edf3' },
-  botonGrande: { marginTop: 8, paddingVertical: 16, borderRadius: 14, backgroundColor: '#10b981', alignItems: 'center' },
-  botonGrandeTexto: { color: 'white', fontWeight: '800', fontSize: 16 },
-  botonTerminar: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#ef4444', alignItems: 'center' },
-  botonSecundario: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#1e2a38', alignItems: 'center', marginTop: 6 },
-  botonSecundarioTexto: { color: '#e6edf3', fontWeight: '700' },
-  deshabilitado: { opacity: 0.5 },
-  filaBotones: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  reloj: { color: '#e6edf3', fontSize: 44, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'center', marginVertical: 6 },
-  estadoGrabacion: { color: '#34d399', textAlign: 'center', fontWeight: '700' },
-  fila: { backgroundColor: '#121a24', borderRadius: 14, padding: 14, gap: 4, borderWidth: 1, borderColor: '#1f2f40' },
-  filaActiva: { borderColor: '#10b981' },
-  filaTitulo: { color: '#e6edf3', fontWeight: '700', fontSize: 15 },
-  filaEstado: { color: '#fbbf24', fontSize: 13 },
-  ok: { color: '#34d399', fontWeight: '700', fontSize: 13 },
-  textoMuted: { color: '#8b98a5', fontSize: 12, lineHeight: 17 },
-  textoError: { color: '#fca5a5', fontSize: 12 },
+  botonNumero: {
+    width: TOQUE_MINIMO,
+    height: TOQUE_MINIMO,
+    borderRadius: 12,
+    backgroundColor: tema.superficieSuave,
+    borderWidth: 1,
+    borderColor: tema.borde,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  botonNumeroTexto: { color: tema.texto, fontSize: 22, fontWeight: '700' },
+  numero: { color: tema.texto, fontSize: 24, fontWeight: '800', minWidth: 36, textAlign: 'center' },
+  entrada: {
+    backgroundColor: tema.superficieSuave,
+    borderWidth: 1,
+    borderColor: tema.borde,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: TOQUE_MINIMO,
+    color: tema.texto,
+    fontSize: 15,
+  },
+  botonEmpezar: { marginTop: 8 },
+  filaBotones: { flexDirection: 'row', gap: 10 },
+  flexible: { flex: 1 },
+  reloj: { color: tema.texto, fontSize: 46, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'center', marginVertical: 6 },
+  estadoGrabacion: { color: tema.acento, textAlign: 'center', fontWeight: '700', fontSize: 15 },
+  fila: { backgroundColor: tema.superficie, borderRadius: 14, padding: 14, gap: 6, borderWidth: 1, borderColor: tema.borde },
+  filaActiva: { borderColor: tema.acentoIcono, borderWidth: 2 },
+  filaTitulo: { color: tema.texto, fontWeight: '700', fontSize: 16 },
+  filaEstado: { color: tema.aviso, fontSize: 14, fontWeight: '600' },
+  ok: { color: tema.acento, fontWeight: '700', fontSize: 14 },
+  bloqueError: { gap: 8 },
+  textoSuave: { color: tema.textoSuave, fontSize: 13, lineHeight: 19 },
+  textoError: { color: tema.error, fontSize: 14, fontWeight: '600' },
 });

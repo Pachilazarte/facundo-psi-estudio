@@ -139,6 +139,31 @@ fetch('/api-config.json', { cache: 'no-store' })
   .then(cfg => { if (cfg && cfg.token) { try { localStorage.setItem('psi_api_token', cfg.token); } catch (e) {} } })
   .catch(() => {});
 
+// La persona ve una frase clara; el detalle técnico queda en la consola.
+const mensajeAmigable = (e, accion) => {
+  console.error(`[PsiEstudio] ${accion}:`, e);
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'No hay conexión a internet. Revisá tu wifi o tus datos y probá de nuevo.';
+  }
+  return `${accion}. Probá de nuevo en unos segundos.`;
+};
+
+// Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
+// version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
+const VERSION_APP = '2.36.0';
+const NOVEDADES = [
+  {
+    version: '2.36.0',
+    fecha: '06/10/2026',
+    cambios: [
+      'Todo se entiende sin conocimientos técnicos: textos más simples y claros.',
+      'Botones y letras más grandes para usar la app con el dedo en el celular.',
+      'Nueva sección Ajustes, con la versión, la copia de seguridad y estas novedades.',
+      'La grabadora avisa cuando conviene usar la app del teléfono para grabar con la pantalla apagada.',
+    ],
+  },
+];
+
 // ── CACHÉ DEL NAVEGADOR: solo preferencias. Los datos viven en la base. ──
 const CLAVES_SIN_CACHE = /(_cache$|^psi_sync_queue$|^psi_deleted_records$|^psi_audio_sessions_history$|^psi_active_recording_backup_meta$|^neuroscan_img_)/;
 
@@ -641,12 +666,12 @@ async function downloadPDFHelper({ pdfData: pdfDataInicial, pdfRuta, fileName, t
   let pdfData = pdfDataInicial;
   if (!pdfData && pdfRuta && supabaseClient) {
     try {
-      if (showToast) showToast('Descargando el PDF desde la base...', 'refresh-cw');
+      if (showToast) showToast('Preparando el PDF...', 'refresh-cw');
       const { data: blobRemoto, error } = await supabaseClient.storage.from('pdfs').download(pdfRuta);
       if (error || !blobRemoto) throw new Error(error ? error.message : 'sin archivo');
       pdfData = blobRemoto;
     } catch (e) {
-      if (showToast) showToast('No se pudo bajar el PDF: ' + e.message, 'alert-circle');
+      if (showToast) showToast(mensajeAmigable(e, 'No se pudo descargar el PDF'), 'alert-circle');
       return;
     }
   }
@@ -685,7 +710,7 @@ async function downloadPDFHelper({ pdfData: pdfDataInicial, pdfRuta, fileName, t
     if (showToast) showToast('Descarga iniciada con éxito', 'check-circle');
   } catch (err) {
     console.error('Error descargando PDF:', err);
-    if (showToast) showToast('Error al descargar: ' + err.message, 'alert-triangle');
+    if (showToast) showToast(mensajeAmigable(err, 'No se pudo descargar'), 'alert-triangle');
   }
 }
 
@@ -1196,7 +1221,7 @@ function buildPDF(parsed, materia, unidad, titulo, opts) {
           doc.setFontSize(8);
           doc.setFont(fontSel, 'italic');
           setColor(C_ACCENT);
-          doc.text('📷 [Variable de imagen: ' + tok.label + ']', PW / 2, y + 5.5, { align: 'center' });
+          doc.text('[Imagen:' + tok.label + ']', PW / 2, y + 5.5, { align: 'center' });
           y += 11;
         }
         break;
@@ -1751,7 +1776,7 @@ function App() {
   const [toast, setToast] = useState({ show: false, msg: '', iconName: 'check-circle' });
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const currentVersion = 'v2.35.0';
+  const currentVersion = `v${VERSION_APP}`;
 
   const [modalMateria, setModalMateria] = useState({ open: false, data: null });
   const [modalBiblio, setModalBiblio] = useState({ open: false, data: null });
@@ -1766,14 +1791,13 @@ function App() {
   const [modalSearch, setModalSearch] = useState(false);
   const [modalPomodoro, setModalPomodoro] = useState(false);
   const [modalMoreMenu, setModalMoreMenu] = useState(false);
+  const [modalNovedades, setModalNovedades] = useState(false);
   const [modalFlashcards, setModalFlashcards] = useState({ open: false, items: [], title: '' });
   const [globalMateriaFilter, setGlobalMateriaFilter] = useState('todas');
   const [recorderPresetData, setRecorderPresetData] = useState(null);
 
   const [ingestionData, setIngestionData] = useState(null);
   const [profileImage, setProfileImage] = useState(localStorage.getItem('psi_profile_image') || null);
-  const [isSyncingAll, setIsSyncingAll] = useState(false);
-  const [syncStatusSummary, setSyncStatusSummary] = useState(null);
 
   const handleProfileImageUpload = (e) => {
     const file = e.target.files[0];
@@ -1786,6 +1810,18 @@ function App() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Novedades: se muestran una vez por versión. La marca es una preferencia de este navegador, no datos.
+  useEffect(() => {
+    let vistas = null;
+    try { vistas = localStorage.getItem('psi_novedades_vistas'); } catch (e) {}
+    if (vistas !== VERSION_APP) setModalNovedades(true);
+  }, []);
+
+  const cerrarNovedades = () => {
+    setModalNovedades(false);
+    try { localStorage.setItem('psi_novedades_vistas', VERSION_APP); } catch (e) {}
   };
 
   // Apply Theme
@@ -1804,7 +1840,7 @@ function App() {
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                 setUpdateAvailable(true);
-                showToast('🚀 Nueva versión de PsiEstudio disponible', 'sparkles');
+                showToast('Hay una nueva versión de PsiEstudio disponible', 'sparkles');
               }
             });
           }
@@ -1816,7 +1852,7 @@ function App() {
   // Alerta de límite de cuota de almacenamiento local
   useEffect(() => {
     const handleQuotaWarning = () => {
-      showToast('⚠️ Cuota de almacenamiento del navegador alcanzada. Datos preservados en IndexedDB.', 'alert-triangle');
+      showToast('Se llenó el espacio de este navegador. Tus datos están a salvo.', 'alert-triangle');
     };
     window.addEventListener('psi-storage-quota-warning', handleQuotaWarning);
     return () => window.removeEventListener('psi-storage-quota-warning', handleQuotaWarning);
@@ -1825,7 +1861,7 @@ function App() {
   const checkForUpdates = async (manual = true) => {
     setCheckingUpdate(true);
     triggerHaptic('light');
-    if (manual) showToast('Buscando actualizaciones en la nube...', 'refresh-cw');
+    if (manual) showToast('Buscando actualizaciones...', 'refresh-cw');
     try {
       // 1. Fetch version.json bypassing browser cache
       const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
@@ -1892,13 +1928,13 @@ function App() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      showToast('Conexión restaurada — Sincronizando', 'wifi');
+      showToast('Conexión recuperada', 'wifi');
       processSyncQueue();
       fetchAllData();
     };
     const handleOffline = () => {
       setIsOnline(false);
-      showToast('Modo Offline — Datos en caché local', 'wifi-off');
+      showToast('Sin conexión a internet. Algunas cosas no van a funcionar hasta que vuelva.', 'wifi-off');
     };
 
     window.addEventListener('online', handleOnline);
@@ -2560,9 +2596,9 @@ function App() {
       if (!vivo) return;
       if (r.errores.length === 0) {
         purgarCachesLocales();
-        if (r.hizo) showToast('Datos pasados a la base. El navegador ya no guarda datos.', 'check-circle');
+        if (r.hizo) showToast('Tus datos quedaron guardados de forma segura.', 'check-circle');
       } else {
-        showToast(`No se borró la caché: ${r.errores.length} cosa(s) no se pudieron subir. Revisá la conexión y recargá.`, 'alert-triangle');
+        showToast('Algunas cosas no se pudieron guardar todavía. Revisá tu conexión y recargá la página.', 'alert-triangle');
       }
       fetchAllData();
     })();
@@ -2610,9 +2646,9 @@ function App() {
     }
 
     if (remainingQueue.length === 0) {
-      showToast('Cola sincronizada con Supabase', 'cloud-check');
+      showToast('Listo, todo quedó guardado', 'check-circle');
     } else {
-      showToast(`${remainingQueue.length} elemento(s) pendientes de reintento`, 'alert-circle');
+      showToast(`Quedan ${remainingQueue.length} cosa(s) por guardar. Se van a reintentar solas.`, 'alert-circle');
     }
   };
 
@@ -2954,7 +2990,7 @@ function App() {
     setModalClase({ open: false, data: null });
     setActiveTab('grabadora');
     triggerHaptic('medium');
-    showToast('Clase cargada en Grabadora & Desgrabador', 'mic');
+    showToast('Clase cargada en la Grabadora', 'mic');
   };
 
   const handleLinkTranscriptToClass = ({ materia_id, nro_clase, titulo_clase, audioUrl, transcript }) => {
@@ -2970,7 +3006,7 @@ function App() {
         titulo_clase: existing.titulo_clase || titulo_clase || `Clase #${nro_clase}`,
         desgrabacion_md: transcriptSummary,
         link_grabacion: existing.link_grabacion || audioUrl || '',
-        grabaciones: audioUrl ? [...(existing.grabaciones || []).filter(g => g.url !== audioUrl), { id: Date.now(), url: audioUrl, title: `Desgrabación Verbatim (C#${nro_clase})` }] : (existing.grabaciones || [])
+        grabaciones: audioUrl ? [...(existing.grabaciones || []).filter(g => g.url !== audioUrl), { id: Date.now(), url: audioUrl, title: `Desgrabación de la clase ${nro_clase}` }] : (existing.grabaciones || [])
       };
       const updatedList = clases.map((c, idx) => idx === existingIndex ? updatedClase : c);
       setClases(updatedList);
@@ -2987,7 +3023,7 @@ function App() {
         titulo_clase: titulo_clase || `Clase #${nro_clase}`,
         desgrabacion_md: transcriptSummary,
         link_grabacion: audioUrl || '',
-        grabaciones: audioUrl ? [{ id: Date.now(), url: audioUrl, title: `Desgrabación Verbatim (C#${nro_clase})` }] : [],
+        grabaciones: audioUrl ? [{ id: Date.now(), url: audioUrl, title: `Desgrabación de la clase ${nro_clase}` }] : [],
         fecha_carga: new Date().toISOString()
       };
       const updatedList = [newClase, ...clases];
@@ -3039,7 +3075,7 @@ function App() {
       };
       if (formData.pdfData) {
         try { pdfPayload.url_pdf = await subirPdfABase(pdfPayload.id, formData.pdfData); }
-        catch (e) { showToast('El PDF no se pudo subir a la base: ' + e.message, 'alert-triangle'); }
+        catch (e) { showToast(mensajeAmigable(e, 'El PDF no se pudo guardar'), 'alert-triangle'); }
       }
       const updatedPdfs = [pdfPayload, ...pdfs.filter(p => p.id !== pdfPayload.id)];
       setPdfs(updatedPdfs);
@@ -3125,7 +3161,7 @@ function App() {
     // 1. Guardar en documentos_pdf
     if (docPayload.pdfData && !docPayload.url_pdf) {
       try { docPayload.url_pdf = await subirPdfABase(docPayload.id, docPayload.pdfData); }
-      catch (e) { showToast('El PDF no se pudo subir a la base: ' + e.message, 'alert-triangle'); }
+      catch (e) { showToast(mensajeAmigable(e, 'El PDF no se pudo guardar'), 'alert-triangle'); }
     }
     const updated = [docPayload, ...pdfs.filter(p => p.id !== docPayload.id)];
     setPdfs(updated);
@@ -3179,7 +3215,7 @@ function App() {
 
   const handleDeleteDocumentoPDF = async (id) => {
     const doc = pdfs.find(p => p.id === id);
-    if (!confirm(`¿Eliminar "${doc?.nombre_archivo || doc?.titulo || 'este documento'}" del sistema?`)) return;
+    if (!confirm(`¿Eliminar "${doc?.nombre_archivo || doc?.titulo || 'este documento'}" de tus documentos?`)) return;
     addDeletedRecord('documentos_pdf', id);
     addDeletedRecord('apuntes', id);
 
@@ -3298,7 +3334,7 @@ function App() {
         });
         showToast('PDF analizado correctamente', 'check-circle');
       } catch (err) {
-        showToast('Error procesando PDF', 'alert-triangle');
+        showToast('No se pudo leer ese PDF. Probá con otro archivo.', 'alert-triangle');
       }
     };
     reader.readAsArrayBuffer(file);
@@ -3445,172 +3481,11 @@ function App() {
         triggerHaptic('success');
       } catch (err) {
         console.error('Error al importar backup:', err);
-        showToast('Error al procesar JSON: ' + err.message, 'alert-triangle');
+        showToast('No se pudo leer el archivo de la copia. Revisá que sea el correcto.', 'alert-triangle');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
-  };
-
-  // ── MOTOR DE CARGA Y MIGRACIÓN TOTAL A LA NUBE (LOCAL TO CLOUD) ──
-  const syncAllLocalDataToCloud = async (silent = false) => {
-    if (!supabaseClient) {
-      if (!silent) showToast('Supabase no está inicializado en este cliente', 'alert-triangle');
-      return;
-    }
-    if (!navigator.onLine) {
-      if (!silent) showToast('Sin conexión a Internet para sincronizar', 'wifi-off');
-      return;
-    }
-
-    setIsSyncingAll(true);
-    if (!silent) {
-      triggerHaptic('medium');
-      showToast('Sincronizando y subiendo datos locales a Supabase...', 'cloud-upload');
-    }
-
-    const results = {
-      materias: 0,
-      bibliografia: 0,
-      clases: 0,
-      apuntes: 0,
-      documentos_pdf: 0,
-      examenes: 0,
-      deletions: 0,
-      errors: []
-    };
-
-    try {
-      // 0. Sincronizar bajas remotas (Tombstones) en Supabase para evitar resurrección permanente
-      const deletedRecords = getDeletedRecords();
-      if (deletedRecords.length > 0) {
-        for (const rec of deletedRecords) {
-          try {
-            if (rec.table && rec.id) {
-              await supabaseClient.from(rec.table).delete().eq('id', rec.id);
-              // Si es materia, limpiar en cascada en Supabase
-              if (rec.table === 'materias') {
-                await Promise.allSettled([
-                  supabaseClient.from('bibliografia').delete().eq('materia_id', rec.id),
-                  supabaseClient.from('clases').delete().eq('materia_id', rec.id),
-                  supabaseClient.from('apuntes').delete().eq('materia_id', rec.id),
-                  supabaseClient.from('documentos_pdf').delete().eq('materia_id', rec.id),
-                  supabaseClient.from('examenes').delete().eq('materia_id', rec.id)
-                ]);
-              }
-              results.deletions++;
-            }
-          } catch (delErr) {
-            console.warn(`Error eliminando registro remoto tombstoned (${rec.table} - ${rec.id}):`, delErr);
-          }
-        }
-      }
-
-      // 1. Materias (Solo materias activas no eliminadas)
-      const matsList = materias.filter(m => !isRecordDeleted('materias', m.id));
-      if (matsList.length > 0) {
-        const cleanMats = matsList.map(sanitizeForCloud.materias);
-        const { error } = await supabaseClient.from('materias').upsert(cleanMats, { onConflict: 'id' });
-        if (error) results.errors.push(`Materias: ${error.message}`);
-        else results.materias = cleanMats.length;
-      }
-
-      // 2. Bibliografía
-      const bibList = biblio.filter(b => !isRecordDeleted('bibliografia', b.id));
-      if (bibList.length > 0) {
-        const cleanBib = bibList.map(sanitizeForCloud.bibliografia);
-        const { error } = await supabaseClient.from('bibliografia').upsert(cleanBib, { onConflict: 'id' });
-        if (error) results.errors.push(`Bibliografía: ${error.message}`);
-        else results.bibliografia = cleanBib.length;
-      }
-
-      // 3. Clases
-      const claList = clases.filter(c => !isRecordDeleted('clases', c.id));
-      if (claList.length > 0) {
-        const cleanCla = claList.map(sanitizeForCloud.clases);
-        const { error } = await supabaseClient.from('clases').upsert(cleanCla, { onConflict: 'id' });
-        if (error) results.errors.push(`Clases: ${error.message}`);
-        else results.clases = cleanCla.length;
-      }
-
-      // 4. Apuntes (Garantiza notas y resúmenes completos)
-      const apuList = apuntes.filter(a => !isRecordDeleted('apuntes', a.id));
-      if (apuList.length > 0) {
-        const cleanApu = apuList.map(sanitizeForCloud.apuntes);
-        const { error } = await supabaseClient.from('apuntes').upsert(cleanApu, { onConflict: 'id' });
-        if (error) results.errors.push(`Apuntes: ${error.message}`);
-        else results.apuntes = cleanApu.length;
-      }
-
-      // 5. Documentos PDF
-      const pdfList = pdfs.filter(p => !isRecordDeleted('documentos_pdf', p.id));
-      if (pdfList.length > 0) {
-        const cleanPdf = pdfList.map(sanitizeForCloud.documentos_pdf);
-        const { error } = await supabaseClient.from('documentos_pdf').upsert(cleanPdf, { onConflict: 'id' });
-        if (error) results.errors.push(`Documentos PDF: ${error.message}`);
-        else results.documentos_pdf = cleanPdf.length;
-      }
-
-      // 6. Exámenes
-      const exList = examenes.filter(e => !isRecordDeleted('examenes', e.id));
-      if (exList.length > 0) {
-        const cleanEx = exList.map(sanitizeForCloud.examenes);
-        const { error } = await supabaseClient.from('examenes').upsert(cleanEx, { onConflict: 'id' });
-        if (error) results.errors.push(`Exámenes: ${error.message}`);
-        else results.examenes = cleanEx.length;
-      }
-
-      if (results.errors.length === 0) {
-        setSyncQueue([]);
-        safeSetLocalStorage('psi_sync_queue', []);
-        if (psiDB && psiDB.syncQueue) {
-          try { await psiDB.syncQueue.clear(); } catch (e) {}
-        }
-      }
-
-      const totalItems = results.materias + results.bibliografia + results.clases + results.apuntes + results.documentos_pdf + results.examenes;
-      const summaryMsg = results.errors.length > 0
-        ? `Sincronizados ${totalItems} registros con advertencias (${results.errors.length})`
-        : `¡${totalItems} registros respaldados con éxito en Supabase!`;
-
-      setSyncStatusSummary(results);
-      if (!silent) {
-        showToast(summaryMsg, results.errors.length > 0 ? 'alert-circle' : 'check-circle-2');
-        triggerHaptic('success');
-      } else {
-        console.log(`[Auto-Sync Silencioso] ${summaryMsg}`);
-      }
-    } catch (err) {
-      console.error('Error durante sincronización total:', err);
-      if (!silent) showToast(`Error al subir a la nube: ${err.message}`, 'alert-triangle');
-    } finally {
-      setIsSyncingAll(false);
-    }
-  };
-
-  const clearCache = () => {
-    if (!confirm('¿Limpiar caché local? (Los datos en Supabase no se borrarán)')) return;
-    localStorage.clear();
-    setMaterias([]);
-    setBiblio([]);
-    setClases([]);
-    setApuntes([]);
-    setPdfs([]);
-    setExamenes([]);
-    showToast('Caché limpiada', 'trash-2');
-    fetchAllData();
-  };
-
-  const triggerPing = async () => {
-    showToast('Enviando ping Keep-Alive...', 'activity');
-    if (supabaseClient) {
-      try {
-        await supabaseClient.from('supabase_keep_alive').upsert([{ id: 1, ping_source: 'PsiEstudio-Client', status: 'ACTIVE', ping_timestamp: new Date().toISOString() }]);
-        showToast('Ping registrado en Supabase', 'check-circle');
-      } catch (e) {
-        showToast('Ping registrado localmente', 'check-circle');
-      }
-    }
   };
 
   return (
@@ -3634,7 +3509,7 @@ function App() {
                 <h1 className="text-lg font-black tracking-tight leading-none text-app-text">
                   PsiEstudio
                 </h1>
-                <span className="text-[9px] font-extrabold uppercase tracking-wider text-app-emerald">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald">
                   Academic Suite
                 </span>
               </div>
@@ -3653,7 +3528,7 @@ function App() {
 
               <button
                 onClick={() => setModalPomodoro(true)}
-                className="w-8 h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-amber transition-all shadow-card"
+                className="w-11 h-11 md:w-8 md:h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-amber transition-all shadow-card"
                 title="Temporizador Pomodoro"
               >
                 <Icon name="timer" className="w-3.5 h-3.5 text-app-amber" />
@@ -3661,15 +3536,15 @@ function App() {
 
               <button
                 onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-                className="w-8 h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card"
+                className="w-11 h-11 md:w-8 md:h-8 rounded-xl bg-app-card border border-app-border flex items-center justify-center text-app-text hover:border-app-emerald transition-all shadow-card"
                 title="Modo Crema / Oscuro"
               >
                 <Icon name={theme === 'dark' ? 'sun' : 'moon'} className="w-3.5 h-3.5 text-app-text" />
               </button>
 
-              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-extrabold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
+              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-extrabold bg-app-card border border-app-border shadow-card ${isOnline ? 'text-app-emerald' : 'text-app-ruby'}`}>
                 <span className={`w-1.5 h-1.5 rounded-md ${isOnline ? 'bg-app-emerald shadow-[0_0_6px_var(--color-emerald-main)]' : 'bg-app-ruby'}`}></span>
-                <span className="hidden sm:inline">{isOnline ? 'Cloud' : 'Offline'}</span>
+                <span className="hidden sm:inline">{isOnline ? 'En línea' : 'Sin conexión'}</span>
               </div>
             </div>
           </div>
@@ -3682,10 +3557,10 @@ function App() {
               { id: 'clases', label: 'Clases', icon: 'presentation', badge: clases.length },
               { id: 'apuntes', label: 'Apuntes', icon: 'file-text', badge: apuntes.length },
               { id: 'examenes', label: 'Exámenes', icon: 'calendar-check', badge: examenes.length },
-              { id: 'grabadora', label: 'Grabadora & DSP', icon: 'mic', badge: null },
-              { id: 'pdf', label: 'PDF OCR', icon: 'file-up', badge: pdfs.length },
+              { id: 'grabadora', label: 'Grabadora', icon: 'mic', badge: null },
+              { id: 'pdf', label: 'PDFs', icon: 'file-up', badge: pdfs.length },
               { id: 'perfil', label: 'Mi Perfil', icon: 'user', badge: null },
-              { id: 'system', label: 'Sistema', icon: 'cpu', badge: null },
+              { id: 'system', label: 'Ajustes', icon: 'settings', badge: null },
             ].map(tab => {
               const isActive = activeTab === tab.id;
               return (
@@ -3701,7 +3576,7 @@ function App() {
                   <Icon name={tab.icon} className={`w-3.5 h-3.5 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
                   <span>{tab.label}</span>
                   {tab.badge !== null && tab.badge > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-black ${
+                    <span className={`text-[11px] px-1.5 py-0.2 rounded-md font-black ${
                       isActive ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-muted'
                     }`}>
                       {tab.badge}
@@ -3716,7 +3591,7 @@ function App() {
       </header>
 
       {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(2.75rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
         {[
           { id: 'materias', label: 'Aulas', icon: 'layers' },
           { id: 'biblio', label: 'Lecturas', icon: 'book-open' },
@@ -3734,9 +3609,9 @@ function App() {
               }`}
             >
               <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-app-emerald-bg border border-app-emerald/30' : ''}`}>
-                <Icon name={tab.icon} className={`w-4 h-4 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
+                <Icon name={tab.icon} className={`w-5 h-5 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
               </div>
-              <span className="text-[10px] tracking-tight mt-0.5">{tab.label}</span>
+              <span className="text-[11px] tracking-tight mt-0.5">{tab.label}</span>
             </button>
           );
         })}
@@ -3749,9 +3624,9 @@ function App() {
           }`}
         >
           <div className="p-1.5 rounded-xl">
-            <Icon name="more-horizontal" className="w-4 h-4 text-app-muted" />
+            <Icon name="more-horizontal" className="w-5 h-5 text-app-muted" />
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5">Más</span>
+          <span className="text-[11px] tracking-tight mt-0.5">Más</span>
         </button>
       </nav>
 
@@ -3783,7 +3658,7 @@ function App() {
                   <div className="text-2xl sm:text-3xl font-black text-app-emerald leading-none">
                     {Math.ceil((new Date(nextExam.fecha + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 864e5) || '0'}
                   </div>
-                  <div className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider text-app-muted mt-1">Días</div>
+                  <div className="text-[11px] sm:text-[11px] font-extrabold uppercase tracking-wider text-app-muted mt-1">Días</div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald flex items-center gap-1">
@@ -3897,7 +3772,7 @@ function App() {
 
               {/* Acciones Rápidas */}
               <div className="pt-3 border-t border-app-border">
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald mb-2 flex items-center gap-1">
+                <div className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald mb-2 flex items-center gap-1">
                   <Icon name="zap" className="w-3.5 h-3.5 text-app-emerald" /> Acciones Rápidas en esta Materia
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
@@ -3932,7 +3807,7 @@ function App() {
                   { id: 'examenes', label: 'Exámenes & Link', count: currentMateriaExams.length, icon: 'calendar-check' },
                   { id: 'clases', label: 'Clases', count: currentMateriaClases.length, icon: 'presentation' },
                   { id: 'apuntes', label: 'Apuntes', count: currentMateriaApuntes.length, icon: 'file-edit' },
-                  { id: 'pdfs', label: 'PDFs OCR', count: currentMateriaPdfs.length, icon: 'file-check' }
+                  { id: 'pdfs', label: 'PDFs', count: currentMateriaPdfs.length, icon: 'file-check' }
                 ].map(sec => {
                   const isSelected = innerTab === sec.id;
                   return (
@@ -3948,7 +3823,7 @@ function App() {
                       <Icon name={sec.icon} className={`w-4 h-4 ${isSelected ? 'text-app-emerald' : 'text-app-muted'}`} />
                       <span>{sec.label}</span>
                       {sec.count !== null && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-black ${
+                        <span className={`text-[11px] px-2 py-0.5 rounded-md font-black ${
                           isSelected ? 'bg-app-emerald text-white' : 'bg-app-card border border-app-border text-app-text'
                         }`}>
                           {sec.count}
@@ -3972,7 +3847,7 @@ function App() {
                   <div className="bg-app-card border border-app-border p-5 rounded-xl shadow-card">
                     <div className="flex justify-between items-center mb-1">
                       <div className="text-xs font-extrabold uppercase text-app-emerald">Evaluaciones & Parciales</div>
-                      <span className="text-[10px] font-bold text-app-muted">{(currentMateria.evaluaciones?.length || (currentMateria.fecha_parcial1 ? 1 : 0) + (currentMateria.fecha_parcial2 ? 1 : 0))} instancia(s)</span>
+                      <span className="text-[11px] font-bold text-app-muted">{(currentMateria.evaluaciones?.length || (currentMateria.fecha_parcial1 ? 1 : 0) + (currentMateria.fecha_parcial2 ? 1 : 0))} instancia(s)</span>
                     </div>
                     {currentMateria.evaluaciones && currentMateria.evaluaciones.length > 0 ? (
                       <div className="space-y-1.5 mt-2">
@@ -4010,7 +3885,7 @@ function App() {
                           <h4 className="text-base font-extrabold text-app-text flex items-center gap-2">
                             <Icon name="file-text" className="w-4 h-4 text-app-emerald" /> {ev.nombre || ev.tipo}
                           </h4>
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                          <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                             {ev.modalidad || 'Presencial'}
                           </span>
                         </div>
@@ -4089,7 +3964,7 @@ function App() {
                               <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-md bg-app-surface border border-app-border text-app-muted">
                                 {t.unidad || 'Unidad 1'}
                               </span>
-                              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md border ${t.caracter === 'Optativo' ? 'bg-app-surface text-app-muted border-app-border' : 'bg-app-emerald-bg text-app-emerald border-app-emerald/30'}`}>
+                              <span className={`text-[11px] font-extrabold px-2 py-0.5 rounded-md border ${t.caracter === 'Optativo' ? 'bg-app-surface text-app-muted border-app-border' : 'bg-app-emerald-bg text-app-emerald border-app-emerald/30'}`}>
                                 {t.caracter || 'Obligatorio'}
                               </span>
                             </div>
@@ -4119,7 +3994,7 @@ function App() {
                               onClick={() => {
                                 const prompt = generateAcademicPrompt(currentMateria?.nombre, `${t.unidad} - ${t.titulo_texto} (${t.autores || 'Autor'})`, t.notas || '');
                                 navigator.clipboard.writeText(prompt);
-                                showToast('📋 Prompt copiado para IA', 'sparkles');
+                                showToast('Prompt copiado para IA', 'sparkles');
                                 triggerHaptic('success');
                               }}
                               className="px-2 py-1 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald flex items-center gap-1 font-bold text-[11px]"
@@ -4192,7 +4067,7 @@ function App() {
                             {includedUnits.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-2">
                                 {includedUnits.map(u => (
-                                  <span key={u} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-surface border border-app-border text-app-emerald">
+                                  <span key={u} className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-app-surface border border-app-border text-app-emerald">
                                     {u}
                                   </span>
                                 ))}
@@ -4358,12 +4233,12 @@ function App() {
                                           <div className="flex items-center gap-1.5">
                                             <button
                                               onClick={() => handleOpenClassInRecorder(c, g)}
-                                              className="px-2 py-0.5 text-[10px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
-                                              title="Abrir en Visor Verbatim / Desgrabar"
+                                              className="px-2 py-0.5 text-[11px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
+                                              title="Abrir en el visor de desgrabación"
                                             >
                                               <Icon name="mic" className="w-3 h-3" /> Desgrabar
                                             </button>
-                                            <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                            <span className="text-[11px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
                                           </div>
                                         </div>
                                         <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
@@ -4393,7 +4268,7 @@ function App() {
                                   {imagenesList.map((img, idx) => (
                                     <a key={img.id || idx} href={img.url} target="_blank" rel="noreferrer" className="block relative rounded-xl overflow-hidden border border-app-border group">
                                       <img src={img.url} alt={img.caption || 'Foto clase'} className="w-full h-20 object-cover group-hover:scale-105 transition-transform" />
-                                      {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] p-1 truncate text-center">{img.caption}</span>}
+                                      {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[11px] p-1 truncate text-center">{img.caption}</span>}
                                     </a>
                                   ))}
                                 </div>
@@ -4447,7 +4322,7 @@ function App() {
                       onClick={() => {
                         const prompt = generateAcademicPrompt(currentMateria?.nombre, currentMateriaUnits[0] || 'Unidad 1', '');
                         navigator.clipboard.writeText(prompt);
-                        showToast('📋 Prompt Académico copiado', 'sparkles');
+                        showToast('Prompt académico copiado', 'sparkles');
                         triggerHaptic('success');
                       }}
                       className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald font-bold text-xs rounded-xl flex items-center gap-1.5"
@@ -4504,7 +4379,7 @@ function App() {
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.tipo || 'Resumen'}</span>
                               {(a.pdfData || a.pdfName) && (
-                                <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
+                                <span className="text-[11px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
                                   <Icon name="file-text" className="w-3 h-3" /> PDF Original
                                 </span>
                               )}
@@ -4533,14 +4408,14 @@ function App() {
                                   className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
                                   title="Descargar PDF normal en A4"
                                 >
-                                  <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
+                                  <Icon name="download" className="w-3 h-3 text-app-navy" /> A4
                                 </button>
                                 <button
                                   onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
                                   className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
                                   title="Descargar en formato 2 páginas por hoja (cuadernillo)"
                                 >
-                                  <Icon name="book-open" className="w-3 h-3 text-white" /> 📖 2 Págs
+                                  <Icon name="book-open" className="w-3 h-3 text-white" /> 2 Págs
                                 </button>
                               </>
                             ) : (
@@ -4625,7 +4500,7 @@ function App() {
                             {p.nombre_archivo || p.titulo}
                           </h4>
                           {p.tipo && (
-                            <span className="text-[10px] text-app-muted font-bold inline-block mb-3">
+                            <span className="text-[11px] text-app-muted font-bold inline-block mb-3">
                               {p.tipo} {p.va_parcial && p.nro_parcial ? `• ${p.nro_parcial}` : ''}
                             </span>
                           )}
@@ -4758,10 +4633,10 @@ function App() {
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex flex-wrap gap-1.5 items-center">
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                          <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                             {t.materia || 'Materia'}
                           </span>
-                          <span className="text-[10px] font-bold text-app-muted">{t.unidad}</span>
+                          <span className="text-[11px] font-bold text-app-muted">{t.unidad}</span>
                         </div>
                         <button
                           onClick={() => handleToggleBiblioEstado(t.id)}
@@ -4789,7 +4664,7 @@ function App() {
                           onClick={() => {
                             const prompt = generateAcademicPrompt(t.materia, `${t.unidad} - ${t.titulo_texto} (${t.autores || 'Autor'})`, t.notas || '');
                             navigator.clipboard.writeText(prompt);
-                            showToast('📋 Prompt copiado para IA', 'sparkles');
+                            showToast('Prompt copiado para IA', 'sparkles');
                             triggerHaptic('success');
                           }}
                           className="px-2.5 py-1 rounded-lg bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald flex items-center gap-1 font-bold text-[11px]"
@@ -4911,12 +4786,12 @@ function App() {
                                       <div className="flex items-center gap-1.5">
                                         <button
                                           onClick={() => handleOpenClassInRecorder(c, g)}
-                                          className="px-2 py-0.5 text-[10px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
-                                          title="Abrir en Visor Verbatim / Desgrabar"
+                                          className="px-2 py-0.5 text-[11px] font-bold bg-app-emerald-bg border border-app-emerald/30 text-app-emerald rounded-md hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
+                                          title="Abrir en el visor de desgrabación"
                                         >
                                           <Icon name="mic" className="w-3 h-3" /> Desgrabar
                                         </button>
-                                        <span className="text-[10px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
+                                        <span className="text-[11px] text-app-emerald font-bold bg-app-emerald-bg px-2 py-0.5 rounded-md">Audio Grabado</span>
                                       </div>
                                     </div>
                                     <audio controls src={g.url} className="w-full h-8 rounded-lg bg-app-card" preload="metadata" />
@@ -4946,7 +4821,7 @@ function App() {
                               {imagenesList.map((img, idx) => (
                                 <a key={img.id || idx} href={img.url} target="_blank" rel="noreferrer" className="block relative rounded-xl overflow-hidden border border-app-border group">
                                   <img src={img.url} alt={img.caption || 'Foto clase'} className="w-full h-20 object-cover group-hover:scale-105 transition-transform" />
-                                  {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[10px] p-1 truncate text-center">{img.caption}</span>}
+                                  {img.caption && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[11px] p-1 truncate text-center">{img.caption}</span>}
                                 </a>
                               ))}
                             </div>
@@ -4999,7 +4874,7 @@ function App() {
                   onClick={() => {
                     const prompt = generateAcademicPrompt('', 'Unidad 1', '');
                     navigator.clipboard.writeText(prompt);
-                    showToast('📋 Prompt Académico copiado', 'sparkles');
+                    showToast('Prompt académico copiado', 'sparkles');
                     triggerHaptic('success');
                   }}
                   className="px-3.5 py-2 bg-app-surface border border-app-border hover:border-app-emerald text-app-emerald font-bold text-xs rounded-xl flex items-center gap-1.5"
@@ -5061,7 +4936,7 @@ function App() {
                         <div className="flex items-center gap-1.5">
                           <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">{a.materia || 'Apunte'}</span>
                           {(a.pdfData || a.pdfName) && (
-                            <span className="text-[10px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
+                            <span className="text-[11px] font-bold text-app-navy bg-app-navy-bg px-2 py-0.5 rounded-md border border-app-navy/20 flex items-center gap-1">
                               <Icon name="file-text" className="w-3 h-3" /> PDF Original
                             </span>
                           )}
@@ -5090,14 +4965,14 @@ function App() {
                               className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
                               title="Descargar PDF normal en A4"
                             >
-                              <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
+                              <Icon name="download" className="w-3 h-3 text-app-navy" /> A4
                             </button>
                             <button
                               onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
                               className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
                               title="Descargar en formato 2 páginas por hoja (cuadernillo)"
                             >
-                              <Icon name="book-open" className="w-3 h-3 text-white" /> 📖 2 Págs
+                              <Icon name="book-open" className="w-3 h-3 text-white" /> 2 Págs
                             </button>
                           </>
                         ) : (
@@ -5245,7 +5120,7 @@ function App() {
               <div className="w-14 h-14 bg-app-emerald-bg text-app-emerald rounded-xl mx-auto flex items-center justify-center mb-2.5 border border-app-emerald/20">
                 <Icon name="upload-cloud" className="w-7 h-7 text-app-emerald" size={28} />
               </div>
-              <div className="text-base font-extrabold text-app-text">Haz clic aquí o arrastra un PDF para guardarlo en el sistema</div>
+              <div className="text-base font-extrabold text-app-text">Haz clic aquí o arrastra un PDF para guardarlo en tus documentos</div>
               <div className="text-xs text-app-muted mt-0.5">El archivo se conserva intacto, listo para visualizar y descargar en 1 o 2 columnas</div>
             </div>
 
@@ -5274,7 +5149,7 @@ function App() {
                     }`}
                   >
                     <span>{m.abreviatura || m.nombre}</span>
-                    <span className="text-[10px] px-1.5 py-0.2 bg-black/10 rounded-md">{count}</span>
+                    <span className="text-[11px] px-1.5 py-0.2 bg-black/10 rounded-md">{count}</span>
                   </button>
                 );
               })}
@@ -5394,11 +5269,6 @@ function App() {
               <div className="flex-1 min-w-[220px]">
                 <h3 className="text-2xl font-extrabold text-app-text">Facundo Lazarte</h3>
                 <p className="text-sm font-semibold text-app-emerald mt-0.5">Licenciatura en Psicología — Cursado Académico 2026</p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">React + Tailwind Engine</span>
-                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">Supabase Cloud Sync</span>
-                  <span className="text-xs px-3 py-1 rounded-md bg-app-card border border-app-border text-app-muted font-bold">Dual Theme Active</span>
-                </div>
               </div>
             </div>
 
@@ -5455,84 +5325,6 @@ function App() {
               </div>
             </div>
 
-            {/* ── CARD: ACTUALIZACIONES DE LA APP ── */}
-            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Canal Oficial de Producción</div>
-                  <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
-                    <Icon name="sparkles" className="w-5 h-5 text-app-emerald" /> Actualizaciones del Sistema
-                  </h3>
-                  <p className="text-xs text-app-muted">Versión instalada: <strong className="text-app-text">{currentVersion}</strong></p>
-                </div>
-                <span className={`text-xs font-bold px-3 py-1 rounded-md border ${
-                  updateAvailable
-                    ? 'bg-app-emerald-bg text-app-emerald border-app-emerald animate-pulse'
-                    : 'bg-app-surface text-app-muted border-app-border'
-                }`}>
-                  {updateAvailable ? 'Nueva Versión Lista' : 'Al Día'}
-                </span>
-              </div>
-
-              {updateAvailable ? (
-                <div className="p-4 rounded-lg bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border-2 border-app-emerald space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-extrabold text-app-text">
-                    <Icon name="arrow-up-circle" className="w-5 h-5 text-app-emerald animate-bounce" />
-                    ¡Hay una nueva actualización disponible en GitHub (main)!
-                  </div>
-                  <p className="text-xs text-app-muted">
-                    Se detectaron cambios en el repositorio. Haz clic abajo para actualizar el caché local sin perder tus notas ni materias.
-                  </p>
-                  <button
-                    onClick={applyUpdate}
-                    className="w-full py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110 animate-pulse"
-                  >
-                    <Icon name="download-cloud" className="w-4 h-4" /> Instalar Actualización Ahora
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-3 items-center">
-                  <button
-                    onClick={() => checkForUpdates(true)}
-                    disabled={checkingUpdate}
-                    className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2 transition-all"
-                  >
-                    <Icon name="refresh-cw" className={`w-4 h-4 text-app-emerald ${checkingUpdate ? 'animate-spin' : ''}`} />
-                    {checkingUpdate ? 'Verificando en la nube...' : 'Buscar Actualizaciones'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-4">
-              <h3 className="text-lg font-extrabold text-app-text flex items-center gap-2">
-                <Icon name="hard-drive" className="w-5 h-5 text-app-emerald" /> Respaldo y Sincronización en la Nube
-              </h3>
-              <p className="text-xs text-app-muted">
-                Exporta copias de seguridad en JSON o sube todos tus datos locales de forma idempotente a Supabase.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={syncAllLocalDataToCloud}
-                  disabled={isSyncingAll}
-                  className="px-4 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center gap-2 hover:brightness-110 disabled:opacity-50"
-                >
-                  <Icon name={isSyncingAll ? "refresh-cw" : "cloud-upload"} className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                  {isSyncingAll ? 'Subiendo a Supabase...' : 'Subir Todo a Supabase'}
-                </button>
-                <label className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl cursor-pointer shadow-card flex items-center gap-2 transition-all">
-                  <Icon name="upload" className="w-4 h-4 text-app-emerald" />
-                  <span>Importar Backup (JSON)</span>
-                  <input type="file" accept=".json,application/json" onChange={handleImportBackupJSON} className="hidden" />
-                </label>
-                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
-                  <Icon name="download" className="w-4 h-4 text-app-emerald" /> Exportar Backup (JSON)
-                </button>
-                <button onClick={triggerPing} className="px-4 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
-                  <Icon name="activity" className="w-4 h-4" /> Ping Keep-Alive
-                </button>
-              </div>
-            </div>
           </div>
         )}
 
@@ -5550,123 +5342,83 @@ function App() {
           />
         )}
 
-        {/* ── TAB: SISTEMA ── */}
+        {/* ── TAB: AJUSTES ── */}
         {activeTab === 'system' && (
           <div className="space-y-6 animate-fade-in max-w-3xl">
             <h2 className="text-2xl font-extrabold flex items-center gap-2 text-app-text">
-              <Icon name="database" className="w-6 h-6 text-app-emerald" size={24} /> Sistema & Sincronización en la Nube
+              <Icon name="settings" className="w-6 h-6 text-app-emerald" size={24} /> Ajustes
             </h2>
 
-            {/* Panel de Métricas de Datos Locales */}
             <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                  <Icon name="layers" className="w-4 h-4 text-app-emerald" /> Inventario de Datos Locales en Memoria / IndexedDB
-                </h3>
-                <span className={`px-2.5 py-1 rounded-md text-[11px] font-extrabold flex items-center gap-1.5 ${isOnline ? 'bg-app-emerald-bg text-app-emerald border border-app-emerald/30' : 'bg-app-ruby-bg text-app-ruby border border-app-ruby/30'}`}>
-                  <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-app-emerald' : 'bg-app-ruby'}`}></span>
-                  {isOnline ? 'Conectado a Internet' : 'Sin Conexión'}
+              <div className="flex justify-between items-start gap-3">
+                <div>
+                  <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                    <Icon name="sparkles" className="w-4 h-4 text-app-emerald" /> Versión
+                  </h3>
+                  <p className="text-xs text-app-muted mt-1">
+                    Versión instalada: <strong className="text-app-text">{currentVersion}</strong>
+                  </p>
+                </div>
+                <span className={`text-xs font-bold px-3 py-1 rounded-md border shrink-0 ${
+                  updateAvailable
+                    ? 'bg-app-emerald-bg text-app-emerald border-app-emerald'
+                    : 'bg-app-surface text-app-muted border-app-border'
+                }`}>
+                  {updateAvailable ? 'Hay una novedad' : 'Estás al día'}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { label: 'Materias', count: materias.length, icon: 'book' },
-                  { label: 'Bibliografía', count: biblio.length, icon: 'book-open' },
-                  { label: 'Clases', count: clases.length, icon: 'presentation' },
-                  { label: 'Apuntes', count: apuntes.length, icon: 'file-edit' },
-                  { label: 'Documentos PDF', count: pdfs.length, icon: 'file-text' },
-                  { label: 'Exámenes', count: examenes.length, icon: 'calendar-check' }
-                ].map((item, idx) => (
-                  <div key={idx} className="p-3 rounded-xl bg-app-surface border border-app-border flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-bold text-app-muted">
-                      <Icon name={item.icon} className="w-4 h-4 text-app-emerald" />
-                      <span>{item.label}</span>
-                    </div>
-                    <span className="text-sm font-black text-app-text font-mono">{item.count}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Botón Principal de Carga a Supabase */}
-              <div className="pt-2 border-t border-app-border flex flex-wrap gap-3">
+              {updateAvailable ? (
                 <button
-                  onClick={syncAllLocalDataToCloud}
-                  disabled={isSyncingAll}
-                  className="flex-1 py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110 disabled:opacity-50"
+                  onClick={applyUpdate}
+                  className="w-full py-3 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110"
                 >
-                  <Icon name={isSyncingAll ? "refresh-cw" : "cloud-upload"} className={`w-4 h-4 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                  {isSyncingAll ? 'Sincronizando todos los registros...' : 'Subir Todos los Datos Locales a Supabase'}
+                  <Icon name="download-cloud" className="w-4 h-4" /> Actualizar ahora
                 </button>
-
-                <button
-                  onClick={processSyncQueue}
-                  disabled={syncQueue.length === 0}
-                  className="px-4 py-3 bg-app-surface border border-app-border hover:border-app-emerald font-bold text-xs rounded-xl flex items-center gap-2 text-app-text disabled:opacity-50"
-                >
-                  <Icon name="refresh-cw" className="w-4 h-4 text-app-emerald" />
-                  <span>Sincronizar Cola ({syncQueue.length})</span>
-                </button>
-              </div>
-
-              {/* Resumen del último resultado */}
-              {syncStatusSummary && (
-                <div className="p-3.5 rounded-xl bg-app-emerald-bg border border-app-emerald/30 text-xs text-app-text space-y-1.5 animate-fade-in">
-                  <div className="font-extrabold text-app-emerald flex items-center gap-1.5">
-                    <Icon name="check-circle-2" className="w-4 h-4 text-app-emerald" />
-                    Último resultado de sincronización:
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] font-mono font-bold text-app-muted">
-                    <span>Materias: {syncStatusSummary.materias}</span>
-                    <span>Lecturas: {syncStatusSummary.bibliografia}</span>
-                    <span>Clases: {syncStatusSummary.clases}</span>
-                    <span>Apuntes: {syncStatusSummary.apuntes}</span>
-                    <span>PDFs: {syncStatusSummary.documentos_pdf}</span>
-                    <span>Exámenes: {syncStatusSummary.examenes}</span>
-                  </div>
-                  {syncStatusSummary.errors && syncStatusSummary.errors.length > 0 && (
-                    <div className="pt-2 text-app-ruby text-[11px]">
-                      Advertencias: {syncStatusSummary.errors.join(' • ')}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Credenciales y Diagnóstico */}
-            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
-              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
-                <Icon name="key" className="w-4 h-4 text-app-emerald" /> Configuración de Supabase
-              </h3>
-              <div>
-                <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Project URL</label>
-                <input value={SUPABASE_CONFIG.url} readOnly className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none font-mono" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Anon Public Key</label>
-                <input value={SUPABASE_CONFIG.key} readOnly type="password" className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-muted outline-none font-mono" />
-              </div>
-              <div className="flex flex-wrap gap-3 pt-2">
-                <button onClick={triggerPing} className="px-4 py-2.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
-                  <Icon name="activity" className="w-4 h-4" /> Ping de Prueba
-                </button>
-                <label className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl cursor-pointer shadow-card flex items-center gap-2 transition-all">
-                  <Icon name="upload" className="w-4 h-4 text-app-emerald" />
-                  <span>Importar Backup (JSON)</span>
-                  <input type="file" accept=".json,application/json" onChange={handleImportBackupJSON} className="hidden" />
-                </label>
-                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2">
-                  <Icon name="download" className="w-4 h-4 text-app-emerald" /> Exportar Backup (JSON)
-                </button>
+              ) : (
                 <button
                   onClick={() => checkForUpdates(true)}
                   disabled={checkingUpdate}
-                  className="px-4 py-2.5 bg-app-card border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl flex items-center gap-2"
+                  className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2 transition-all disabled:opacity-50"
                 >
-                  <Icon name="sparkles" className={`w-4 h-4 text-app-emerald ${checkingUpdate ? 'animate-spin' : ''}`} />
-                  Buscar Actualizaciones
+                  <Icon name="refresh-cw" className={`w-4 h-4 text-app-emerald ${checkingUpdate ? 'animate-spin' : ''}`} />
+                  {checkingUpdate ? 'Buscando...' : 'Buscar actualizaciones'}
                 </button>
+              )}
+              <button
+                onClick={() => setModalNovedades(true)}
+                className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl shadow-card flex items-center gap-2 transition-all"
+              >
+                <Icon name="list" className="w-4 h-4 text-app-emerald" /> Ver novedades
+              </button>
+            </div>
+
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-4">
+              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                <Icon name="hard-drive" className="w-4 h-4 text-app-emerald" /> Copia de seguridad
+              </h3>
+              <p className="text-xs text-app-muted leading-relaxed">
+                Descargá una copia de todo lo que cargaste (materias, apuntes, clases y PDFs) o restaurá una copia que hayas guardado antes.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <button onClick={exportBackupJSON} className="px-4 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald flex items-center gap-2 hover:brightness-110">
+                  <Icon name="download" className="w-4 h-4" /> Descargar copia
+                </button>
+                <label className="px-4 py-2.5 bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl cursor-pointer shadow-card flex items-center gap-2 transition-all">
+                  <Icon name="upload" className="w-4 h-4 text-app-emerald" />
+                  <span>Restaurar copia</span>
+                  <input type="file" accept=".json,application/json" onChange={handleImportBackupJSON} className="hidden" />
+                </label>
               </div>
+            </div>
+
+            <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-2">
+              <h3 className="text-base font-extrabold text-app-text flex items-center gap-2">
+                <Icon name="info" className="w-4 h-4 text-app-emerald" /> Acerca de
+              </h3>
+              <p className="text-xs text-app-muted leading-relaxed">
+                PsiEstudio te acompaña en la carrera: organizá tus materias, grabá tus clases y repasá con apuntes y fichas.
+              </p>
             </div>
           </div>
         )}
@@ -5779,6 +5531,7 @@ function App() {
         />
       )}
 
+      {modalNovedades && <ModalNovedades onClose={cerrarNovedades} />}
       {modalMoreMenu && (
         <ModalMoreMenu
           onClose={() => setModalMoreMenu(false)}
@@ -5818,36 +5571,65 @@ function App() {
 
 // ── 5. DETAILED MODAL COMPONENTS ──
 
+function ModalNovedades({ onClose }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="titulo-novedades" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 shadow-fluffy space-y-4 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center gap-2">
+          <Icon name="sparkles" className="w-5 h-5 text-app-emerald" />
+          <h3 id="titulo-novedades" className="text-lg font-extrabold text-app-text">Novedades de PsiEstudio</h3>
+        </div>
+        {NOVEDADES.map((n) => (
+          <div key={n.version} className="space-y-2">
+            <p className="text-xs font-bold text-app-muted">Versión {n.version} · {n.fecha}</p>
+            <ul className="space-y-2">
+              {n.cambios.map((c) => (
+                <li key={c} className="flex items-start gap-2 text-sm text-app-text">
+                  <Icon name="check" className="w-4 h-4 text-app-emerald shrink-0 mt-0.5" />
+                  <span>{c}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <button onClick={onClose} className="w-full py-3 bg-app-emerald text-white font-extrabold text-sm rounded-xl shadow-emerald hover:brightness-110">
+          Entendido
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards }) {
   const options = [
     {
       id: 'grabadora',
-      title: '🎙️ Grabadora & Desgrabador DSP',
-      desc: 'Grabación de clases, filtrado acústico y transcripción palabra por palabra',
+      title: 'Grabadora de clases',
+      desc: 'Grabá tu clase y obtené el texto palabra por palabra',
       icon: 'mic',
       action: () => onNavigate('grabadora'),
-      badge: 'DSP + IA'
+      badge: null
     },
     {
       id: 'pdf',
-      title: 'Ingestión PDF & OCR',
-      desc: 'Escanea textos, procesa documentos y genera prompts',
+      title: 'Mis PDFs',
+      desc: 'Subí tus documentos y preparalos para estudiar',
       icon: 'file-search',
       action: () => onNavigate('pdf'),
-      badge: 'OCR IA'
+      badge: null
     },
     {
       id: 'perfil',
       title: 'Mi Perfil & Materias',
-      desc: 'Administración de cátedras, configuración y datos',
+      desc: 'Tus materias, cátedras y datos de estudio',
       icon: 'user-check',
       action: () => onNavigate('perfil')
     },
     {
       id: 'system',
-      title: 'Sistema & Sincronización',
-      desc: 'Estado de conexión, IndexedDB, Supabase y caché',
-      icon: 'database',
+      title: 'Ajustes',
+      desc: 'Copia de seguridad y versión de la app',
+      icon: 'settings',
       action: () => onNavigate('system')
     },
     {
@@ -5900,7 +5682,7 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
                 <div className="flex items-center justify-between gap-1">
                   <h4 className="text-xs font-extrabold text-app-text truncate">{opt.title}</h4>
                   {opt.badge && (
-                    <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                    <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                       {opt.badge}
                     </span>
                   )}
@@ -6156,7 +5938,7 @@ function ModalMateria({ initialData, onClose, onSave }) {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Fecha</label>
+                        <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Fecha</label>
                         <input
                           type="date"
                           value={ev.fecha || ''}
@@ -6165,7 +5947,7 @@ function ModalMateria({ initialData, onClose, onSave }) {
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Modalidad</label>
+                        <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Modalidad</label>
                         <select
                           value={ev.modalidad || 'Presencial Escrito'}
                           onChange={e => handleUpdateEvaluacion(idx, 'modalidad', e.target.value)}
@@ -6181,7 +5963,7 @@ function ModalMateria({ initialData, onClose, onSave }) {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold uppercase text-app-emerald mb-1">Temario / Contenidos a evaluar</label>
+                      <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Temario / Contenidos a evaluar</label>
                       <textarea
                         value={ev.temario || ''}
                         onChange={e => handleUpdateEvaluacion(idx, 'temario', e.target.value)}
@@ -6794,7 +6576,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
               <input
                 value={audioUrlInput}
                 onChange={e => setAudioUrlInput(e.target.value)}
-                placeholder="O pega link URL (Drive / Grabadora)"
+                placeholder="O pegá un enlace (Drive / Grabadora)"
                 className="flex-1 p-2.5 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none"
               />
               <button
@@ -6818,7 +6600,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
                         </div>
                         <span className="font-extrabold text-xs text-app-text truncate">{a.title}</span>
                         {a.isDirectFile && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald">
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald">
                             Archivo Local
                           </span>
                         )}
@@ -6829,7 +6611,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
                             type="button"
                             onClick={() => onOpenInDesgrabador(form, a)}
                             className="px-2.5 py-1 bg-app-emerald-bg border border-app-emerald/30 text-app-emerald text-[11px] font-bold rounded-lg hover:bg-app-emerald hover:text-white flex items-center gap-1 transition-all"
-                            title="Abrir este audio en la grabadora y desgrabador Verbatim"
+                            title="Abrir este audio en la grabadora"
                           >
                             <Icon name="mic" className="w-3 h-3" /> Desgrabar
                           </button>
@@ -6909,7 +6691,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
                 {(form.imagenes || []).map(img => (
                   <div key={img.id} className="relative rounded-xl overflow-hidden border border-app-border group bg-black/50">
                     <img src={img.url} alt={img.caption} className="w-full h-28 object-cover group-hover:scale-105 transition-transform" />
-                    <span className="absolute bottom-0 inset-x-0 bg-black/75 backdrop-blur-sm text-white text-[10px] p-1 truncate text-center font-bold">
+                    <span className="absolute bottom-0 inset-x-0 bg-black/75 backdrop-blur-sm text-white text-[11px] p-1 truncate text-center font-bold">
                       {img.caption}
                     </span>
                     <button
@@ -7090,7 +6872,7 @@ function ModalApunteSplitView({
 
   const handleCompilePDF = async (forDownload = false, twoColumns = false) => {
     if (!form.contenido.trim() && !form.pdfData) {
-      if (showToast) showToast('Escribe o pega contenido Markdown para compilar el PDF', 'alert-triangle');
+      if (showToast) showToast('Escribí o pegá el texto para generar el PDF', 'alert-triangle');
       return;
     }
     setIsGeneratingPDF(true);
@@ -7139,7 +6921,7 @@ function ModalApunteSplitView({
       }
     } catch (e) {
       console.error('Error al generar PDF:', e);
-      if (showToast) showToast(`Error al compilar PDF: ${e.message}`, 'alert-circle');
+      if (showToast) showToast(mensajeAmigable(e, 'No se pudo generar el PDF'), 'alert-circle');
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -7194,7 +6976,7 @@ function ModalApunteSplitView({
               }`}
             >
               <Icon name="edit-3" className="w-3.5 h-3.5" />
-              <span>Editor Markdown</span>
+              <span>Editor de texto</span>
             </button>
             <button
               type="button"
@@ -7339,7 +7121,7 @@ function ModalApunteSplitView({
                     <div key={idx} className="p-2.5 rounded-lg bg-app-surface border border-app-border flex flex-col justify-between gap-2 shadow-sm">
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                          <span className="text-[11px] font-black uppercase px-2 py-0.5 rounded bg-amber-500/20 text-amber-500">
                             Imagen #{item.num}
                           </span>
                           <button
@@ -7386,13 +7168,13 @@ function ModalApunteSplitView({
                   value={form.contenido}
                   onPaste={handlePaste}
                   onChange={e => handleContentChange(e.target.value)}
-                  placeholder="Pega o redacta aquí el apunte en Markdown (compatible con KaTeX math, tablas y formato académico)..."
+                  placeholder="Pega o redacta aquí el apunte (podés usar tablas y fórmulas)..."
                   className="w-full flex-1 p-4 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm text-app-text outline-none font-mono resize-none leading-relaxed overflow-y-auto focus:border-app-emerald"
                 />
               </div>
 
               <div className="hidden md:flex flex-col h-full bg-app-card border border-app-border rounded-xl p-4 overflow-y-auto">
-                <div className="text-[10px] uppercase font-black tracking-wider text-app-emerald mb-2 flex items-center gap-1">
+                <div className="text-[11px] uppercase font-black tracking-wider text-app-emerald mb-2 flex items-center gap-1">
                   <Icon name="eye" className="w-3 h-3" /> Vista Previa en Vivo
                 </div>
                 <div
@@ -7409,7 +7191,7 @@ function ModalApunteSplitView({
           <div className="flex-1 overflow-y-auto p-5 sm:p-8 bg-app-card space-y-4">
             <div className="max-w-3xl mx-auto space-y-4">
               <div className="border-b border-app-border pb-3">
-                <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                   {materiaNombre} • {form.unidad}
                 </span>
                 <h1 className="text-xl sm:text-2xl font-black text-app-text mt-2">{form.titulo || 'Apunte sin título'}</h1>
@@ -7437,7 +7219,7 @@ function ModalApunteSplitView({
                   disabled={isGeneratingPDF}
                   className="px-3.5 py-1.5 bg-app-surface border border-app-border text-app-navy hover:border-app-navy font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm"
                 >
-                  <Icon name="download" className="w-3.5 h-3.5 text-app-navy" /> ⬇ A4
+                  <Icon name="download" className="w-3.5 h-3.5 text-app-navy" /> A4
                 </button>
                 <button
                   type="button"
@@ -7445,7 +7227,7 @@ function ModalApunteSplitView({
                   disabled={isGeneratingPDF}
                   className="px-3.5 py-1.5 bg-app-navy text-white font-extrabold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110"
                 >
-                  <Icon name="book-open" className="w-3.5 h-3.5 text-white" /> 📖 2 Págs / Hoja
+                  <Icon name="book-open" className="w-3.5 h-3.5 text-white" /> 2 Págs / Hoja
                 </button>
               </div>
             </div>
@@ -7758,7 +7540,7 @@ function ModalSubirDocumentoPDF({
                 <button
                   type="button"
                   onClick={() => setIsCustomUnidad(!isCustomUnidad)}
-                  className="text-[10px] text-app-muted hover:text-app-emerald font-bold"
+                  className="text-[11px] text-app-muted hover:text-app-emerald font-bold"
                 >
                   {isCustomUnidad ? 'Elegir de lista' : 'Personalizada'}
                 </button>
@@ -7861,7 +7643,7 @@ function ModalSubirDocumentoPDF({
               className="px-5 py-2.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 disabled:opacity-50 flex items-center gap-1.5"
             >
               <Icon name={isSaving ? "refresh-cw" : "check"} className={`w-4 h-4 ${isSaving ? 'animate-spin' : ''}`} />
-              <span>{isSaving ? "Guardando en el Sistema..." : "Guardar en el Sistema"}</span>
+              <span>{isSaving ? "Guardando..." : "Guardar"}</span>
             </button>
           </div>
         </form>
@@ -7939,7 +7721,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
         <div className="flex flex-wrap justify-between items-center px-5 py-3.5 border-b border-app-border bg-app-surface gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+              <span className="text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                 {data.materia || 'General'}
               </span>
               <span className="text-xs text-app-muted font-bold">• {data.unidad || 'Unidad 1'}</span>
@@ -7947,7 +7729,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
                 <span className="text-xs text-app-muted font-bold">• {data.num_paginas} págs</span>
               )}
               {data.va_parcial && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/20">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-app-amber-bg text-app-amber border border-app-amber/20">
                   {data.nro_parcial ? `Para ${data.nro_parcial}` : 'Para Parcial'}
                 </span>
               )}
@@ -7964,7 +7746,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
               title="Descargar PDF original en A4 normal"
             >
               <Icon name="download" className="w-4 h-4 text-app-navy" />
-              <span>⬇ Normal</span>
+              <span>Normal</span>
             </button>
 
             <button
@@ -7974,19 +7756,19 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
               title="Descargar en formato 2 páginas por hoja (apuntes imprimibles)"
             >
               <Icon name={isProcessing2Col ? "refresh-cw" : "book-open"} className={`w-4 h-4 ${isProcessing2Col ? 'animate-spin' : ''}`} />
-              <span>{isProcessing2Col ? "Procesando..." : "📖 2 Págs / Hoja"}</span>
+              <span>{isProcessing2Col ? "Procesando..." : "2 Págs / Hoja"}</span>
             </button>
 
             {onDelete && (
               <button
                 onClick={() => {
-                  if (confirm(`¿Eliminar el documento "${data.nombre_archivo || data.titulo}" del sistema?`)) {
+                  if (confirm(`¿Eliminar el documento "${data.nombre_archivo || data.titulo}" de tus documentos?`)) {
                     onDelete(data.id);
                     onClose();
                   }
                 }}
                 className="p-2 text-app-ruby hover:bg-app-ruby-bg rounded-xl border border-transparent hover:border-app-ruby/30"
-                title="Eliminar documento del sistema"
+                title="Eliminar documento"
               >
                 <Icon name="trash-2" className="w-4 h-4" />
               </button>
@@ -8094,7 +7876,7 @@ function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onS
 
         <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
           {query.trim() === '' && (
-            <p className="text-xs text-app-muted text-center py-6">Escribe palabras clave para buscar en todo tu sistema académico.</p>
+            <p className="text-xs text-app-muted text-center py-6">Escribe una palabra para buscar en todas tus materias.</p>
           )}
 
           {query.trim() !== '' && results.length === 0 && (
@@ -8112,7 +7894,7 @@ function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onS
               className="p-3 rounded-lg bg-app-card border border-app-border/70 hover:border-app-emerald cursor-pointer transition-all flex items-center justify-between group"
             >
               <div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
                   {item.type}
                 </span>
                 <h4 className="text-sm font-extrabold text-app-text mt-1 group-hover:text-app-emerald transition-colors">{item.title}</h4>
@@ -8288,7 +8070,7 @@ function ModalFlashcards({ title, items, onClose }) {
       <div className="bg-app-modal border border-app-border w-full max-w-xl rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
-            <span className="text-[10px] font-extrabold uppercase tracking-wider text-app-emerald">Modo Repaso Activo</span>
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-app-emerald">Modo Repaso Activo</span>
             <h3 className="text-lg font-extrabold text-app-text">{title || 'Fichas de Repaso Académico'}</h3>
           </div>
           <button onClick={onClose} className="p-1 text-app-muted hover:text-app-text">
@@ -8735,7 +8517,7 @@ function GrabadoraDesgrabadorView({
       error: sinAudio ? 'No se grabó audio' : (fallidas ? `${fallidas} fragmento(s) no se pudieron subir` : null),
       updated_at: new Date().toISOString(),
     }).eq('id', sesionId);
-    if (error) showToast('No se pudo cerrar la grabación en la base: ' + error.message, 'alert-triangle');
+    if (error) showToast(mensajeAmigable(error, 'No se pudo cerrar la grabación'), 'alert-triangle');
     subidasRef.current = [];
     rutasRef.current = [];
     sesionGrabacionRef.current = null;
@@ -8753,7 +8535,7 @@ function GrabadoraDesgrabadorView({
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error('Tu navegador no soporta captura de audio o requiere HTTPS.');
       }
-      if (!supabaseClient) throw new Error('Sin conexión con la base: no se puede grabar sin guardar en la nube.');
+      if (!supabaseClient) throw new Error('No hay conexión a internet: no se puede grabar sin guardar la clase.');
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       const matObj = materias.find((m) => m.id === targetMateriaId);
@@ -8774,7 +8556,7 @@ function GrabadoraDesgrabadorView({
       }]);
       if (error) {
         stream.getTracks().forEach((t) => t.stop());
-        throw new Error('No se pudo registrar la grabación en la base: ' + error.message);
+        throw new Error(mensajeAmigable(error, 'No se pudo registrar la grabación'));
       }
 
       mediaStreamRef.current = stream;
@@ -8794,7 +8576,7 @@ function GrabadoraDesgrabadorView({
       refrescarCargas();
     } catch (e) {
       console.error('Error al iniciar grabación:', e);
-      alert('No se pudo empezar: ' + e.message);
+      alert(mensajeAmigable(e, 'No se pudo empezar la grabación'));
     }
   };
 
@@ -8843,7 +8625,7 @@ function GrabadoraDesgrabadorView({
     cleanAudioContext();
     await finalizarGrabacionEnBase();
     setRecordingState('idle');
-    showToast('Clase guardada en la base. Se desgraba en segundo plano.', 'check');
+    showToast('Clase guardada. Se desgraba en segundo plano.', 'check');
   };
 
   // Cancelar Inferencia / Procesamiento en curso
@@ -8892,7 +8674,7 @@ function GrabadoraDesgrabadorView({
     let acumulado = 0;
 
     for (let i = 0; i < total; i++) {
-      setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${total} en la nube...`);
+      setProcessingStep(`Desgrabando la parte ${i + 1} de ${total}...`);
       const desde = i * FRAGMENTO;
       const cantidad = Math.min(FRAGMENTO, decodificado.length - desde);
       const wav = audioBufferToWav16kMono(decodificado, desde, cantidad);
@@ -8904,7 +8686,7 @@ function GrabadoraDesgrabadorView({
         signal,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Error en la transcripción en la nube (${res.status})`);
+      if (!res.ok) { console.error('[PsiEstudio] desgrabación de parte', res.status, data); throw new Error('No se pudo desgrabar esta parte. Probá de nuevo.'); }
 
       (data.segments || []).forEach((seg) => {
         const inicio = acumulado + seg.start;
@@ -9017,13 +8799,13 @@ function GrabadoraDesgrabadorView({
   const avisarCargas = () => window.dispatchEvent(new Event('psi-cargas'));
 
   const encolarCargaAudio = async (file) => {
-    if (!supabaseClient) { alert('Sin conexión con la base: no se puede subir el audio.'); return; }
+    if (!supabaseClient) { alert('No hay conexión a internet: no se puede subir el audio.'); return; }
     const id = `carga_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const ext = ((file.name.split('.').pop() || 'audio').toLowerCase()).replace(/[^a-z0-9]/g, '') || 'audio';
     const ruta = `cargas/${id}/original.${ext}`;
     const matObj = materias.find((m) => m.id === targetMateriaId);
     try {
-      showToast('Subiendo el audio a la base...', 'upload-cloud');
+      showToast('Subiendo el audio...', 'upload-cloud');
       await subirAudioABase(ruta, file, file.type || 'audio/mp4');
       const { error } = await supabaseClient.from('cargas_audio').insert([{
         id,
@@ -9040,9 +8822,9 @@ function GrabadoraDesgrabadorView({
         estado: 'pendiente',
       }]);
       if (error) throw new Error(error.message);
-      showToast('Audio en la base. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
+      showToast('Audio guardado. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
     } catch (e) {
-      alert('No se pudo subir el audio: ' + (e.message || e));
+      alert(mensajeAmigable(e, 'No se pudo subir el audio'));
       return;
     }
     refrescarCargas();
@@ -9197,7 +8979,7 @@ function GrabadoraDesgrabadorView({
       );
       setAudioUrls((prev) => ({ ...prev, [h.id]: urls.filter(Boolean) }));
     } catch (e) {
-      alert('No se pudo cargar el audio: ' + (e.message || e));
+      alert(mensajeAmigable(e, 'No se pudo cargar el audio'));
     }
   };
 
@@ -9258,7 +9040,7 @@ function GrabadoraDesgrabadorView({
   const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
     setIsProcessing(true);
     setProcessingProgress(0);
-    setProcessingStep('Iniciando pipeline de transcripción...');
+    setProcessingStep('Empezando la desgrabación...');
     setProcessingError(null);
 
     abortControllerRef.current = new AbortController();
@@ -9273,7 +9055,7 @@ function GrabadoraDesgrabadorView({
         // ── MOTOR 1: SERVIDOR LOCAL FASTAPI (TELEMETRÍA REAL EN TIEMPO REAL) ──
         const sessionId = `web_${Date.now()}`;
 
-        setProcessingStep('Creando sesión en servidor DSP local...');
+        setProcessingStep('Preparando la grabación...');
         const createRes = await fetch(`${cleanServerUrl}/api/sessions/create`, {
           method: 'POST',
           headers: psiApiHeaders({ 'Content-Type': 'application/json' }),
@@ -9287,7 +9069,7 @@ function GrabadoraDesgrabadorView({
         });
         if (!createRes.ok) throw new Error('Fallo al crear sesión remota.');
 
-        setProcessingStep('Subiendo audio al servidor...');
+        setProcessingStep('Subiendo el audio...');
         const formData = new FormData();
         formData.append('file', audioBlobOrFile, filename);
 
@@ -9306,7 +9088,7 @@ function GrabadoraDesgrabadorView({
         );
 
         setProcessingProgress(20);
-        setProcessingStep('Iniciando procesamiento acústico e inferencia...');
+        setProcessingStep('Procesando el audio...');
         const procRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/process`, {
           method: 'POST',
           headers: psiApiHeaders({ 'Content-Type': 'application/json' }),
@@ -9340,7 +9122,7 @@ function GrabadoraDesgrabadorView({
             const serverPct = jobData.progress_pct || 0;
             const realPct = Math.min(99, Math.max(20, Math.round(20 + serverPct * 0.79)));
             setProcessingProgress(realPct);
-            setProcessingStep(jobData.step_detail || jobData.step || 'Procesando con Faster-Whisper...');
+            setProcessingStep('Desgrabando...');
 
             if (jobData.status === 'completed') {
               completed = true;
@@ -9352,7 +9134,7 @@ function GrabadoraDesgrabadorView({
         }
 
         setProcessingProgress(100);
-        setProcessingStep('Recuperando desgrabación verbatim...');
+        setProcessingStep('Recuperando la desgrabación...');
         const transcriptRes = await fetch(`${cleanServerUrl}/api/sessions/${sessionId}/transcript`, { signal, headers: psiApiHeaders() });
         if (!transcriptRes.ok) throw new Error('No se pudo recuperar la desgrabación generada.');
         const transcriptJson = await transcriptRes.json();
@@ -9363,14 +9145,14 @@ function GrabadoraDesgrabadorView({
       } else if (!serverOnline) {
         // ── MOTOR 2: FUNCIÓN DE NETLIFY (GROQ, la key vive en Netlify) ──
         setProcessingProgress(50);
-        setProcessingStep('Transcribiendo en la nube...');
+        setProcessingStep('Desgrabando...');
         const cloudTranscript = await transcribeViaNetlify(audioBlobOrFile, signal, materiaName);
         setTranscriptData(cloudTranscript);
         saveSessionToHistory(`cloud_${Date.now()}`, materiaName, targetClaseNum, temaClase, cloudTranscript, audioUrl);
       } else if (liveSegmentsRef.current && liveSegmentsRef.current.length > 0) {
         // ── MOTOR 3: TRANSCRIPCIÓN EN VIVO DEL NAVEGADOR (WEB SPEECH API) ──
         setProcessingProgress(90);
-        setProcessingStep('Estructurando transcripción de voz capturada en vivo...');
+        setProcessingStep('Armando la desgrabación...');
 
         const liveSegs = liveSegmentsRef.current;
         const totalDuration = recordingSeconds || liveSegs[liveSegs.length - 1]?.end || 60;
@@ -9686,7 +9468,7 @@ function GrabadoraDesgrabadorView({
     mdContent += `\n---\n\n`;
 
     if (bookmarks.length > 0) {
-      mdContent += `## ⭐ HITOS Y MOMENTOS CLAVE DE EXAMEN\n\n`;
+      mdContent += `## Hitos y momentos clave de examen\n\n`;
       mdContent += `| Timestamp | Momento de Clase | Énfasis Cátedra |\n`;
       mdContent += `|:---:|:---|:---|\n`;
       bookmarks.forEach(bm => {
@@ -9695,7 +9477,7 @@ function GrabadoraDesgrabadorView({
       mdContent += `\n---\n\n`;
     }
 
-    mdContent += `## 🎙️ TRANSCRIPCIÓN LITERAL VERBATIM (PALABRA POR PALABRA)\n\n`;
+    mdContent += `## Transcripción palabra por palabra\n\n`;
 
     if (transcriptData.segments && transcriptData.segments.length > 0) {
       transcriptData.segments.forEach(seg => {
@@ -9855,32 +9637,22 @@ function GrabadoraDesgrabadorView({
               <Icon name="mic" className="w-5 h-5" size={20} />
             </span>
             <h2 className="text-xl md:text-2xl font-black text-app-text tracking-tight">
-              Grabadora & Desgrabador Verbatim (DSP)
+              Grabadora de clases
             </h2>
           </div>
           <p className="text-xs text-app-muted font-medium">
-            Captura clases universitarias, elimina ruidos con DSP EBU R128 y genera desgrabaciones palabra por palabra sincronizadas.
+            Grabá tu clase y obtené el texto completo, palabra por palabra, listo para estudiar.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Indicador de Estado del Backend */}
-          <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border shadow-card ${
-            serverOnline ? 'bg-app-emerald-bg border-app-emerald/30 text-app-emerald' : 'bg-app-amber-bg border-app-amber/30 text-app-amber'
-          }`}>
-            <span className={`w-2 h-2 rounded-full ${serverOnline ? 'bg-app-emerald animate-pulse' : 'bg-app-amber'}`}></span>
-            <span>{serverOnline ? 'Backend DSP Conectado (FastAPI)' : 'Transcripción en la nube (Groq)'}</span>
-          </div>
-
-        </div>
       </div>
 
       {/* ── SUB-NAVEGACIÓN INTERNA ── */}
       <div className="flex flex-wrap items-center gap-2 border-b border-app-border pb-2">
         {[
-          { id: 'record', label: '🎙️ Grabar Audio', icon: 'mic' },
-          { id: 'player', label: '🎧 Visor Interactivo', icon: 'headphones', disabled: !transcriptData },
-          { id: 'history', label: `📚 Historial (${historialDB.length})`, icon: 'archive' },
+          { id: 'record', label: 'Grabar audio', icon: 'mic' },
+          { id: 'player', label: 'Visor interactivo', icon: 'headphones', disabled: !transcriptData },
+          { id: 'history', label: `Historial (${historialDB.length})`, icon: 'archive' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -9892,6 +9664,7 @@ function GrabadoraDesgrabadorView({
                 : (tab.disabled ? 'opacity-40 cursor-not-allowed text-app-muted' : 'bg-app-card text-app-muted hover:text-app-text border border-app-border')
             }`}
           >
+            <Icon name={tab.icon} className="w-4 h-4" />
             <span>{tab.label}</span>
           </button>
         ))}
@@ -9930,19 +9703,6 @@ function GrabadoraDesgrabadorView({
                     onChange={(e) => setTargetClaseNum(parseInt(e.target.value, 10) || 1)}
                     className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
                   />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-app-emerald mb-1">Preset Acústico</label>
-                  <select
-                    value={preset}
-                    onChange={(e) => setPreset(e.target.value)}
-                    className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none"
-                  >
-                    <option value="estudio_balanceado">Balanceado</option>
-                    <option value="aula_magna_eco">Aula con Eco</option>
-                    <option value="docente_lejano">Docente Lejano</option>
-                    <option value="ruido_ventilador">Ventilador / Ruido</option>
-                  </select>
                 </div>
               </div>
 
@@ -9987,10 +9747,17 @@ function GrabadoraDesgrabadorView({
               </div>
             )}
 
+            {window.matchMedia && window.matchMedia('(max-width: 767px)').matches && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-app-amber-bg border border-app-amber/30 text-xs text-app-text">
+                <Icon name="info" className="w-4 h-4 text-app-amber shrink-0 mt-px" />
+                <span>En el celular, la grabación puede cortarse si bloqueás la pantalla. Para grabar con la pantalla apagada, usá la app de PsiEstudio.</span>
+              </div>
+            )}
+
             {/* Grabadora en Vivo */}
             <div className="bg-app-card border border-app-border p-6 rounded-2xl shadow-card text-center space-y-4">
               <div className="flex justify-between items-center border-b border-app-border pb-3">
-                <span className="text-xs font-extrabold uppercase tracking-wider text-app-muted">Captura en Vivo Web Audio</span>
+                <span className="text-xs font-extrabold uppercase tracking-wider text-app-muted">Grabación en vivo</span>
                 <span className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all ${
                   recordingState === 'recording'
                     ? 'bg-app-ruby-bg text-app-ruby animate-pulse border border-app-ruby/30'
@@ -10076,7 +9843,7 @@ function GrabadoraDesgrabadorView({
             {/* Subir Archivo de Audio o JSON Existente */}
             <div className="bg-app-surface border border-app-border p-5 rounded-2xl shadow-card space-y-3">
               <h4 className="text-xs font-black uppercase text-app-text flex items-center gap-2">
-                <Icon name="upload-cloud" className="w-4 h-4 text-app-emerald" /> O Cargar Archivo de Audio / Desgrabación JSON
+                <Icon name="upload-cloud" className="w-4 h-4 text-app-emerald" /> Cargar un audio o una desgrabación guardada
               </h4>
               <div className="border-2 border-dashed border-app-border hover:border-app-emerald rounded-xl p-5 text-center transition-all">
                 <input
@@ -10094,9 +9861,9 @@ function GrabadoraDesgrabadorView({
                             const parsed = JSON.parse(evt.target.result);
                             setTranscriptData(parsed);
                             setActiveSubTab('player');
-                            showToast('Desgrabación JSON cargada', 'check');
+                            showToast('Desgrabación cargada', 'check');
                           } catch (err) {
-                            alert('JSON inválido');
+                            alert('Ese archivo no es una desgrabación válida.');
                           }
                         };
                         reader.readAsText(file);
@@ -10108,7 +9875,7 @@ function GrabadoraDesgrabadorView({
                 />
                 <label htmlFor="audioFileInput" className="cursor-pointer flex flex-col items-center gap-2">
                   <Icon name="file-audio" className="w-8 h-8 text-app-emerald" />
-                  <span className="text-xs font-extrabold text-app-text">Arrastra o haz clic para subir audio (.m4a, .mp3, .caf, .wav) o JSON</span>
+                  <span className="text-xs font-extrabold text-app-text">Arrastra o haz clic para subir un audio (.m4a, .mp3, .caf, .wav)</span>
                   <span className="text-[11px] text-app-muted">Soporta clases completas de 1 a 2 horas</span>
                 </label>
               </div>
@@ -10118,7 +9885,7 @@ function GrabadoraDesgrabadorView({
             {cargas.length > 0 && (
               <div className="bg-app-card border border-app-border p-5 rounded-2xl shadow-card space-y-3">
                 <h4 className="text-xs font-black uppercase text-app-text flex items-center gap-2">
-                  <Icon name="list" className="w-4 h-4 text-app-emerald" /> Cargas en segundo plano (guardadas en la base)
+                  <Icon name="list" className="w-4 h-4 text-app-emerald" /> Clases en proceso
                 </h4>
                 {cargas.map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
@@ -10127,7 +9894,7 @@ function GrabadoraDesgrabadorView({
                       <p className="text-app-muted truncate">{c.materia} · Clase {c.clase_num}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en Apuntes</span>}
+                      {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en el Historial</span>}
                       {(c.estado === 'pendiente' || c.estado === 'en_proceso') && (
                         <span className="text-app-amber font-bold">Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}</span>
                       )}
@@ -10140,7 +9907,7 @@ function GrabadoraDesgrabadorView({
                         <span className="text-app-emerald font-bold">Grabando ({c.partes_total || 0} fragmentos guardados)</span>
                       )}
                       {c.estado === 'error' && c.error && (
-                        <p className="text-[11px] text-app-ruby mb-1 max-w-[260px] break-words">{c.error}</p>
+                        <p className="text-[11px] text-app-ruby mb-1 max-w-[260px] break-words">Hubo un problema al desgrabar. Probá de nuevo.</p>
                       )}
                       {c.estado === 'error' && (
                         <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
@@ -10221,7 +9988,7 @@ function GrabadoraDesgrabadorView({
                   {/* Toggle de Auto-Scroll */}
                   <button
                     onClick={() => setAutoScrollEnabled(!autoScrollEnabled)}
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-all flex items-center gap-1 ${
+                    className={`text-[11px] font-bold px-2 py-0.5 rounded-md border transition-all flex items-center gap-1 ${
                       autoScrollEnabled
                         ? 'bg-app-emerald-bg border-app-emerald/30 text-app-emerald'
                         : 'bg-app-surface border-app-border text-app-muted'
@@ -10298,7 +10065,7 @@ function GrabadoraDesgrabadorView({
                   <button
                     onClick={() => handleDownloadFile('md')}
                     className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar Markdown (.md)"
+                    title="Descargar como texto (.md)"
                   >
                     .md
                   </button>
@@ -10326,7 +10093,7 @@ function GrabadoraDesgrabadorView({
                   <button
                     onClick={() => handleDownloadFile('json')}
                     className="px-2 py-1.5 text-xs font-mono font-bold text-app-text hover:text-app-emerald"
-                    title="Descargar JSON Estructurado (.json)"
+                    title="Descargar archivo"
                   >
                     .json
                   </button>
@@ -10337,16 +10104,16 @@ function GrabadoraDesgrabadorView({
             {/* Marcadores de Momentos Clave en la Barra */}
             {bookmarks.length > 0 && (
               <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
-                <span className="text-[10px] font-bold text-app-amber uppercase flex items-center gap-1">
+                <span className="text-[11px] font-bold text-app-amber uppercase flex items-center gap-1">
                   <Icon name="bookmark" className="w-3 h-3" /> Hitos:
                 </span>
                 {bookmarks.map((bm) => (
                   <button
                     key={bm.id}
                     onClick={() => handleSeek(bm.time)}
-                    className="px-2 py-0.5 rounded-md bg-app-amber-bg border border-app-amber/30 text-app-amber text-[10px] font-mono font-bold hover:brightness-110 flex-shrink-0"
+                    className="px-2 py-0.5 rounded-md bg-app-amber-bg border border-app-amber/30 text-app-amber text-[11px] font-mono font-bold hover:brightness-110 flex-shrink-0"
                   >
-                    ⭐ {bm.timestamp}
+                    <Icon name="bookmark" className="w-3 h-3 inline mr-1" /> {bm.timestamp}
                   </button>
                 ))}
               </div>
@@ -10483,7 +10250,7 @@ function GrabadoraDesgrabadorView({
             {historialDB.length > 0 && (
               <input
                 type="text"
-                placeholder="🔍 Filtrar por materia o tema..."
+                placeholder="Filtrar por materia o tema..."
                 value={historyFilter}
                 onChange={(e) => setHistoryFilter(e.target.value)}
                 className="w-full sm:w-64 p-2 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none focus:border-app-emerald"
@@ -10506,7 +10273,7 @@ function GrabadoraDesgrabadorView({
                       <p className="text-xs text-app-muted font-medium">
                         {h.tema || 'Sin tema'}{h.clase ? ` • Clase #${h.clase}` : ''}
                       </p>
-                      <p className="text-[10px] text-app-muted font-mono">{new Date(h.fecha).toLocaleString('es-AR')}</p>
+                      <p className="text-[11px] text-app-muted font-mono">{new Date(h.fecha).toLocaleString('es-AR')}</p>
                     </div>
 
                     {audioAbierto === h.id && (
@@ -10603,13 +10370,10 @@ class ErrorBoundary extends React.Component {
             <div className="w-14 h-14 mx-auto rounded-2xl bg-app-emerald-bg text-app-emerald border border-app-emerald/30 flex items-center justify-center">
               <Icon name="shield-check" className="w-7 h-7 text-app-emerald" size={28} />
             </div>
-            <h2 className="text-xl font-black text-app-text">PsiEstudio • Protección de Datos</h2>
+            <h2 className="text-xl font-black text-app-text">Algo no salió bien</h2>
             <p className="text-xs text-app-muted leading-relaxed">
-              Tus datos y apuntes están 100% seguros y sincronizados.
+              Tus apuntes y materias están guardados. Recargá la página para seguir.
             </p>
-            <div className="p-3 bg-app-surface border border-app-border rounded-xl text-left overflow-x-auto max-h-32 text-xs font-mono text-app-muted">
-              {this.state.error?.message || String(this.state.error)}
-            </div>
             <div className="flex flex-col gap-2 pt-2">
               <button
                 type="button"
@@ -10623,7 +10387,7 @@ class ErrorBoundary extends React.Component {
                 onClick={this.handleResetState}
                 className="w-full py-2.5 bg-app-surface border border-app-border text-app-muted hover:text-app-text font-bold text-xs rounded-xl"
               >
-                Volver al Sistema
+                Volver a la app
               </button>
             </div>
           </div>

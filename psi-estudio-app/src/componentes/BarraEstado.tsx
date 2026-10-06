@@ -1,10 +1,11 @@
-// Barra fija arriba de toda la app: se ve la grabación y la desgrabación desde cualquier pestaña.
+// Franja arriba de todo: muestra si hay una clase grabándose o desgrabándose, desde cualquier pestaña.
 
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { despertarCola } from '../cola';
 import { useGrabacion } from '../grabacion/GrabacionContext';
 import { useCola } from '../hooks';
+import { TOQUE_MINIMO, tema } from '../tema';
 import { formatearTiempo } from '../util';
 
 export function BarraEstado() {
@@ -12,18 +13,18 @@ export function BarraEstado() {
   const cola = useCola();
 
   const partes: string[] = [];
-  if (g.fase === 'grabando' || g.fase === 'cortando') partes.push(`REC ${formatearTiempo(g.segundos)}`);
-  else if (g.fase === 'pausada') partes.push(`PAUSA ${formatearTiempo(g.segundos)}`);
-  else if (g.fase === 'preparando') partes.push('Preparando micrófono');
-  if (cola.fragmentosSinSubir > 0) partes.push(`subiendo ${cola.fragmentosSinSubir} fragmento(s)`);
-  if (cola.transcribiendo) partes.push(`desgrabando ${cola.transcribiendo} · parte ${cola.parte}`);
+  if (g.fase === 'grabando' || g.fase === 'cortando') partes.push(`Grabando ${formatearTiempo(g.segundos)}`);
+  else if (g.fase === 'pausada') partes.push(`En pausa ${formatearTiempo(g.segundos)}`);
+  else if (g.fase === 'preparando') partes.push('Preparando el micrófono');
+  if (cola.fragmentosSinSubir > 0) partes.push(`Guardando ${cola.fragmentosSinSubir} parte(s)`);
+  if (cola.transcribiendo) partes.push(`Desgrabando ${cola.transcribiendo} · parte ${cola.parte}`);
 
   const error = g.aviso || cola.ultimoError;
   if (partes.length === 0 && !error) return null;
 
   const grabando = g.fase === 'grabando' || g.fase === 'cortando';
   return (
-    <View style={[styles.barra, grabando && styles.barraGrabando]}>
+    <View style={[styles.barra, grabando && styles.barraGrabando, error && !grabando && styles.barraAviso]}>
       {partes.length > 0 ? (
         <Text numberOfLines={1} style={styles.texto}>
           {partes.join(' · ')}
@@ -31,10 +32,11 @@ export function BarraEstado() {
       ) : null}
       {error ? (
         <View style={styles.filaError}>
-          <Text numberOfLines={2} style={styles.error}>
+          <Text numberOfLines={3} style={styles.error}>
             {error}
           </Text>
-          <TouchableOpacity
+          <Pressable
+            accessibilityRole="button"
             onPress={() => {
               g.limpiarAviso();
               despertarCola();
@@ -42,7 +44,7 @@ export function BarraEstado() {
             style={styles.boton}
           >
             <Text style={styles.textoBoton}>Reintentar</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -50,11 +52,26 @@ export function BarraEstado() {
 }
 
 const styles = StyleSheet.create({
-  barra: { paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#13202e', borderBottomWidth: 1, borderBottomColor: '#1f2f40' },
-  barraGrabando: { backgroundColor: '#1a2a24', borderBottomColor: '#10b981' },
-  texto: { color: '#e6edf3', fontSize: 13, fontWeight: '600' },
+  barra: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: tema.superficieSuave,
+    borderBottomWidth: 1,
+    borderBottomColor: tema.borde,
+  },
+  barraGrabando: { backgroundColor: tema.acentoSuave, borderBottomColor: tema.acentoIcono },
+  barraAviso: { backgroundColor: tema.avisoSuave },
+  texto: { color: tema.texto, fontSize: 14, fontWeight: '700' },
   filaError: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
-  error: { flex: 1, color: '#fca5a5', fontSize: 12 },
-  boton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#1e2a38' },
-  textoBoton: { color: '#e6edf3', fontSize: 12, fontWeight: '700' },
+  error: { flex: 1, color: tema.aviso, fontSize: 13 },
+  boton: {
+    minHeight: TOQUE_MINIMO,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: tema.superficie,
+    borderWidth: 1,
+    borderColor: tema.borde,
+  },
+  textoBoton: { color: tema.texto, fontSize: 13, fontWeight: '700' },
 });
