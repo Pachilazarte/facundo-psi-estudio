@@ -199,6 +199,11 @@ Te pasare ahora el contenido. Lo que sí, el contenido que sea en relación a la
 Ahora te pasare la transcripción de la clase / texto:${extraContent ? `\n\n\`\`\`text\n${extraContent}\n\`\`\`` : ''}`;
 }
 
+// Las desgrabaciones viven en el Historial, no en Apuntes.
+function esApunteDesgrabacion(a) {
+  return String((a && a.id) || '').startsWith('desgrab_');
+}
+
 function escapeHTML(str) {
   if (!str) return '';
   return String(str)
@@ -2146,7 +2151,7 @@ function App() {
           }
         });
         setApuntes(prev => {
-          let incoming = apuRes.value.data.filter(a => !a.deleted_at && !isRecordDeleted('apuntes', a.id));
+          let incoming = apuRes.value.data.filter(a => !a.deleted_at && !isRecordDeleted('apuntes', a.id) && !esApunteDesgrabacion(a));
           let merged = incoming.map(inc => {
             const match = prev.find(p => p.id === inc.id);
             if (match) {
@@ -2435,7 +2440,7 @@ function App() {
 
   const currentMateriaApuntes = useMemo(() => {
     if (!currentMateria) return [];
-    return apuntes.filter(a => a.materia_id === currentMateria.id || a.materia === currentMateria.nombre);
+    return apuntes.filter(a => !esApunteDesgrabacion(a) && (a.materia_id === currentMateria.id || a.materia === currentMateria.nombre));
   }, [apuntes, currentMateria]);
 
   const currentMateriaPdfs = useMemo(() => {
@@ -3586,7 +3591,7 @@ function App() {
                 const leidos = textsInMat.filter(b => b.estado === 'Leído' || b.estado === 'Salteado').length;
                 const pct = textsInMat.length > 0 ? Math.round((leidos / textsInMat.length) * 100) : 0;
                 const clasesCount = clases.filter(c => c.materia_id === m.id || c.materia === m.nombre).length;
-                const apuntesCount = apuntes.filter(a => a.materia_id === m.id || a.materia === m.nombre).length;
+                const apuntesCount = apuntes.filter(a => !esApunteDesgrabacion(a) && (a.materia_id === m.id || a.materia === m.nombre)).length;
 
                 return (
                   <div
@@ -4815,7 +4820,7 @@ function App() {
                 Todas las Materias ({apuntes.length})
               </button>
               {materias.map(m => {
-                const count = apuntes.filter(a => a.materia_id === m.id || a.materia === m.nombre).length;
+                const count = apuntes.filter(a => !esApunteDesgrabacion(a) && (a.materia_id === m.id || a.materia === m.nombre)).length;
                 return (
                   <button
                     key={m.id}
@@ -8896,23 +8901,7 @@ function GrabadoraDesgrabadorView({
         refrescarCargas();
       }
 
-      const { contenido } = armarContenidoApunte(carga, partes, total);
-      const apunte = {
-        id: `desgrab_${carga.id}`,
-        materia_id: carga.materia_id,
-        materia: carga.materia,
-        unidad: 'Unidad 1',
-        titulo: `Desgrabación: Clase ${carga.clase_num} - ${carga.tema || 'Audio'}`,
-        tipo: 'texto',
-        contenido,
-        va_parcial: false,
-        nro_parcial: 1,
-        created_at: carga.created_at,
-        updated_at: new Date().toISOString(),
-      };
-      const { error } = await supabaseClient.from('apuntes').upsert([apunte], { onConflict: 'id' });
-      if (error) throw new Error('No se pudo guardar la desgrabación: ' + error.message);
-      await marcar(carga.id, { estado: 'completada', error: null, apunte_id: apunte.id });
+      await marcar(carga.id, { estado: 'completada', error: null });
       showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
     } catch (e) {
       await marcar(carga.id, { estado: 'error', error: e.message || String(e) });
@@ -8955,6 +8944,63 @@ function GrabadoraDesgrabadorView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── HISTORIAL: desgrabaciones leídas de la base (cargas completadas + desgrabaciones antiguas) ──
+  const [historialDB, setHistorialDB] = useState([]);
+  const [expandidoHistorial, setExpandidoHistorial] = useState(null);
+
+  const cargarHistorial = async () => {
+    if (!supabaseClient) return;
+    const [cargasRes, apuRes] = await Promise.all([
+      supabaseClient
+        .from('cargas_audio')
+        .select('id,materia,clase_num,tema,partes,partes_total,created_at')
+        .eq('estado', 'completada')
+        .order('created_at', { ascending: false })
+        .limit(100),
+      supabaseClient
+        .from('apuntes')
+        .select('id,materia,titulo,contenido,created_at')
+        .like('id', 'desgrab_%')
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    const items = [];
+    (cargasRes.data || []).forEach((c) => {
+      const { contenido } = armarContenidoApunte(c, c.partes || {}, c.partes_total || 0);
+      items.push({ id: c.id, materia: c.materia, clase: c.clase_num, tema: c.tema, fecha: c.created_at, texto: contenido });
+    });
+    (apuRes.data || []).forEach((a) => {
+      items.push({ id: a.id, materia: a.materia, clase: null, tema: a.titulo, fecha: a.created_at, texto: a.contenido || '' });
+    });
+    items.sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)));
+    setHistorialDB(items);
+  };
+
+  const completadasKey = cargas.filter((c) => c.estado === 'completada').map((c) => c.id).join(',');
+  useEffect(() => {
+    cargarHistorial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completadasKey, activeSubTab]);
+
+  const copiarTextoHistorial = async (texto) => {
+    try {
+      await navigator.clipboard.writeText(texto);
+      showToast('Texto copiado', 'check');
+    } catch (e) {
+      alert('No se pudo copiar automáticamente. Abrí "Ver texto" y copialo a mano.');
+    }
+  };
+
+  const descargarTextoHistorial = (h) => {
+    const blob = new Blob([h.texto], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Desgrabacion_${(h.materia || 'clase').replace(/[^\w-]+/g, '_')}_Clase${h.clase || ''}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
 
   // Procesar Audio con Pipeline Multicapa (Telemetría Real, sin progresos simulados)
   const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
@@ -9582,7 +9628,7 @@ function GrabadoraDesgrabadorView({
         {[
           { id: 'record', label: '🎙️ Grabar Audio', icon: 'mic' },
           { id: 'player', label: '🎧 Visor Interactivo', icon: 'headphones', disabled: !transcriptData },
-          { id: 'history', label: `📚 Historial (${savedSessions.length})`, icon: 'archive' },
+          { id: 'history', label: `📚 Historial (${historialDB.length})`, icon: 'archive' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -10174,15 +10220,15 @@ function GrabadoraDesgrabadorView({
         </>
       )}
 
-      {/* ════ SUB-TAB 3: HISTORIAL DE SESIONES GUARDADAS ════ */}
+      {/* ════ SUB-TAB 3: HISTORIAL DE DESGRABACIONES (leídas de la base) ════ */}
       {activeSubTab === 'history' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h3 className="text-sm font-extrabold text-app-text">Historial de Desgrabaciones Guardadas</h3>
-            {savedSessions.length > 0 && (
+            <h3 className="text-sm font-extrabold text-app-text">Historial de Desgrabaciones</h3>
+            {historialDB.length > 0 && (
               <input
                 type="text"
-                placeholder="🔍 Filtrar por materia o clase..."
+                placeholder="🔍 Filtrar por materia o tema..."
                 value={historyFilter}
                 onChange={(e) => setHistoryFilter(e.target.value)}
                 className="w-full sm:w-64 p-2 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none focus:border-app-emerald"
@@ -10190,61 +10236,58 @@ function GrabadoraDesgrabadorView({
             )}
           </div>
 
-          {savedSessions.length > 0 ? (
+          {historialDB.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {savedSessions
-                .filter(s => {
+              {historialDB
+                .filter((h) => {
                   if (!historyFilter) return true;
-                  const filterLower = historyFilter.toLowerCase();
-                  return s.materia?.toLowerCase().includes(filterLower) || s.tema?.toLowerCase().includes(filterLower);
+                  const f = historyFilter.toLowerCase();
+                  return (h.materia || '').toLowerCase().includes(f) || (h.tema || '').toLowerCase().includes(f);
                 })
-                .map((s) => (
-                <div key={s.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
-                  <div className="flex justify-between items-start">
+                .map((h) => (
+                  <div key={h.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
                     <div>
-                      <h4 className="text-sm font-extrabold text-app-text">{s.materia}</h4>
-                      <p className="text-xs text-app-muted font-medium">{s.tema} • Clase #{s.claseNum}</p>
+                      <h4 className="text-sm font-extrabold text-app-text">{h.materia}</h4>
+                      <p className="text-xs text-app-muted font-medium">
+                        {h.tema || 'Sin tema'}{h.clase ? ` • Clase #${h.clase}` : ''}
+                      </p>
+                      <p className="text-[10px] text-app-muted font-mono">{new Date(h.fecha).toLocaleString('es-AR')}</p>
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-app-emerald px-2 py-0.5 rounded-md bg-app-emerald-bg border border-app-emerald/30">
-                      {formatTime(s.durationSeconds)}
-                    </span>
-                  </div>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-app-border">
-                    <span className="text-[10px] text-app-muted font-mono">{new Date(s.fecha).toLocaleDateString('es-AR')}</span>
-                    <div className="flex items-center gap-2">
+                    {expandidoHistorial === h.id && (
+                      <pre className="text-xs text-app-text whitespace-pre-wrap max-h-72 overflow-y-auto p-3 rounded-lg bg-app-surface border border-app-border">
+                        {h.texto}
+                      </pre>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-app-border">
                       <button
-                        onClick={() => {
-                          const apunteData = {
-                            id: `hist_${s.id}`,
-                            titulo: `Desgrabación: ${s.materia} - Clase #${s.claseNum}`,
-                            tipo: 'texto',
-                            contenido: getTranscriptText(s.transcript),
-                            created_at: s.fecha
-                          };
-                          onOpenApunteModal(apunteData);
-                        }}
-                        className="px-3 py-1.5 bg-app-emerald text-white text-xs font-bold rounded-lg shadow-emerald flex items-center gap-1 hover:brightness-110"
+                        onClick={() => setExpandidoHistorial(expandidoHistorial === h.id ? null : h.id)}
+                        className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg hover:border-app-emerald transition-all"
                       >
-                        <Icon name="book-open" className="w-3 h-3 text-white" /> Leer
+                        {expandidoHistorial === h.id ? 'Ocultar texto' : 'Ver texto'}
                       </button>
-                      
                       <button
-                        onClick={() => handleDownloadFile('doc', s.transcript, s.materia, s.claseNum)}
-                        className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg flex items-center gap-1 hover:border-app-emerald transition-all"
+                        onClick={() => copiarTextoHistorial(h.texto)}
+                        className="px-3 py-1.5 bg-app-emerald text-white text-xs font-bold rounded-lg shadow-emerald hover:brightness-110"
                       >
-                        <Icon name="download" className="w-3 h-3" /> Descargar (.doc)
+                        Copiar
+                      </button>
+                      <button
+                        onClick={() => descargarTextoHistorial(h)}
+                        className="px-3 py-1.5 bg-app-surface text-app-text border border-app-border text-xs font-bold rounded-lg hover:border-app-emerald transition-all"
+                      >
+                        Descargar (.txt)
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
           ) : (
             <div className="p-12 text-center bg-app-card border border-app-border rounded-2xl text-app-muted text-xs space-y-2">
               <Icon name="mic-off" className="w-8 h-8 text-app-muted mx-auto" />
-              <p className="font-bold">No tienes desgrabaciones guardadas en el historial local.</p>
-              <p>Graba una clase o sube un archivo de audio para empezar.</p>
+              <p className="font-bold">Todavía no hay desgrabaciones.</p>
+              <p>Subí un audio o grabá una clase. Cuando termine, aparece acá.</p>
             </div>
           )}
         </div>
