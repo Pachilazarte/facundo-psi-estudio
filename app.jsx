@@ -139,6 +139,35 @@ fetch('/api-config.json', { cache: 'no-store' })
   .then(cfg => { if (cfg && cfg.token) { try { localStorage.setItem('psi_api_token', cfg.token); } catch (e) {} } })
   .catch(() => {});
 
+// ── CACHÉ DEL NAVEGADOR: solo preferencias. Los datos viven en la base. ──
+const CLAVES_SIN_CACHE = /(_cache$|^psi_sync_queue$|^psi_deleted_records$|^psi_audio_sessions_history$|^psi_active_recording_backup_meta$|^neuroscan_img_)/;
+
+// Dónde está cada PDF en la base: id o nombre -> ruta en el bucket "pdfs"
+const indicePdfs = new Map();
+
+function rutaPdfDe(item) {
+  if (!item) return null;
+  if (item.url_pdf) return item.url_pdf;
+  if (item.pdfRuta) return item.pdfRuta;
+  return indicePdfs.get(item.id) || indicePdfs.get('nombre:' + (item.pdfName || item.nombre_archivo || '')) || null;
+}
+
+async function aBlobPdf(dato) {
+  if (dato instanceof Blob) return dato;
+  if (dato instanceof ArrayBuffer) return new Blob([dato], { type: 'application/pdf' });
+  if (typeof dato === 'string') return await (await fetch(dato)).blob();
+  throw new Error('formato de PDF no reconocido');
+}
+
+// Sube el PDF al bucket privado "pdfs" y devuelve la ruta que se guarda en la base.
+async function subirPdfABase(id, dato) {
+  const blob = await aBlobPdf(dato);
+  const ruta = `pdfs/${id}.pdf`;
+  const { error } = await supabaseClient.storage.from('pdfs').upload(ruta, blob, { contentType: 'application/pdf', upsert: true });
+  if (error) throw new Error(error.message);
+  return ruta;
+}
+
 // ── 2.5 HAPTIC FEEDBACK UTILITY ──
 const triggerHaptic = (type = 'light') => {
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
@@ -401,6 +430,7 @@ function formatTime(secs) {
 }
 
 function safeGetLocalStorage(key, fallback = []) {
+  if (CLAVES_SIN_CACHE.test(key)) return fallback;
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
@@ -434,6 +464,7 @@ function stripLargeBinaryFields(obj) {
 }
 
 function safeSetLocalStorage(key, data) {
+  if (CLAVES_SIN_CACHE.test(key)) return;
   try {
     const sanitized = stripLargeBinaryFields(data);
     localStorage.setItem(key, typeof sanitized === 'string' ? sanitized : JSON.stringify(sanitized));
@@ -606,7 +637,19 @@ async function convertPDFToTwoColumns(sourceBlob) {
   return new Blob([outputBytes], { type: 'application/pdf' });
 }
 
-async function downloadPDFHelper({ pdfData, fileName, twoColumns = false, showToast }) {
+async function downloadPDFHelper({ pdfData: pdfDataInicial, pdfRuta, fileName, twoColumns = false, showToast }) {
+  let pdfData = pdfDataInicial;
+  if (!pdfData && pdfRuta && supabaseClient) {
+    try {
+      if (showToast) showToast('Descargando el PDF desde la base...', 'refresh-cw');
+      const { data: blobRemoto, error } = await supabaseClient.storage.from('pdfs').download(pdfRuta);
+      if (error || !blobRemoto) throw new Error(error ? error.message : 'sin archivo');
+      pdfData = blobRemoto;
+    } catch (e) {
+      if (showToast) showToast('No se pudo bajar el PDF: ' + e.message, 'alert-circle');
+      return;
+    }
+  }
   if (!pdfData) {
     if (showToast) showToast('No hay archivo PDF disponible para descargar', 'alert-circle');
     return;
@@ -1834,6 +1877,17 @@ function App() {
     }, 500);
   };
 
+  // Índice de dónde está cada PDF en la base (se usa para descargar y para el visor)
+  useEffect(() => {
+    indicePdfs.clear();
+    pdfs.forEach((p) => {
+      if (p.url_pdf) {
+        indicePdfs.set(p.id, p.url_pdf);
+        indicePdfs.set('nombre:' + p.nombre_archivo, p.url_pdf);
+      }
+    });
+  }, [pdfs]);
+
   // Initial Fetch & Offline Handling
   useEffect(() => {
     const handleOnline = () => {
@@ -2056,7 +2110,7 @@ function App() {
         console.warn('Error loading from IndexedDB:', e);
       }
     };
-    loadFromIndexedDB();
+    // Sin caché local: los datos vienen de la base (fetchAllData).
 
     if (!supabaseClient) return;
 
@@ -2365,6 +2419,158 @@ function App() {
       };
     }
   };
+
+  // ── PASO A LA BASE, LUEGO BORRAR LA CACHÉ ──
+  // Antes de borrar nada se sube todo lo que vive solo en el navegador. Si algo falla, no se borra nada.
+  const migrarCacheALaBase = async () => {
+    const errores = [];
+    let hizo = false;
+    const leer = (k) => {
+      try {
+        const v = localStorage.getItem(k);
+        return v ? JSON.parse(v) : [];
+      } catch (e) {
+        return [];
+      }
+    };
+    if (!supabaseClient) return { errores: ['sin conexión con la base'], hizo };
+
+    // 1) PDFs originales (estaban en IndexedDB) -> bucket "pdfs" + fila en documentos_pdf
+    const pdfsLocales = new Map();
+    try {
+      if (psiDB) {
+        for (const d of await psiDB.documentos_pdf.toArray()) {
+          if (d.pdfData) pdfsLocales.set(d.id, { dato: d.pdfData, meta: d });
+        }
+        for (const a of await psiDB.apuntes.toArray()) {
+          if (!a.pdfData) continue;
+          const id = `doc_${a.id}`;
+          if (!pdfsLocales.has(id)) {
+            pdfsLocales.set(id, {
+              dato: a.pdfData,
+              meta: {
+                id, nombre_archivo: a.pdfName || a.titulo || 'documento.pdf', titulo: a.titulo,
+                materia_id: a.materia_id, materia: a.materia, unidad: a.unidad, tipo: a.tipo,
+                num_paginas: a.numPages, va_parcial: a.va_parcial, nro_parcial: a.nro_parcial, created_at: a.created_at,
+              },
+            });
+          }
+        }
+      }
+    } catch (e) {
+      errores.push('no se pudieron leer los PDFs locales: ' + e.message);
+    }
+    for (const [id, { dato, meta }] of pdfsLocales) {
+      try {
+        const ruta = await subirPdfABase(id, dato);
+        const fila = { ...sanitizeForCloud.documentos_pdf({ ...meta, id }), url_pdf: ruta };
+        const { error } = await supabaseClient.from('documentos_pdf').upsert([fila], { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+        hizo = true;
+      } catch (e) {
+        errores.push(`PDF ${meta.nombre_archivo || id}: ${e.message}`);
+      }
+    }
+
+    // 2) Datos de la caché de localStorage que todavía no llegaron a la base
+    const tablas = [
+      ['materias', 'psi_materias_cache'],
+      ['bibliografia', 'psi_biblio_cache'],
+      ['clases', 'psi_clases_cache'],
+      ['apuntes', 'psi_apuntes_cache'],
+      ['examenes', 'psi_examenes_cache'],
+    ];
+    for (const [tabla, clave] of tablas) {
+      const filas = leer(clave);
+      if (filas.length === 0) continue;
+      try {
+        const limpias = filas.map((f) => sanitizeForCloud[tabla](f));
+        const { error } = await supabaseClient.from(tabla).upsert(limpias, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+        hizo = true;
+      } catch (e) {
+        errores.push(`${tabla}: ${e.message}`);
+      }
+    }
+
+    // 3) Desgrabaciones del Historial que solo estaban en el navegador
+    for (const s of leer('psi_audio_sessions_history')) {
+      try {
+        const contenido = getTranscriptText(s.transcript) || '';
+        if (!contenido) continue;
+        const { error } = await supabaseClient.from('apuntes').upsert([{
+          id: `desgrab_${s.id}`, materia_id: null, materia: s.materia || 'General', unidad: 'Unidad 1',
+          titulo: `Desgrabación: ${s.materia || ''} - Clase #${s.claseNum || ''}`, tipo: 'texto', contenido,
+          va_parcial: false, nro_parcial: 1, created_at: s.fecha || new Date().toISOString(),
+        }], { onConflict: 'id' });
+        if (error) throw new Error(error.message);
+        hizo = true;
+      } catch (e) {
+        errores.push(`Historial ${s.id}: ${e.message}`);
+      }
+    }
+
+    // 4) Borrados pendientes y cola offline: se aplican antes de borrar la caché
+    for (const t of leer('psi_deleted_records')) {
+      try {
+        const { error } = await supabaseClient.from(t.table).delete().eq('id', t.id);
+        if (error) throw new Error(error.message);
+      } catch (e) {
+        errores.push(`borrado ${t.table}/${t.id}: ${e.message}`);
+      }
+    }
+    for (const item of leer('psi_sync_queue')) {
+      try {
+        const res = item.action === 'DELETE'
+          ? await supabaseClient.from(item.table).delete().eq('id', item.payload.id)
+          : await supabaseClient.from(item.table).upsert([sanitizeForCloud[item.table] ? sanitizeForCloud[item.table](item.payload) : item.payload], { onConflict: 'id' });
+        if (res.error) throw new Error(res.error.message);
+        hizo = true;
+      } catch (e) {
+        errores.push(`cola ${item.table}: ${e.message}`);
+      }
+    }
+    return { errores, hizo };
+  };
+
+  // Borra la caché del navegador. Solo se llama cuando todo ya está en la base.
+  const purgarCachesLocales = () => {
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (CLAVES_SIN_CACHE.test(k) || /_cache$/.test(k)) localStorage.removeItem(k);
+      }
+    } catch (e) {
+      // sin acceso al almacenamiento: no hay nada que borrar
+    }
+    try {
+      if (psiDB) {
+        psiDB.close();
+        psiDB = null;
+      }
+      indexedDB.deleteDatabase('PsiEstudioDB');
+    } catch (e) {
+      // ya no existe
+    }
+  };
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const r = await migrarCacheALaBase();
+      if (!vivo) return;
+      if (r.errores.length === 0) {
+        purgarCachesLocales();
+        if (r.hizo) showToast('Datos pasados a la base. El navegador ya no guarda datos.', 'check-circle');
+      } else {
+        showToast(`No se borró la caché: ${r.errores.length} cosa(s) no se pudieron subir. Revisá la conexión y recargá.`, 'alert-triangle');
+      }
+      fetchAllData();
+    })();
+    return () => {
+      vivo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const processSyncQueue = async () => {
     if (!navigator.onLine || !supabaseClient || syncQueue.length === 0) return;
@@ -2831,6 +3037,10 @@ function App() {
         texto_extraido: (formData.contenido || '').slice(0, 5000),
         created_at: new Date().toISOString()
       };
+      if (formData.pdfData) {
+        try { pdfPayload.url_pdf = await subirPdfABase(pdfPayload.id, formData.pdfData); }
+        catch (e) { showToast('El PDF no se pudo subir a la base: ' + e.message, 'alert-triangle'); }
+      }
       const updatedPdfs = [pdfPayload, ...pdfs.filter(p => p.id !== pdfPayload.id)];
       setPdfs(updatedPdfs);
       safeSetLocalStorage('psi_pdfs_cache', updatedPdfs);
@@ -2913,6 +3123,10 @@ function App() {
 
   const handleSaveDocumentoPDF = async (docPayload) => {
     // 1. Guardar en documentos_pdf
+    if (docPayload.pdfData && !docPayload.url_pdf) {
+      try { docPayload.url_pdf = await subirPdfABase(docPayload.id, docPayload.pdfData); }
+      catch (e) { showToast('El PDF no se pudo subir a la base: ' + e.message, 'alert-triangle'); }
+    }
     const updated = [docPayload, ...pdfs.filter(p => p.id !== docPayload.id)];
     setPdfs(updated);
     safeSetLocalStorage('psi_pdfs_cache', updated);
@@ -4315,14 +4529,14 @@ function App() {
                                   <Icon name="eye" className="w-3.5 h-3.5" /> Visualizar
                                 </button>
                                 <button
-                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
+                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
                                   className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
                                   title="Descargar PDF normal en A4"
                                 >
                                   <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
                                 </button>
                                 <button
-                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
+                                  onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
                                   className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
                                   title="Descargar en formato 2 páginas por hoja (cuadernillo)"
                                 >
@@ -4424,14 +4638,14 @@ function App() {
                             <Icon name="book-open" className="w-3.5 h-3.5" /> Visualizar
                           </button>
                           <button
-                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
+                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, pdfRuta: rutaPdfDe(p), fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
                             className="p-2 bg-app-surface text-app-text hover:border-app-navy border border-app-border rounded-xl text-xs font-bold"
                             title="Descargar Normal A4"
                           >
                             <Icon name="download" className="w-4 h-4 text-app-navy" />
                           </button>
                           <button
-                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
+                            onClick={() => downloadPDFHelper({ pdfData: p.pdfData, pdfRuta: rutaPdfDe(p), fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
                             className="p-2 bg-app-navy text-white rounded-xl text-xs font-bold shadow-card hover:brightness-110"
                             title="Descargar 2 Páginas por Hoja (Folleto)"
                           >
@@ -4872,14 +5086,14 @@ function App() {
                               <Icon name="eye" className="w-3.5 h-3.5" /> Visualizar
                             </button>
                             <button
-                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
+                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: false, showToast })}
                               className="px-2 py-1 bg-app-surface text-app-navy border border-app-border hover:border-app-navy font-bold rounded-xl flex items-center gap-1"
                               title="Descargar PDF normal en A4"
                             >
                               <Icon name="download" className="w-3 h-3 text-app-navy" /> ⬇ A4
                             </button>
                             <button
-                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
+                              onClick={() => downloadPDFHelper({ pdfData: a.pdfData, pdfRuta: rutaPdfDe(a), fileName: a.pdfName || a.titulo, twoColumns: true, showToast })}
                               className="px-2 py-1 bg-app-navy text-white font-bold rounded-xl flex items-center gap-1 shadow-sm hover:brightness-110"
                               title="Descargar en formato 2 páginas por hoja (cuadernillo)"
                             >
@@ -5117,14 +5331,14 @@ function App() {
                           <Icon name="book-open" className="w-3.5 h-3.5" /> Visualizar
                         </button>
                         <button
-                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
+                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, pdfRuta: rutaPdfDe(p), fileName: p.nombre_archivo || p.titulo, twoColumns: false, showToast })}
                           className="p-2 bg-app-surface text-app-text hover:border-app-navy border border-app-border rounded-xl text-xs font-bold"
                           title="Descargar Normal A4"
                         >
                           <Icon name="download" className="w-4 h-4 text-app-navy" />
                         </button>
                         <button
-                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
+                          onClick={() => downloadPDFHelper({ pdfData: p.pdfData, pdfRuta: rutaPdfDe(p), fileName: p.nombre_archivo || p.titulo, twoColumns: true, showToast })}
                           className="p-2 bg-app-navy text-white rounded-xl text-xs font-bold shadow-card hover:brightness-110"
                           title="Descargar 2 Páginas por Hoja (Folleto)"
                         >
@@ -7661,14 +7875,34 @@ const ModalSubirApuntePDF = ModalSubirDocumentoPDF;
 
 // ── 6. VISOR ACADÉMICO DE PDF DE ALTA FIDELIDAD ──
 function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
+  const [pdfRemoto, setPdfRemoto] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    let urlTemp = null;
+    const ruta = data && !data.pdfData ? rutaPdfDe(data) : null;
+    setPdfRemoto(null);
+    if (ruta && supabaseClient) {
+      supabaseClient.storage.from('pdfs').download(ruta).then(({ data: blob, error }) => {
+        if (vivo && blob && !error) {
+          urlTemp = URL.createObjectURL(blob);
+          setPdfRemoto(urlTemp);
+        }
+      });
+    }
+    return () => {
+      vivo = false;
+      if (urlTemp) URL.revokeObjectURL(urlTemp);
+    };
+  }, [data && data.id, data && data.pdfData]);
+
   if (!data) return null;
 
   const pdfSrc = useMemo(() => {
-    if (!data.pdfData) return null;
+    if (!data.pdfData) return pdfRemoto;
     if (typeof data.pdfData === 'string') return data.pdfData;
     if (data.pdfData instanceof Blob) return URL.createObjectURL(data.pdfData);
     return null;
-  }, [data.pdfData]);
+  }, [data.pdfData, pdfRemoto]);
 
   const [isProcessing2Col, setIsProcessing2Col] = useState(false);
 
@@ -7680,6 +7914,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
     setIsProcessing2Col(true);
     await downloadPDFHelper({
       pdfData: data.pdfData,
+      pdfRuta: rutaPdfDe(data),
       fileName: data.nombre_archivo || data.titulo,
       twoColumns: true,
       showToast
@@ -7690,6 +7925,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
   const handleDownloadNorm = () => {
     downloadPDFHelper({
       pdfData: data.pdfData,
+      pdfRuta: rutaPdfDe(data),
       fileName: data.nombre_archivo || data.titulo,
       twoColumns: false,
       showToast
@@ -8296,7 +8532,7 @@ function GrabadoraDesgrabadorView({
   // 3. Detección de sesión interrumpida previa
   useEffect(() => {
     try {
-      const savedBackup = localStorage.getItem('psi_active_recording_backup_meta');
+      const savedBackup = null;
       if (savedBackup) {
         const parsed = JSON.parse(savedBackup);
         if (parsed && parsed.seconds > 5) {
@@ -9210,7 +9446,7 @@ function GrabadoraDesgrabadorView({
     const updated = [sessionObj, ...savedSessions.filter(s => s.id !== sessionId)];
     setSavedSessions(updated);
     try {
-      localStorage.setItem('psi_audio_sessions_history', JSON.stringify(updated.slice(0, 30)));
+      // Historial: la desgrabación ya queda en la base (cargas_audio), no en el navegador.
     } catch (e) {}
 
     // Guardar automáticamente en Supabase como "Apunte" para no perderlo nunca
