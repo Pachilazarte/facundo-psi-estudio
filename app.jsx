@@ -8299,6 +8299,10 @@ function GrabadoraDesgrabadorView({
 
   // Verificar estado del servidor backend
   const checkServerStatus = async (urlToCheck = serverUrl) => {
+    // El servidor de la PC solo existe cuando la web se abre en la propia PC.
+    // En el sitio publicado se transcribe con Groq (función de Netlify) y no se le pregunta nada a la PC.
+    const enLaPC = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (!enLaPC) { setServerOnline(false); return; }
     try {
       const res = await fetch(`${urlToCheck.replace(/\/$/, '')}/api/health`, { method: 'GET', signal: AbortSignal.timeout(2500) });
       if (res.ok) {
@@ -9366,7 +9370,7 @@ function GrabadoraDesgrabadorView({
             serverOnline ? 'bg-app-emerald-bg border-app-emerald/30 text-app-emerald' : 'bg-app-amber-bg border-app-amber/30 text-app-amber'
           }`}>
             <span className={`w-2 h-2 rounded-full ${serverOnline ? 'bg-app-emerald animate-pulse' : 'bg-app-amber'}`}></span>
-            <span>{serverOnline ? 'Backend DSP Conectado (FastAPI)' : 'Modo Autónomo / Offline'}</span>
+            <span>{serverOnline ? 'Backend DSP Conectado (FastAPI)' : 'Transcripción en la nube (Groq)'}</span>
           </div>
 
         </div>
