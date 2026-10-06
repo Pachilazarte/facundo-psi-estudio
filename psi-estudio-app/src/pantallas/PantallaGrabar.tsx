@@ -12,21 +12,26 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { guardarCacheMaterias, leerCacheMaterias } from '../almacen';
+import { calcularEspacioAudio, guardarCacheMaterias, leerCacheMaterias } from '../almacen';
 import { useGrabacion } from '../grabacion/GrabacionContext';
 import { useSesiones } from '../hooks';
 import { listarMaterias } from '../supabase';
 import type { Materia, Sesion } from '../tipos';
 import { reintentarAhora, useCola } from '../transcripcion';
-import { fechaLegible, formatearTiempo, mensajeDeError } from '../util';
+import { fechaLegible, formatearBytes, formatearTiempo, mensajeDeError } from '../util';
+import { DetalleSesion } from './DetalleSesion';
 
 export function PantallaGrabar({ visible }: { visible: boolean }) {
   const g = useGrabacion();
   const cola = useCola();
   const sesiones = useSesiones();
 
+  const [sesionDetalleId, setSesionDetalleId] = useState<string | null>(null);
   const [materias, setMaterias] = useState<Materia[]>(() => leerCacheMaterias());
-  const [materiaId, setMateriaId] = useState<string | null>(null);
+  const [materiaId, setMateriaId] = useState<string | null>(() => {
+    const inicial = leerCacheMaterias();
+    return inicial.length > 0 ? inicial[0].id : null;
+  });
   const [claseNum, setClaseNum] = useState(1);
   const [tema, setTema] = useState('');
   const [cargandoMaterias, setCargandoMaterias] = useState(false);
@@ -40,6 +45,7 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
       const lista = await listarMaterias();
       setMaterias(lista);
       guardarCacheMaterias(lista);
+      setMateriaId((actual) => actual || (lista.length > 0 ? lista[0].id : null));
     } catch (e) {
       setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}. Se usan las materias guardadas.`);
     } finally {
@@ -48,12 +54,23 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
   }, []);
 
   useEffect(() => {
-    void cargarMaterias();
-  }, [cargarMaterias]);
-
-  useEffect(() => {
-    if (!materiaId && materias.length > 0) setMateriaId(materias[0].id);
-  }, [materias, materiaId]);
+    let cancelado = false;
+    (async () => {
+      try {
+        const lista = await listarMaterias();
+        if (cancelado) return;
+        setMaterias(lista);
+        guardarCacheMaterias(lista);
+        setMateriaId((actual) => actual || (lista.length > 0 ? lista[0].id : null));
+      } catch (e) {
+        if (cancelado) return;
+        setErrorMaterias(`Sin conexión con PsiEstudio: ${mensajeDeError(e)}. Se usan las materias guardadas.`);
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, []);
 
   const ejecutar = async (accion: () => Promise<void>, titulo: string) => {
     setOcupado(true);
@@ -88,6 +105,24 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
   };
 
   const hayGrabacion = g.fase !== 'inactiva';
+  const sesionDetalle = sesionDetalleId ? sesiones.find((s) => s.id === sesionDetalleId) : null;
+  const espacio = calcularEspacioAudio();
+
+  if (sesionDetalle) {
+    return (
+      <View style={[styles.contenedor, !visible && styles.oculta]}>
+        <DetalleSesion
+          sesion={sesionDetalle}
+          onVolver={() => setSesionDetalleId(null)}
+          puedeContinuar={!hayGrabacion && (sesionDetalle.estado === 'pausada' || sesionDetalle.estado === 'interrumpida')}
+          onContinuar={() => {
+            setSesionDetalleId(null);
+            void ejecutar(() => g.continuar(sesionDetalle.id), 'No se pudo continuar');
+          }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.contenedor, !visible && styles.oculta]}>
@@ -104,7 +139,7 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
             </View>
             {errorMaterias ? <Text style={styles.textoError}>{errorMaterias}</Text> : null}
             {materias.length === 0 && !cargandoMaterias ? (
-              <Text style={styles.textoMuted}>No hay materias cargadas. La clase se guarda como "General".</Text>
+              <Text style={styles.textoMuted}>No hay materias cargadas. La clase se guarda como &quot;General&quot;.</Text>
             ) : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {materias.map((m) => {
@@ -184,7 +219,12 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
         )}
 
         <View style={styles.encabezadoLista}>
-          <Text style={styles.titulo}>Clases grabadas</Text>
+          <View>
+            <Text style={styles.titulo}>Clases grabadas</Text>
+            <Text style={styles.textoEspacio}>
+              Audio en el celu: {formatearBytes(espacio.totalBytes)} en {espacio.totalClases} {espacio.totalClases === 1 ? 'clase' : 'clases'}
+            </Text>
+          </View>
           {cola.pendientes > 0 ? (
             <TouchableOpacity onPress={reintentarAhora}>
               <Text style={styles.enlace}>Reintentar pendientes ({cola.pendientes})</Text>
@@ -199,6 +239,7 @@ export function PantallaGrabar({ visible }: { visible: boolean }) {
             activa={g.sesion?.id === s.id}
             puedeContinuar={!hayGrabacion && (s.estado === 'pausada' || s.estado === 'interrumpida')}
             onContinuar={() => void ejecutar(() => g.continuar(s.id), 'No se pudo continuar')}
+            onAbrirDetalle={() => setSesionDetalleId(s.id)}
           />
         ))}
       </ScrollView>
@@ -226,11 +267,13 @@ function FilaSesion({
   activa,
   puedeContinuar,
   onContinuar,
+  onAbrirDetalle,
 }: {
   sesion: Sesion;
   activa: boolean;
   puedeContinuar: boolean;
   onContinuar: () => void;
+  onAbrirDetalle: () => void;
 }) {
   const total = sesion.fragmentos.length;
   const listos = sesion.fragmentos.filter((f) => f.estado === 'transcripto').length;
@@ -245,7 +288,7 @@ function FilaSesion({
   else guardado = 'Transcripta';
 
   return (
-    <View style={[styles.fila, activa && styles.filaActiva]}>
+    <TouchableOpacity activeOpacity={0.75} onPress={onAbrirDetalle} style={[styles.fila, activa && styles.filaActiva]}>
       <Text style={styles.filaTitulo}>
         {sesion.materiaNombre} · Clase {sesion.claseNum}
         {sesion.tema ? ` · ${sesion.tema}` : ''}
@@ -264,12 +307,15 @@ function FilaSesion({
           PsiEstudio: {sesion.errorGuardado}
         </Text>
       ) : null}
-      {puedeContinuar ? (
-        <TouchableOpacity onPress={onContinuar} style={styles.botonSecundario}>
-          <Text style={styles.botonSecundarioTexto}>Continuar grabando esta clase</Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
+      <View style={styles.filaFooter}>
+        <Text style={styles.enlaceDetalle}>Ver desgrabación y audios →</Text>
+        {puedeContinuar ? (
+          <TouchableOpacity onPress={onContinuar} style={styles.botonSecundario}>
+            <Text style={styles.botonSecundarioTexto}>Continuar grabando</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -303,10 +349,13 @@ const styles = StyleSheet.create({
   reloj: { color: '#e6edf3', fontSize: 44, fontWeight: '800', fontVariant: ['tabular-nums'], textAlign: 'center', marginVertical: 6 },
   estadoGrabacion: { color: '#34d399', textAlign: 'center', fontWeight: '700' },
   encabezadoLista: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  textoEspacio: { color: '#64748b', fontSize: 11, marginTop: 2 },
   fila: { backgroundColor: '#121a24', borderRadius: 14, padding: 14, gap: 4, borderWidth: 1, borderColor: '#1f2f40' },
   filaActiva: { borderColor: '#10b981' },
   filaTitulo: { color: '#e6edf3', fontWeight: '700', fontSize: 15 },
   filaEstado: { color: '#cbd5e1', fontSize: 13 },
+  filaFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  enlaceDetalle: { color: '#34d399', fontSize: 12, fontWeight: '700' },
   textoMuted: { color: '#8b98a5', fontSize: 12, lineHeight: 17 },
   textoError: { color: '#fca5a5', fontSize: 12 },
 });

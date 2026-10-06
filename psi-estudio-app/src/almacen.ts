@@ -139,12 +139,44 @@ export async function moverGrabacionASesion(
   return { archivo, bytes: destino.size };
 }
 
-/** Si la app se cerró en medio de una clase, la sesión queda como "interrumpida" (nada se borra). */
-export function recuperarSesionesInterrumpidas(): void {
+/** Si la app se cerró en medio de una clase, se recupera el fragmento en curso (si quedó en disco) y la sesión queda como "interrumpida" (nada se borra). */
+export async function recuperarSesionesInterrumpidas(): Promise<void> {
   for (const s of listarSesiones()) {
+    let modificado = false;
+
+    // Si había un tramo grabándose cuando se cerró o mató la app:
+    if (s.tramoEnCurso && s.tramoEnCurso.uri) {
+      try {
+        const origen = new File(s.tramoEnCurso.uri);
+        if (origen.exists && origen.size > 0) {
+          const orden = s.tramoEnCurso.orden;
+          const { archivo, bytes } = await moverGrabacionASesion(s.tramoEnCurso.uri, s, orden);
+          if (bytes > 0) {
+            s.fragmentos.push({
+              orden,
+              archivo,
+              duracionSeg: 0,
+              estado: 'pendiente',
+              intentos: 0,
+            });
+            s.apuntePendiente = true;
+            modificado = true;
+          }
+        }
+      } catch (err) {
+        console.warn('No se pudo recuperar el fragmento en curso de la sesión:', s.id, err);
+      }
+      s.tramoEnCurso = null;
+      modificado = true;
+    }
+
     if (s.estado === 'grabando') {
       s.estado = 'interrumpida';
-      void guardarSesion(s);
+      modificado = true;
+    }
+
+    if (modificado) {
+      await guardarSesion(s);
     }
   }
 }
@@ -174,4 +206,33 @@ export function leerCacheMaterias(): Materia[] {
   } catch {
     return [];
   }
+}
+
+/** Calcula el espacio total en bytes que ocupan las grabaciones en el teléfono. */
+export function calcularEspacioAudio(): { totalBytes: number; totalClases: number } {
+  let totalBytes = 0;
+  const sesiones = listarSesiones();
+  for (const s of sesiones) {
+    for (const f of s.fragmentos) {
+      try {
+        const arch = archivoFragmento(s, f.archivo);
+        if (arch.exists) totalBytes += arch.size;
+      } catch {
+        // omitir errores de lectura
+      }
+    }
+  }
+  return { totalBytes, totalClases: sesiones.length };
+}
+
+/** Permite reintentar un fragmento individual que falló. */
+export async function reintentarFragmento(sesionId: string, orden: number): Promise<void> {
+  const s = obtenerSesion(sesionId);
+  if (!s) return;
+  const f = s.fragmentos.find((frag) => frag.orden === orden);
+  if (!f) return;
+  f.estado = 'pendiente';
+  f.ultimoError = undefined;
+  f.intentos = 0;
+  await guardarSesion(s);
 }

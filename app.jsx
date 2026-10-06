@@ -195,25 +195,99 @@ Te pasare ahora el contenido. Lo que sí, el contenido que sea en relación a la
 Ahora te pasare la transcripción de la clase / texto:${extraContent ? `\n\n\`\`\`text\n${extraContent}\n\`\`\`` : ''}`;
 }
 
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizeURL(url) {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  if (/^(?:https?:\/\/|data:image\/|blob:|\/|\.\/)/i.test(trimmed)) {
+    return trimmed.replace(/["'<>]/g, '');
+  }
+  return '';
+}
+
 function parseMarkdownToHTML(md) {
   if (!md) return '';
-  let html = md;
 
-  // Code / Mermaid Blocks
-  html = html.replace(/```(mermaid|[\w-]*)\r?\n([\s\S]*?)```/g, (match, lang, code) => {
+  const placeholders = [];
+  const preserve = (content) => {
+    const key = `@@@PSI_TOKEN_${placeholders.length}@@@`;
+    placeholders.push(content);
+    return key;
+  };
+
+  let text = md;
+
+  // 1. Proteger bloques de código y Mermaid
+  text = text.replace(/```(mermaid|[\w-]*)\r?\n([\s\S]*?)```/g, (match, lang, code) => {
     if (lang === 'mermaid') {
-      return `<div class="my-4 p-4 rounded-xl bg-app-surface border border-app-border text-center overflow-x-auto">
-        <div class="inline-block px-2.5 py-0.5 rounded bg-app-emerald-bg text-app-emerald text-[10px] font-mono font-bold mb-2 uppercase tracking-wider">Diagrama Académico</div>
-        <div class="mermaid text-xs flex justify-center">${code.trim()}</div>
-      </div>`;
+      const escapedMermaid = escapeHTML(code.trim());
+      return preserve(
+        `<div class="my-4 p-4 rounded-xl bg-app-surface border border-app-border text-center overflow-x-auto">` +
+        `<div class="inline-block px-2.5 py-0.5 rounded bg-app-emerald-bg text-app-emerald text-[10px] font-mono font-bold mb-2 uppercase tracking-wider">Diagrama Académico</div>` +
+        `<div class="mermaid text-xs flex justify-center">${escapedMermaid}</div>` +
+        `</div>`
+      );
     }
-    return `<div class="my-3 p-3 rounded-xl bg-app-card border border-app-border font-mono text-[11px] overflow-x-auto text-app-text">
-      <div class="text-[9px] text-app-muted uppercase font-bold tracking-wider mb-1.5">${lang || 'Código'}</div>
-      <pre class="whitespace-pre overflow-x-auto">${code.trim()}</pre>
-    </div>`;
+    const escapedCode = escapeHTML(code.trim());
+    const displayLang = escapeHTML(lang || 'Código');
+    return preserve(
+      `<div class="my-3 p-3 rounded-xl bg-app-card border border-app-border font-mono text-[11px] overflow-x-auto text-app-text">` +
+      `<div class="text-[9px] text-app-muted uppercase font-bold tracking-wider mb-1.5">${displayLang}</div>` +
+      `<pre class="whitespace-pre overflow-x-auto">${escapedCode}</pre>` +
+      `</div>`
+    );
   });
 
-  // Render Markdown Tables
+  // 2. Proteger fórmulas KaTeX
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
+    return preserve(`$$${formula}$$`);
+  });
+  text = text.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
+    return preserve(`$${formula}$`);
+  });
+
+  // 3. Proteger imágenes válidas ![alt](src)
+  text = text.replace(/!\[(.*?)\]\(([^()\s]+(?:\([^()\s]*\)[^()\s]*)*)\)/g, (match, alt, src) => {
+    const safeSrc = sanitizeURL(src);
+    const safeAlt = escapeHTML(alt || 'Gráfico / Diagrama');
+    if (!safeSrc) {
+      return preserve(`<span class="text-xs text-app-muted italic">[Imagen no permitida]</span>`);
+    }
+    return preserve(
+      `<div class="my-4 p-2.5 rounded-xl bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">` +
+      `<img src="${safeSrc}" alt="${safeAlt}" class="max-h-[420px] max-w-full mx-auto rounded-lg object-contain shadow-md" loading="lazy" />` +
+      (alt ? `<p class="text-[11px] text-app-muted mt-2 italic font-medium">${safeAlt}</p>` : '') +
+      `</div>`
+    );
+  });
+
+  // 4. Proteger marcadores de prompts de imágenes
+  text = text.replace(/\[(?:IMAGEN_PROMPT|imagen_prompt|imagen|figura|grafico)\s*(\d*):?\s*([^\]]*)\]/gi, (match, num, desc) => {
+    const cleanNum = num ? ` #${escapeHTML(num)}` : '';
+    const cleanDesc = escapeHTML(desc.trim() || 'Esquema o diagrama conceptual solicitado');
+    return preserve(
+      `<div class="my-3.5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left shadow-sm break-inside-avoid">` +
+      `<div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-wider">` +
+      `<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>` +
+      `IMAGEN SOLICITADA${cleanNum} (PROMPT IA)</div>` +
+      `<p class="text-xs text-app-text mt-2 font-mono bg-app-surface p-2 rounded-lg border border-app-border/70 select-all">${cleanDesc}</p>` +
+      `</div>`
+    );
+  });
+
+  // 5. Escapar todo el texto remanente para neutralizar XSS
+  let html = escapeHTML(text);
+
+  // 6. Tablas Markdown (con celdas ya escapadas)
   html = html.replace(/((?:^\s*\|.+\|\s*\r?\n?)+)/gm, (match) => {
     const lines = match.trim().split(/\r?\n/).filter(l => l.trim().startsWith('|'));
     if (lines.length < 2) return match;
@@ -222,7 +296,7 @@ function parseMarkdownToHTML(md) {
     let startIdx = 1;
     if (lines.length > 1 && /^[\s|:-]+$/.test(lines[1])) startIdx = 2;
     const rows = lines.slice(startIdx).map(parseRow);
-    
+
     return `<div class="overflow-x-auto my-3.5 rounded-xl border border-app-border bg-app-surface shadow-sm">
       <table class="w-full text-xs text-left border-collapse">
         <thead class="bg-app-card border-b border-app-border text-app-text font-extrabold text-[11px]">
@@ -235,58 +309,14 @@ function parseMarkdownToHTML(md) {
     </div>`;
   });
 
-  // KaTeX Display Math $$...$$
-  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, formula) => {
-    if (window.katex) {
-      try {
-        return `<div class="my-3 text-center p-2 rounded-xl bg-app-surface border border-app-border overflow-x-auto">${window.katex.renderToString(formula.trim(), { displayMode: true, throwOnError: false })}</div>`;
-      } catch (e) {
-        return `<pre class="text-xs font-mono p-2 bg-app-surface rounded-lg">${formula}</pre>`;
-      }
-    }
-    return `<pre class="text-xs font-mono p-2 bg-app-surface rounded-lg">${formula}</pre>`;
-  });
-
-  // KaTeX Inline Math $...$
-  html = html.replace(/\$([^\$\n]+?)\$/g, (match, formula) => {
-    if (window.katex) {
-      try {
-        return window.katex.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-      } catch (e) {
-        return `<code>${formula}</code>`;
-      }
-    }
-    return `<code>${formula}</code>`;
-  });
-
-  // Render Markdown Images ![alt](src)
-  html = html.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, src) => {
-    return `<div class="my-4 p-2.5 rounded-xl bg-app-surface border border-app-border text-center shadow-sm break-inside-avoid">
-      <img src="${src}" alt="${alt || 'Gráfico / Diagrama'}" class="max-h-[420px] max-w-full mx-auto rounded-lg object-contain shadow-md" loading="lazy" />
-      ${alt ? `<p class="text-[11px] text-app-muted mt-2 italic font-medium">${alt}</p>` : ''}
-    </div>`;
-  });
-
-  // Marcadores y variables de imágenes / prompts [IMAGEN_PROMPT N: descripcion] o [imagen N: descripcion]
-  html = html.replace(/\[(?:IMAGEN_PROMPT|imagen_prompt|imagen|figura|grafico)\s*(\d*):?\s*([^\]]*)\]/gi, (match, num, desc) => {
-    const cleanNum = num ? ` #${num}` : '';
-    const cleanDesc = desc.trim() || 'Esquema o diagrama conceptual solicitado';
-    return `<div class="my-3.5 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left shadow-sm break-inside-avoid">
-      <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-wider">
-        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-        IMAGEN SOLICITADA${cleanNum} (PROMPT IA)
-      </div>
-      <p class="text-xs text-app-text mt-2 font-mono bg-app-surface p-2 rounded-lg border border-app-border/70 select-all">${cleanDesc}</p>
-    </div>`;
-  });
-
+  // 7. Formato Markdown habitual
   html = html
     .replace(/^##### (.*$)/gim, '<h5 class="text-xs font-bold text-app-muted mt-2 mb-0.5 tracking-tight uppercase">$1</h5>')
     .replace(/^#### (.*$)/gim, '<h4 class="text-xs font-extrabold text-app-text mt-3 mb-1 tracking-tight">$1</h4>')
     .replace(/^### (.*$)/gim, '<h3 class="text-sm font-extrabold text-app-text mt-3.5 mb-1 tracking-tight">$1</h3>')
     .replace(/^## (.*$)/gim, '<h2 class="text-base font-black text-app-text mt-4 mb-1.5 border-b border-app-border/40 pb-1 tracking-tight">$1</h2>')
     .replace(/^# (.*$)/gim, '<h1 class="text-xl font-black uppercase text-app-emerald mt-4 mb-2 tracking-tight">$1</h1>')
-    .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-3 my-2.5 rounded-r-xl text-xs italic text-app-text font-serif leading-relaxed">$1</blockquote>')
+    .replace(/^\&gt;\s?(.*$)/gim, '<blockquote class="border-l-4 border-app-emerald bg-app-emerald-bg/20 p-3 my-2.5 rounded-r-xl text-xs italic text-app-text font-serif leading-relaxed">$1</blockquote>')
     .replace(/\*\*\*(.*?)\*\*\*/gim, '<strong class="text-app-emerald font-extrabold italic">$1</strong>')
     .replace(/\*\*(.*?)\*\*/gim, '<strong class="text-app-emerald font-extrabold">$1</strong>')
     .replace(/\*(.*?)\*/gim, '<em class="text-app-navy font-semibold italic">$1</em>')
@@ -296,8 +326,55 @@ function parseMarkdownToHTML(md) {
     .replace(/^[ \t]*(\d+)[\.\)]\s*(.*$)/gim, '<li class="ml-5 list-decimal text-app-text text-xs leading-relaxed my-0.5 font-medium">$2</li>')
     .replace(/\n$/gim, '<br />');
 
+  // 8. Re-insertar placeholders
+  placeholders.forEach((val, idx) => {
+    if (val.startsWith('$$') && val.endsWith('$$')) {
+      const formula = val.slice(2, -2).trim();
+      const rendered = (typeof window !== 'undefined' && window.katex)
+        ? window.katex.renderToString(formula, { displayMode: true, throwOnError: false })
+        : `<pre class="text-xs font-mono p-2 bg-app-surface rounded-lg">${escapeHTML(formula)}</pre>`;
+      val = `<div class="my-3 text-center p-2 rounded-xl bg-app-surface border border-app-border overflow-x-auto">${rendered}</div>`;
+    } else if (val.startsWith('$') && val.endsWith('$')) {
+      const formula = val.slice(1, -1).trim();
+      val = (typeof window !== 'undefined' && window.katex)
+        ? window.katex.renderToString(formula, { displayMode: false, throwOnError: false })
+        : `<code>${escapeHTML(formula)}</code>`;
+    }
+
+    html = html.replace(`@@@PSI_TOKEN_${idx}@@@`, val);
+  });
+
+  // 9. Sanitización final con DOMPurify si está presente
+  if (typeof window !== 'undefined' && window.DOMPurify) {
+    html = window.DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: [
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr',
+        'strong', 'b', 'em', 'i', 'u', 's', 'strike',
+        'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'img', 'div', 'span',
+        'svg', 'path', 'rect', 'circle', 'line', 'polyline', 'polygon',
+        'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub', 'mfrac', 'mover', 'munder', 'mspace', 'mtext', 'annotation'
+      ],
+      ALLOWED_ATTR: [
+        'class', 'style', 'id', 'src', 'alt', 'loading',
+        'viewbox', 'fill', 'stroke', 'stroke-width', 'cx', 'cy', 'r', 'x', 'y', 'width', 'height', 'd', 'rx', 'ry',
+        'colspan', 'rowspan', 'scope', 'aria-hidden'
+      ],
+      FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input'],
+      FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover']
+    });
+  }
+
   return html;
-  return html;
+function generarUUID(prefijo = '') {
+  let id = '';
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    id = crypto.randomUUID();
+  } else {
+    id = Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9);
+  }
+  return prefijo ? `${prefijo}_${id}` : id;
 }
 
 // ── 3.5 UTILIDADES DE TIEMPO Y LOCAL STORAGE ──
@@ -2370,7 +2447,7 @@ function App() {
     const isEdit = Boolean(formData.id);
     const payload = {
       ...formData,
-      id: formData.id || 'mat_' + Date.now(),
+      id: formData.id || generarUUID('mat'),
       created_at: formData.created_at || new Date().toISOString()
     };
 
@@ -2387,7 +2464,7 @@ function App() {
       formData.evaluaciones.forEach((ev, idx) => {
         const existingIdx = currentExs.findIndex(ex => (ex.id === ev.id) || (ex.materia_id === payload.id && ex.nombre === ev.nombre));
         const examItem = {
-          id: ev.id || ('ex_' + Date.now() + '_' + idx),
+          id: ev.id || generarUUID('ex'),
           nombre: ev.nombre || ev.tipo || 'Evaluación',
           materia_id: payload.id,
           materia: payload.nombre,
@@ -2510,7 +2587,7 @@ function App() {
     const isEdit = Boolean(formData.id);
     const payload = {
       ...formData,
-      id: formData.id || 'bib_' + Date.now(),
+      id: formData.id || generarUUID('bib'),
       materia_id: selectedMateriaId,
       materia: currentMateria ? currentMateria.nombre : 'General',
       created_at: formData.created_at || new Date().toISOString()
@@ -2536,9 +2613,9 @@ function App() {
 
   // Structured Batch Import
   const handleBatchImportBiblio = async (parsedItems) => {
-    const newItems = parsedItems.map((item, idx) => ({
+    const newItems = parsedItems.map((item) => ({
       ...item,
-      id: 'bib_' + Date.now() + '_' + idx,
+      id: generarUUID('bib'),
       materia_id: selectedMateriaId,
       materia: currentMateria ? currentMateria.nombre : 'General',
       created_at: new Date().toISOString()
@@ -2600,7 +2677,7 @@ function App() {
     const isEdit = Boolean(formData.id);
     const payload = {
       ...formData,
-      id: formData.id || 'cla_' + Date.now(),
+      id: formData.id || generarUUID('cla'),
       materia_id: selectedMateriaId,
       materia: currentMateria ? currentMateria.nombre : 'General',
       fecha_carga: formData.fecha_carga || new Date().toISOString()
@@ -2707,7 +2784,7 @@ function App() {
 
     const payload = {
       ...formData,
-      id: formData.id || 'apu_' + Date.now(),
+      id: formData.id || generarUUID('apu'),
       materia_id: targetMatId,
       materia: targetMatName,
       created_at: formData.created_at || new Date().toISOString()
@@ -2724,7 +2801,7 @@ function App() {
     // Si vino de una subida de PDF o se solicitó guardar en sistema, registrar en documentos_pdf
     if (formData.pdfName || formData.saveToPdfDocs || formData.pdfData) {
       const pdfPayload = {
-        id: 'pdf_' + Date.now(),
+        id: generarUUID('pdf'),
         nombre_archivo: formData.pdfName || `${formData.titulo || 'Apunte'}.pdf`,
         titulo: formData.titulo || 'Apunte Académico',
         materia_id: targetMatId,
@@ -3291,7 +3368,7 @@ function App() {
     showToast('Enviando ping Keep-Alive...', 'activity');
     if (supabaseClient) {
       try {
-        await supabaseClient.from('supabase_keep_alive').insert([{ ping_source: 'PsiEstudio-Client', status: 'ACTIVE' }]);
+        await supabaseClient.from('supabase_keep_alive').upsert([{ id: 1, ping_source: 'PsiEstudio-Client', status: 'ACTIVE', ping_timestamp: new Date().toISOString() }]);
         showToast('Ping registrado en Supabase', 'check-circle');
       } catch (e) {
         showToast('Ping registrado localmente', 'check-circle');
@@ -8610,146 +8687,7 @@ function GrabadoraDesgrabadorView({
     };
   };
 
-  // Transcribir con Whisper Cloud API (Groq o OpenAI) con Soporte de Chunking Automático
-  const transcribeWithCloudWhisper = async (audioBlobOrFile, apiKey, signal, materiaName, originalFilename = 'audio.wav') => {
-    const cleanKey = apiKey.trim();
-    const isGroq = cleanKey.startsWith('gsk_') || !cleanKey.startsWith('sk-');
-    const endpoint = isGroq
-      ? 'https://api.groq.com/openai/v1/audio/transcriptions'
-      : 'https://api.openai.com/v1/audio/transcriptions';
 
-    let blobsToProcess = [audioBlobOrFile];
-    
-    // Si excede 24MB, lo decodificamos y partimos en fragmentos WAV crudos (PCM 16-bit Mono 16kHz)
-    if (audioBlobOrFile.size > 24 * 1024 * 1024) {
-      setProcessingStep('El archivo es muy pesado. Comprimiendo y fraccionando audio localmente (esto puede tardar unos segundos)...');
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        const arrayBuffer = await audioBlobOrFile.arrayBuffer();
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        
-        const MAX_SAMPLES = 12000000; // ~12.5 minutos a 16kHz = ~24MB por chunk
-        const channelData = audioBuffer.getChannelData(0);
-        const totalSamples = channelData.length;
-        const chunks = [];
-        
-        for (let offset = 0; offset < totalSamples; offset += MAX_SAMPLES) {
-          const length = Math.min(MAX_SAMPLES, totalSamples - offset);
-          const slice = channelData.slice(offset, offset + length);
-          
-          const wavBuffer = new ArrayBuffer(44 + length * 2);
-          const view = new DataView(wavBuffer);
-          
-          const writeString = (v, off, str) => {
-            for (let i = 0; i < str.length; i++) v.setUint8(off + i, str.charCodeAt(i));
-          };
-          
-          writeString(view, 0, 'RIFF');
-          view.setUint32(4, 36 + length * 2, true);
-          writeString(view, 8, 'WAVE');
-          writeString(view, 12, 'fmt ');
-          view.setUint32(16, 16, true);
-          view.setUint16(20, 1, true);
-          view.setUint16(22, 1, true);
-          view.setUint32(24, 16000, true);
-          view.setUint32(28, 16000 * 2, true);
-          view.setUint16(32, 2, true);
-          view.setUint16(34, 16, true);
-          writeString(view, 36, 'data');
-          view.setUint32(40, length * 2, true);
-          
-          let pcmOffset = 44;
-          for (let i = 0; i < length; i++, pcmOffset += 2) {
-            let s = Math.max(-1, Math.min(1, slice[i]));
-            view.setInt16(pcmOffset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-          }
-          chunks.push(new Blob([view], { type: 'audio/wav' }));
-        }
-        blobsToProcess = chunks;
-      } catch (e) {
-        throw new Error('Error al fraccionar el audio localmente. Intenta con un archivo más corto o de menor calidad.');
-      }
-    }
-
-    let allSegments = [];
-    let fullText = "";
-    let accumulatedTime = 0;
-
-    for (let i = 0; i < blobsToProcess.length; i++) {
-      if (blobsToProcess.length > 1) {
-        setProcessingStep(`Transcribiendo fragmento ${i + 1} de ${blobsToProcess.length} en la nube...`);
-      }
-      
-      const currentBlob = blobsToProcess[i];
-      let extension = 'wav';
-      if (blobsToProcess.length === 1) {
-        // If not chunked, preserve original extension if possible
-        const match = originalFilename.match(/\.([0-9a-z]+)(?:[\?#]|$)/i);
-        if (match) {
-          extension = match[1].toLowerCase();
-        } else if (currentBlob.type) {
-          if (currentBlob.type.includes('mp4') || currentBlob.type.includes('m4a')) extension = 'm4a';
-          else if (currentBlob.type.includes('webm')) extension = 'webm';
-          else if (currentBlob.type.includes('mp3') || currentBlob.type.includes('mpeg')) extension = 'mp3';
-          else if (currentBlob.type.includes('ogg')) extension = 'ogg';
-          else if (currentBlob.type.includes('aac')) extension = 'm4a';
-        }
-      }
-      
-      const fileName = blobsToProcess.length === 1 ? originalFilename : `chunk_${i}.${extension}`;
-      
-      const formData = new FormData();
-      formData.append('file', new File([currentBlob], fileName, { type: currentBlob.type || 'audio/wav' }));
-      formData.append('model', 'whisper-large-v3');
-      formData.append('response_format', 'verbose_json');
-      formData.append('language', 'es');
-      formData.append('temperature', '0.0');
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${cleanKey}` },
-        body: formData,
-        signal
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson?.error?.message || `Error en Whisper Cloud (${res.status}) en fragmento ${i + 1}`);
-      }
-
-      const data = await res.json();
-      const rawSegments = data.segments || [];
-      
-      rawSegments.forEach((seg, idx) => {
-        const adjStart = accumulatedTime + seg.start;
-        const adjEnd = accumulatedTime + seg.end;
-        allSegments.push({
-          id: allSegments.length + 1,
-          start: adjStart,
-          end: adjEnd,
-          timestamp: formatTime(adjStart),
-          text: (seg.text || '').trim(),
-          words: (seg.words || []).map(w => ({
-            word: w.word,
-            start: accumulatedTime + w.start,
-            end: accumulatedTime + w.end
-          }))
-        });
-      });
-      
-      fullText += (data.text || '') + " ";
-      accumulatedTime += data.duration || 0;
-    }
-
-    return {
-      version: '2.0.0',
-      subject: materiaName,
-      duration_seconds: accumulatedTime || recordingSeconds || 0,
-      total_segments: allSegments.length,
-      paragraphs: [fullText.trim()],
-      segments: allSegments
-    };
-  };
 
   // Subida HTTP de fragmento con seguimiento exacto por bytes reales y reintentos
   const uploadChunkWithProgress = async (url, formData, signal, onProgress, attempt = 1) => {

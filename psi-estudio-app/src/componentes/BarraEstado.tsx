@@ -12,12 +12,12 @@ export function BarraEstado() {
   const g = useGrabacion();
   const cola = useCola();
   const sesiones = useSesiones();
-  const [, forzar] = useState(0);
+  const [ahora, setAhora] = useState(() => Date.now());
 
   // Mientras hay un reintento programado, refresca la cuenta regresiva cada segundo.
   useEffect(() => {
     if (!cola.proximoReintentoEn) return;
-    const t = setInterval(() => forzar((n) => n + 1), 1000);
+    const t = setInterval(() => setAhora(Date.now()), 1000);
     return () => clearInterval(t);
   }, [cola.proximoReintentoEn]);
 
@@ -35,7 +35,7 @@ export function BarraEstado() {
   if (cola.transcribiendo) partes.push(`Transcribiendo fragmento ${cola.transcribiendo.orden}`);
   else if (cola.guardando) partes.push('Guardando en PsiEstudio');
   else if (cola.pendientes > 0) {
-    const faltan = cola.proximoReintentoEn ? Math.max(0, Math.ceil((cola.proximoReintentoEn - Date.now()) / 1000)) : null;
+    const faltan = cola.proximoReintentoEn ? Math.max(0, Math.ceil((cola.proximoReintentoEn - ahora) / 1000)) : null;
     partes.push(faltan !== null ? `${cola.pendientes} pendientes, reintento en ${faltan} s` : `${cola.pendientes} pendientes`);
   }
 

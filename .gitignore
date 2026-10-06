@@ -1,5 +1,7 @@
 node_modules/
-audio_pipeline/__pycache__/
+__pycache__/
+*.py[cod]
+.expo/
 audio_pipeline/uploaded_sessions/
 *.log
 .DS_Store

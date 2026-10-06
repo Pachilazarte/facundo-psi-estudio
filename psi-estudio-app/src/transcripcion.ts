@@ -160,7 +160,7 @@ async function transcribirFragmento(sesion: Sesion, fragmento: Fragmento): Promi
   }
 }
 
-function armarContenido(sesion: Sesion): string {
+export function armarContenido(sesion: Sesion): string {
   const lineas: string[] = [];
   lineas.push(`DESGRABACIÓN: ${sesion.materiaNombre} - CLASE #${sesion.claseNum}`);
   if (sesion.tema) lineas.push(`Tema: ${sesion.tema}`);

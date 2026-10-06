@@ -35,3 +35,12 @@ export function fechaLegible(iso: string): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+/** Formato legible para bytes guardados (KB, MB, GB). */
+export function formatearBytes(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  const unidades = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(unidades.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const valor = bytes / 1024 ** i;
+  return `${valor.toFixed(i === 0 ? 0 : 1)} ${unidades[i]}`;
+}

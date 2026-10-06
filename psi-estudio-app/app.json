@@ -11,12 +11,19 @@
       "bundleIdentifier": "com.facundo.psiestudio",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "PsiEstudio graba las clases para transcribirlas.",
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
       "package": "com.facundo.psiestudio",
-      "permissions": ["RECORD_AUDIO", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS"],
+      "permissions": [
+        "RECORD_AUDIO",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MICROPHONE",
+        "POST_NOTIFICATIONS"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0b0f14",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -35,7 +42,8 @@
           "microphonePermission": "PsiEstudio graba las clases para transcribirlas.",
           "enableBackgroundRecording": true
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

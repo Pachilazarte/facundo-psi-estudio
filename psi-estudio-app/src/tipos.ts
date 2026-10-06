@@ -20,6 +20,12 @@ export type Fragmento = {
 
 export type EstadoSesion = 'grabando' | 'pausada' | 'terminada' | 'interrumpida';
 
+export type TramoEnCurso = {
+  uri: string;
+  iniciadoEn: string;
+  orden: number;
+};
+
 export type Sesion = {
   id: string;
   materiaId: string | null;
@@ -30,6 +36,8 @@ export type Sesion = {
   actualizadoEn: string;
   estado: EstadoSesion;
   fragmentos: Fragmento[];
+  /** Fragmento de audio que se está grabando actualmente en el grabador (por si iOS mata la app). */
+  tramoEnCurso?: TramoEnCurso | null;
   /** Hay texto nuevo que todavía no se guardó en PsiEstudio (Supabase). */
   apuntePendiente: boolean;
   apunteGuardadoEn: string | null;

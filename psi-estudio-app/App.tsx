@@ -17,10 +17,11 @@ export default function App() {
   const [pestana, setPestana] = useState<Pestana>('sitio');
 
   useEffect(() => {
-    // Al abrir: carpeta lista, sesiones cortadas marcadas, y la cola retoma lo pendiente.
+    // Al abrir: carpeta lista, tramo en curso recuperado, y la cola retoma lo pendiente.
     asegurarRaiz();
-    recuperarSesionesInterrumpidas();
-    despertar();
+    void recuperarSesionesInterrumpidas().then(() => {
+      despertar();
+    });
   }, []);
 
   return (

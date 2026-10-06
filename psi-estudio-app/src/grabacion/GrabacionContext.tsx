@@ -72,7 +72,9 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
 
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, alCambiarEstado);
   const recorderRef = useRef(recorder);
-  recorderRef.current = recorder;
+  useEffect(() => {
+    recorderRef.current = recorder;
+  }, [recorder]);
 
   const setFase = (f: Fase) => {
     faseRef.current = f;
@@ -132,6 +134,15 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     const rec = recorderRef.current;
     await rec.prepareToRecordAsync();
     rec.record();
+    const s = sesionRef.current;
+    if (s) {
+      s.tramoEnCurso = {
+        uri: rec.uri || '',
+        iniciadoEn: new Date().toISOString(),
+        orden: ordenRef.current + 1,
+      };
+      await guardarSesion(s);
+    }
     programarCorte();
   };
 
@@ -159,6 +170,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     if (bytes <= 0) return;
     ordenRef.current = orden;
     const duracionSeg = Math.round(duracionMs / 100) / 10;
+    s.tramoEnCurso = null;
     s.fragmentos.push({ orden, archivo, duracionSeg, estado: 'pendiente', intentos: 0 });
     segundosBaseRef.current += duracionSeg;
     await guardarSesion(s);
@@ -172,6 +184,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
     const s = sesionRef.current;
     if (s) {
       s.estado = 'pausada';
+      s.tramoEnCurso = null;
       await guardarSesion(s);
     }
     setFase('pausada');
@@ -290,6 +303,7 @@ export function GrabacionProvider({ children }: { children: React.ReactNode }) {
       detenerReloj();
       cancelarCorteProgramado();
       s.estado = 'terminada';
+      s.tramoEnCurso = null;
       // Fuerza un guardado final en PsiEstudio con el estado "completa" cuando terminen los fragmentos.
       if (s.fragmentos.length > 0) s.apuntePendiente = true;
       await guardarSesion(s);
