@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-v2.36.0';
+const CACHE_NAME = 'psiestudio-v2.36.1';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,7 +11,7 @@ const ASSETS_TO_CACHE = [
   './icon-512.png',
   './manifest.json',
   './version.json',
-  'https://cdn.tailwindcss.com',
+  './tailwind.css',
   'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js',
   'https://unpkg.com/react@18/umd/react.production.min.js',
   'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',

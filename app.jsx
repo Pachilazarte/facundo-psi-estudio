@@ -150,8 +150,15 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.36.0';
+const VERSION_APP = '2.36.1';
 const NOVEDADES = [
+  {
+    version: '2.36.1',
+    fecha: '06/10/2026',
+    cambios: [
+      'Los estilos ya no dependen de un servicio externo: la app se ve bien aunque el navegador bloquee ese dominio.',
+    ],
+  },
   {
     version: '2.36.0',
     fecha: '06/10/2026',
