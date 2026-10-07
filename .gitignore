@@ -9,3 +9,6 @@ audio_pipeline/uploaded_sessions/
 .env.*
 !.env.example
 .playwright-mcp/
+
+# Estado local de la CLI de Netlify (rutas de esta PC y paquete compilado)
+.netlify/
