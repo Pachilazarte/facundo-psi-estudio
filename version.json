@@ -1,7 +1,7 @@
 {
-  "version": "2.36.1",
-  "buildDate": "2026-10-06T21:30:00.000Z",
+  "version": "2.37.0",
+  "buildDate": "2026-10-08T15:00:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Los estilos ya no dependen de un servicio externo: la app se ve bien aunque el navegador bloquee ese dominio."
+  "notes": "Menú radial, modales arreglados para Safari (sin hueco abajo, sin zoom solo), número de clase opcional, desgrabación pegable en Clases, notas largas acortadas, visor de PDF reconstruido."
 }

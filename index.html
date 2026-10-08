@@ -41,15 +41,21 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      // Sin esto, PDF.js corre en el hilo principal: en el celular se traba al abrir un PDF.
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
 </head>
-<body class="bg-app-base text-app-text min-h-screen antialiased transition-colors duration-300">
+<body class="bg-app-base text-app-text min-h-dvh antialiased transition-colors duration-300">
   <div id="root"></div>
 
   <!-- React App Root con Cache Buster -->
-  <script type="text/babel" src="app.jsx?v=2.36.1"></script>
+  <script type="text/babel" src="app.jsx?v=2.37.0"></script>
 </body>
 </html>

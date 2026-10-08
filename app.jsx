@@ -150,8 +150,20 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.36.1';
+const VERSION_APP = '2.37.0';
 const NOVEDADES = [
+  {
+    version: '2.37.0',
+    fecha: '08/10/2026',
+    cambios: [
+      'El menú "Más" ahora es una rueda de opciones que se abre en abanico, pensada para el dedo.',
+      'Arreglos para Safari: los modales ya no dejan un hueco vacío abajo ni hacen zoom solos al tocar un campo.',
+      'La clase ya no te obliga a poner un número: podés dejarlo en blanco.',
+      'Clases: podés pegar o subir la desgrabación directamente en el protocolo de la clase.',
+      'Las notas largas del profesor se acortan solas, con un "Ver más" para abrirlas.',
+      'El visor de PDF se reconstruyó para que no falle en Safari, con filtro por unidad en tus documentos.',
+    ],
+  },
   {
     version: '2.36.1',
     fecha: '06/10/2026',
@@ -1798,6 +1810,8 @@ function App() {
   const [modalSearch, setModalSearch] = useState(false);
   const [modalPomodoro, setModalPomodoro] = useState(false);
   const [modalMoreMenu, setModalMoreMenu] = useState(false);
+  const masBotonRef = useRef(null);
+  const [origenMenuRadial, setOrigenMenuRadial] = useState(null);
   const [modalNovedades, setModalNovedades] = useState(false);
   const [modalFlashcards, setModalFlashcards] = useState({ open: false, items: [], title: '' });
   const [globalMateriaFilter, setGlobalMateriaFilter] = useState('todas');
@@ -2389,7 +2403,7 @@ function App() {
         id: String(c?.id || ''),
         materia_id: c?.materia_id || null,
         materia: String(c?.materia || ''),
-        nro_clase: parseInt(c?.nro_clase, 10) || 1,
+        nro_clase: parseInt(c?.nro_clase, 10) || 0,
         tipo: String(c?.tipo || 'Teórica'),
         titulo_clase: String(c?.titulo_clase || ''),
         desgrabacion_md: String(c?.desgrabacion_md || ''),
@@ -2696,6 +2710,16 @@ function App() {
     if (!currentMateria) return [];
     return pdfs.filter(p => p.materia_id === currentMateria.id || p.materia === currentMateria.nombre);
   }, [pdfs, currentMateria]);
+
+  const [pdfUnitFilter, setPdfUnitFilter] = useState('Todas');
+  const currentMateriaPdfUnits = useMemo(
+    () => Array.from(new Set(currentMateriaPdfs.map(p => p.unidad || 'Unidad 1'))),
+    [currentMateriaPdfs]
+  );
+  const currentMateriaPdfsFiltrados = useMemo(() => {
+    if (pdfUnitFilter === 'Todas') return currentMateriaPdfs;
+    return currentMateriaPdfs.filter(p => (p.unidad || 'Unidad 1') === pdfUnitFilter);
+  }, [currentMateriaPdfs, pdfUnitFilter]);
 
   // Global Next Exam Calculation
   const nextExam = useMemo(() => {
@@ -3496,7 +3520,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-app-base text-app-text transition-colors duration-300">
+    <div className="min-h-dvh bg-app-base text-app-text transition-colors duration-300">
       {/* ══ HEADER (FULL RESPONSIVE NAVIGATION) ══ */}
       <header className="sticky top-0 z-40 bg-app-base/95 backdrop-blur-xl border-b border-app-border px-3 sm:px-6 py-2.5 transition-colors">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
@@ -3625,7 +3649,12 @@ function App() {
         
         {/* Más Menu Button */}
         <button
-          onClick={() => setModalMoreMenu(true)}
+          ref={masBotonRef}
+          onClick={() => {
+            const r = masBotonRef.current ? masBotonRef.current.getBoundingClientRect() : null;
+            if (r) setOrigenMenuRadial({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+            setModalMoreMenu(true);
+          }}
           className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all flex-1 ${
             activeTab === 'pdf' || activeTab === 'perfil' || activeTab === 'system' ? 'text-app-emerald font-extrabold' : 'text-app-muted hover:text-app-text'
           }`}
@@ -4196,7 +4225,7 @@ function App() {
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
                               <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
-                                Clase #{c.nro_clase} • {c.tipo || 'Teórica'}
+                                {c.nro_clase ? `Clase #${c.nro_clase}` : 'Clase'} • {c.tipo || 'Teórica'}
                               </span>
                               <span className="text-xs text-app-muted font-bold flex items-center gap-1">
                                 <Icon name="calendar" className="w-3.5 h-3.5" /> {c.fecha}
@@ -4210,7 +4239,7 @@ function App() {
                                 <div className="font-extrabold text-app-emerald flex items-center gap-1">
                                   <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis del Docente / Examen:
                                 </div>
-                                <div className="leading-relaxed whitespace-pre-wrap">{c.aclaraciones}</div>
+                                <NotaExpandible texto={c.aclaraciones} />
                               </div>
                             )}
 
@@ -4464,7 +4493,7 @@ function App() {
                     <h3 className="text-lg font-black text-app-text flex items-center gap-2">
                       <Icon name="file-text" className="w-5 h-5 text-app-emerald" /> Documentos PDF de {currentMateria.nombre}
                     </h3>
-                    <p className="text-xs text-app-muted">Archivos PDF listos para visualizar o descargar en formato Normal y Hoja Doble.</p>
+                    <p className="text-xs text-app-muted">Subí tus PDFs, filtralos por unidad y abrilos en pantalla completa.</p>
                   </div>
                   <button
                     onClick={() => { triggerHaptic('light'); setModalUploadPDF({ open: true, materiaId: selectedMateriaId }); }}
@@ -4474,7 +4503,26 @@ function App() {
                   </button>
                 </div>
 
-                {currentMateriaPdfs.length === 0 ? (
+                {currentMateriaPdfUnits.length > 1 && (
+                  <div className="overflow-x-auto no-scrollbar flex items-center gap-2">
+                    {['Todas', ...currentMateriaPdfUnits].map(u => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setPdfUnitFilter(u)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex-shrink-0 ${
+                          pdfUnitFilter === u
+                            ? 'bg-app-emerald text-white border-app-emerald shadow-emerald'
+                            : 'bg-app-surface border-app-border text-app-muted'
+                        }`}
+                      >
+                        {u}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {currentMateriaPdfsFiltrados.length === 0 ? (
                   <div className="bg-app-card border border-app-border rounded-xl p-10 text-center space-y-4 shadow-card">
                     <div className="w-14 h-14 rounded-xl bg-app-emerald-bg text-app-emerald flex items-center justify-center mx-auto border border-app-emerald/20">
                       <Icon name="file-text" className="w-7 h-7" size={28} />
@@ -4494,7 +4542,7 @@ function App() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {currentMateriaPdfs.map(p => (
+                    {currentMateriaPdfsFiltrados.map(p => (
                       <div key={p.id} className="bg-app-card border border-app-border p-5 rounded-xl shadow-card flex flex-col justify-between hover:shadow-fluffy transition-all">
                         <div>
                           <div className="flex justify-between items-center mb-2">
@@ -4758,7 +4806,7 @@ function App() {
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
                           <span className="text-xs font-extrabold px-3 py-1 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/30">
-                            {c.materia || 'Materia'} • Clase #{c.nro_clase}
+                            {c.materia || 'Materia'} • {c.nro_clase ? `Clase #${c.nro_clase}` : 'Clase'}
                           </span>
                           <span className="text-xs text-app-muted font-bold flex items-center gap-1">
                             <Icon name="calendar" className="w-3.5 h-3.5" /> {c.fecha}
@@ -4772,7 +4820,7 @@ function App() {
                             <div className="font-extrabold text-app-emerald flex items-center gap-1">
                               <Icon name="alert-triangle" className="w-3.5 h-3.5" /> Énfasis Docente / Examen:
                             </div>
-                            <div className="leading-relaxed whitespace-pre-wrap">{c.aclaraciones}</div>
+                            <NotaExpandible texto={c.aclaraciones} />
                           </div>
                         )}
 
@@ -5541,6 +5589,7 @@ function App() {
       {modalNovedades && <ModalNovedades onClose={cerrarNovedades} />}
       {modalMoreMenu && (
         <ModalMoreMenu
+          origen={origenMenuRadial}
           onClose={() => setModalMoreMenu(false)}
           onNavigate={(tab) => {
             setActiveTab(tab);
@@ -5581,7 +5630,7 @@ function App() {
 function ModalNovedades({ onClose }) {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="titulo-novedades" className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 pb-20 md:pb-5 shadow-fluffy space-y-4 max-h-[85vh] overflow-y-auto">
+      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 pb-20 md:pb-5 shadow-fluffy space-y-4 max-h-[85dvh] overflow-y-auto">
         <div className="flex items-center gap-2">
           <Icon name="sparkles" className="w-5 h-5 text-app-emerald" />
           <h3 id="titulo-novedades" className="text-lg font-extrabold text-app-text">Novedades de PsiEstudio</h3>
@@ -5607,103 +5656,220 @@ function ModalNovedades({ onClose }) {
   );
 }
 
-function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards }) {
-  const options = [
-    {
-      id: 'grabadora',
-      title: 'Grabadora de clases',
-      desc: 'Grabá tu clase y obtené el texto palabra por palabra',
-      icon: 'mic',
-      action: () => onNavigate('grabadora'),
-      badge: null
-    },
-    {
-      id: 'pdf',
-      title: 'Mis PDFs',
-      desc: 'Subí tus documentos y preparalos para estudiar',
-      icon: 'file-search',
-      action: () => onNavigate('pdf'),
-      badge: null
-    },
-    {
-      id: 'perfil',
-      title: 'Mi Perfil & Materias',
-      desc: 'Tus materias, cátedras y datos de estudio',
-      icon: 'user-check',
-      action: () => onNavigate('perfil')
-    },
-    {
-      id: 'system',
-      title: 'Ajustes',
-      desc: 'Copia de seguridad y versión de la app',
-      icon: 'settings',
-      action: () => onNavigate('system')
-    },
-    {
-      id: 'pomodoro',
-      title: 'Temporizador Pomodoro',
-      desc: 'Sesiones de estudio enfocadas de 25 minutos',
-      icon: 'timer',
-      action: onOpenPomodoro
-    },
-    {
-      id: 'search',
-      title: 'Búsqueda Global',
-      desc: 'Encuentra cualquier lectura, apunte o clase al instante',
-      icon: 'search',
-      action: onOpenSearch
-    },
-    {
-      id: 'flashcards',
-      title: 'Fichas de Repaso',
-      desc: 'Modo examen interactivo con todos los conceptos',
-      icon: 'sparkles',
-      action: onOpenFlashcards
-    }
-  ];
-
+function NotaExpandible({ texto, limite = 220 }) {
+  const [abierto, setAbierto] = useState(false);
+  if (!texto) return null;
+  const esLargo = texto.length > limite;
+  const mostrado = abierto || !esLargo ? texto : texto.slice(0, limite).trimEnd() + '…';
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end justify-center p-0 md:items-center md:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-lg rounded-t-3xl md:rounded-xl p-5 pb-20 md:pb-5 shadow-fluffy space-y-4">
-        <div className="flex justify-between items-center border-b border-app-border pb-3">
-          <div className="flex items-center gap-2">
-            <Icon name="grid" className="w-5 h-5 text-app-emerald" />
-            <h3 className="text-base font-extrabold text-app-text">Módulos & Herramientas Adicionales</h3>
-          </div>
-          <button onClick={onClose} className="p-1.5 text-app-muted hover:text-app-text rounded-xl bg-app-surface border border-app-border">
-            <Icon name="x" className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[70vh] overflow-y-auto">
-          {options.map(opt => (
-            <div
-              key={opt.id}
-              onClick={opt.action}
-              className="bg-app-surface border border-app-border hover:border-app-emerald p-3.5 rounded-lg flex items-start gap-3 cursor-pointer transition-all hover:bg-app-card"
-            >
-              <div className="p-2 rounded-xl bg-app-card border border-app-border text-app-emerald mt-0.5">
-                <Icon name={opt.icon} className="w-4 h-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-1">
-                  <h4 className="text-xs font-extrabold text-app-text truncate">{opt.title}</h4>
-                  {opt.badge && (
-                    <span className="text-[11px] font-black uppercase px-1.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
-                      {opt.badge}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-app-muted line-clamp-2 mt-0.5 leading-snug">{opt.desc}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+    <div>
+      <div className="leading-relaxed whitespace-pre-wrap">{mostrado}</div>
+      {esLargo && (
+        <button
+          type="button"
+          onClick={() => setAbierto(v => !v)}
+          className="mt-1 text-[11px] font-bold text-app-emerald hover:underline"
+        >
+          {abierto ? 'Ver menos' : 'Ver más'}
+        </button>
+      )}
     </div>
   );
 }
 
+function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards, origen }) {
+  const CATEGORIAS = [
+    {
+      id: 'contenido',
+      label: 'Contenido',
+      icon: 'layers',
+      opciones: [
+        { id: 'grabadora', title: 'Grabadora', icon: 'mic', action: () => onNavigate('grabadora') },
+        { id: 'pdf', title: 'Mis PDFs', icon: 'file-search', action: () => onNavigate('pdf') },
+      ],
+    },
+    {
+      id: 'estudio',
+      label: 'Estudio',
+      icon: 'zap',
+      opciones: [
+        { id: 'pomodoro', title: 'Pomodoro', icon: 'timer', action: onOpenPomodoro },
+        { id: 'flashcards', title: 'Fichas', icon: 'sparkles', action: onOpenFlashcards },
+        { id: 'search', title: 'Buscar', icon: 'search', action: onOpenSearch },
+      ],
+    },
+    {
+      id: 'cuenta',
+      label: 'Mi Cuenta',
+      icon: 'user',
+      opciones: [
+        { id: 'perfil', title: 'Mi Perfil', icon: 'user-check', action: () => onNavigate('perfil') },
+        { id: 'system', title: 'Ajustes', icon: 'settings', action: () => onNavigate('system') },
+      ],
+    },
+  ];
+
+  const [nivel, setNivel] = useState('categorias');
+  const [montado, setMontado] = useState(false);
+  const [itemsVisibles, setItemsVisibles] = useState(false);
+  const prefiereMenosMovimiento = typeof window !== 'undefined' && window.matchMedia
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Entrada: el fondo se desvanece una sola vez; los ítems del arco se re-disparan
+  // cada vez que se cambia de categoría, para que el cambio también se sienta animado.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMontado(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    setItemsVisibles(false);
+    const id1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setItemsVisibles(true));
+    });
+    return () => cancelAnimationFrame(id1);
+  }, [nivel]);
+
+  const cerrar = () => {
+    setItemsVisibles(false);
+    setMontado(false);
+    setTimeout(onClose, prefiereMenosMovimiento ? 0 : 200);
+  };
+
+  const volverOCerrar = () => {
+    triggerHaptic('light');
+    if (nivel === 'categorias') cerrar();
+    else setNivel('categorias');
+  };
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') volverOCerrar();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nivel]);
+
+  const categoriaActiva = CATEGORIAS.find(c => c.id === nivel) || null;
+  const esCategorias = !categoriaActiva;
+  const items = esCategorias ? CATEGORIAS : categoriaActiva.opciones;
+
+  const seleccionar = (item) => {
+    if (esCategorias) {
+      triggerHaptic('light');
+      setNivel(item.id);
+      return;
+    }
+    triggerHaptic('success');
+    if (item.action) item.action();
+    cerrar();
+  };
+
+  // Arco hacia arriba-izquierda desde el origen: nunca cruza hacia la derecha ni hacia
+  // abajo del botón, porque el botón vive pegado al borde inferior derecho de la pantalla.
+  const radio = 118;
+  const anguloInicio = items.length >= 3 ? 185 : 200;
+  const anguloFin = items.length >= 3 ? 265 : 250;
+  const paso = items.length > 1 ? (anguloFin - anguloInicio) / (items.length - 1) : 0;
+  const posiciones = items.map((_, i) => {
+    const angulo = items.length === 1 ? (anguloInicio + anguloFin) / 2 : anguloInicio + paso * i;
+    const rad = (angulo * Math.PI) / 180;
+    return { x: Math.cos(rad) * radio, y: Math.sin(rad) * radio };
+  });
+
+  const centro = origen || {
+    x: typeof window !== 'undefined' ? window.innerWidth - 44 : 0,
+    y: typeof window !== 'undefined' ? window.innerHeight - 56 : 0,
+  };
+
+  const curvaEntrada = 'cubic-bezier(0.23, 1, 0.32, 1)';
+  const curvaTapa = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Más opciones"
+      onClick={cerrar}
+    >
+      <div
+        className="absolute inset-0 bg-black/30 backdrop-blur-[2px] transition-opacity"
+        style={{ opacity: montado ? 1 : 0, transitionDuration: '200ms', transitionTimingFunction: 'ease-out' }}
+      />
+
+      {!esCategorias && (
+        <div
+          className="absolute z-10 px-3 py-1 rounded-full bg-app-modal border border-app-border text-xs font-extrabold text-app-text shadow-card whitespace-nowrap"
+          style={{
+            left: centro.x,
+            top: centro.y - 72,
+            transform: `translate(-50%, -50%) translateY(${itemsVisibles ? 0 : 6}px)`,
+            opacity: itemsVisibles ? 1 : 0,
+            transition: `transform 180ms ${curvaEntrada}, opacity 180ms ${curvaEntrada}`,
+          }}
+        >
+          {categoriaActiva.label}
+        </div>
+      )}
+
+      {items.map((item, i) => {
+        const p = posiciones[i];
+        const abierto = itemsVisibles;
+        const duracionTransform = prefiereMenosMovimiento ? '0ms' : '200ms';
+        return (
+          <button
+            key={`${nivel}-${item.id}`}
+            type="button"
+            aria-label={item.label || item.title}
+            onClick={(e) => { e.stopPropagation(); seleccionar(item); }}
+            className="absolute z-10 flex flex-col items-center gap-1"
+            style={{
+              left: centro.x,
+              top: centro.y,
+              transform: abierto
+                ? `translate(-50%, -50%) translate(${p.x}px, ${p.y}px) scale(1)`
+                : 'translate(-50%, -50%) scale(0.85)',
+              opacity: abierto ? 1 : 0,
+              transition: `transform ${duracionTransform} ${curvaEntrada} ${abierto ? i * 35 : 0}ms, opacity 150ms ease-out ${abierto ? i * 35 : 0}ms`,
+            }}
+          >
+            <span className="w-14 h-14 rounded-full bg-app-modal border border-app-border shadow-fluffy flex items-center justify-center text-app-emerald">
+              <Icon name={item.icon} className="w-6 h-6" />
+            </span>
+            <span className="max-w-[80px] text-center text-[11px] font-bold text-app-text bg-app-modal/95 px-1.5 py-0.5 rounded-md leading-tight">
+              {item.label || item.title}
+            </span>
+          </button>
+        );
+      })}
+
+      {/* Botón central: abre, vuelve a categorías, o cierra. Es el ancla visual de todo el arco. */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); volverOCerrar(); }}
+        aria-label={esCategorias ? 'Cerrar menú' : 'Volver a categorías'}
+        className="absolute z-20 w-12 h-12 rounded-full bg-app-emerald text-white shadow-emerald flex items-center justify-center"
+        style={{
+          left: centro.x,
+          top: centro.y,
+          transform: 'translate(-50%, -50%)',
+          transition: `background-color 150ms ease`,
+        }}
+      >
+        <Icon
+          name={esCategorias ? 'plus' : 'arrow-left'}
+          className="w-5 h-5 text-white"
+          style={{
+            transform: esCategorias && itemsVisibles ? 'rotate(45deg)' : 'rotate(0deg)',
+            transition: `transform 200ms ${curvaTapa}`,
+          }}
+        />
+      </button>
+    </div>
+  );
+}
 function ModalMateria({ initialData, onClose, onSave }) {
   const [form, setForm] = useState(() => {
     if (initialData) {
@@ -5813,7 +5979,7 @@ function ModalMateria({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 sm:p-6 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92dvh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 sm:p-6 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Materia' : 'Nueva Materia'}</h3>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -6022,7 +6188,7 @@ function ModalBiblio({ initialData, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4">
+      <div className="bg-app-modal border border-app-border w-full max-w-xl max-h-[90dvh] overflow-y-auto rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4">
         <div className="flex justify-between items-center">
           <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Texto' : 'Nuevo Texto'}</h3>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text flex items-center justify-center">
@@ -6186,8 +6352,8 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92vh] flex flex-col rounded-xl p-4 shadow-fluffy space-y-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-3 md:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-2xl max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-xl p-4 shadow-fluffy space-y-4 overflow-hidden">
         <div className="flex justify-between items-center border-b border-app-border pb-3">
           <div>
             <h3 className="text-xl font-extrabold text-app-text">{initialData ? 'Editar Examen' : 'Crear Examen & Vincular Textos'}</h3>
@@ -6305,11 +6471,12 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
 function ModalClase({ initialData, onClose, onSave, showToast, onOpenInDesgrabador, onStartRecordingForClass }) {
   const [form, setForm] = useState(initialData || {
     fecha: new Date().toISOString().split('T')[0],
-    nro_clase: 1,
+    nro_clase: 0,
     tipo: 'Teórica',
     titulo_clase: '',
     aclaraciones: '',
     contenido_ppt: '',
+    desgrabacion_md: '',
     grabaciones: [],
     imagenes: [],
     link_grabacion: '',
@@ -6463,23 +6630,55 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
     triggerHaptic('warning');
   };
 
+  // Desgrabación: texto pegado desde el portapapeles o subido como archivo.
+  const handleDesgrabacionFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setForm(prev => ({ ...prev, desgrabacion_md: event.target.result }));
+      if (showToast) showToast('Desgrabación cargada desde el archivo', 'check-circle');
+      triggerHaptic('success');
+    };
+    reader.onerror = () => {
+      if (showToast) showToast('No se pudo leer el archivo', 'alert-triangle');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handlePegarDesgrabacion = async () => {
+    try {
+      const texto = await navigator.clipboard.readText();
+      if (!texto || !texto.trim()) {
+        if (showToast) showToast('El portapapeles está vacío', 'alert-circle');
+        return;
+      }
+      setForm(prev => ({ ...prev, desgrabacion_md: texto }));
+      triggerHaptic('success');
+      if (showToast) showToast('Desgrabación pegada', 'check-circle');
+    } catch (e) {
+      if (showToast) showToast('No se pudo leer el portapapeles. Pegala directamente en el cuadro de abajo.', 'alert-triangle');
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-3xl max-h-[92vh] flex flex-col rounded-2xl p-5 sm:p-6 shadow-fluffy space-y-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-3xl h-[92dvh] sm:h-auto sm:max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl shadow-fluffy overflow-hidden">
         {/* Modal Header */}
-        <div className="flex justify-between items-center border-b border-app-border pb-3">
+        <div className="flex justify-between items-center border-b border-app-border px-5 sm:px-6 pt-5 sm:pt-6 pb-3 shrink-0">
           <div>
             <h3 className="text-xl font-black text-app-text">
               {initialData ? 'Editar Protocolo de Clase' : 'Registrar Protocolo de Clase'}
             </h3>
-            <p className="text-xs text-app-muted">Audios grabados, fotos de pizarrón, diapositivas y énfasis de examen.</p>
+            <p className="text-xs text-app-muted">Audios grabados, fotos de pizarrón, diapositivas, desgrabación y énfasis de examen.</p>
           </div>
           <button onClick={onClose} className="p-2 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border">
             <Icon name="x" className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); onSave(form); }} className="flex-1 overflow-y-auto space-y-5 pr-1">
+        <form id="form-protocolo-clase" onSubmit={e => { e.preventDefault(); onSave(form); }} className="flex-1 overflow-y-auto scroll-suave px-5 sm:px-6 py-4 space-y-5">
           {/* Metadata Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -6487,8 +6686,18 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
               <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">N° Clase</label>
-              <input type="number" value={form.nro_clase} onChange={e => setForm({ ...form, nro_clase: parseInt(e.target.value) || 1 })} required className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none" />
+              <label className="block text-xs font-bold uppercase text-app-emerald mb-1">N° Clase (opcional)</label>
+              <input
+                type="number"
+                min="0"
+                value={form.nro_clase || ''}
+                onChange={e => {
+                  const v = e.target.value;
+                  setForm({ ...form, nro_clase: v === '' ? 0 : (parseInt(v, 10) || 0) });
+                }}
+                placeholder="Opcional"
+                className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-sm font-bold text-app-text outline-none"
+              />
             </div>
             <div>
               <label className="block text-xs font-bold uppercase text-app-emerald mb-1">Tipo de Clase</label>
@@ -6538,6 +6747,38 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
               className="w-full p-3.5 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-28 font-mono leading-relaxed"
               placeholder="Pega aquí el texto exacto extraído de las diapositivas con el formato [DIAPOSITIVA N: Tema]..."
             />
+          </div>
+
+          {/* ── SECCIÓN DE DESGRABACIÓN (PEGAR DESDE EL PORTAPAPELES O SUBIR ARCHIVO) ── */}
+          <div className="bg-app-surface p-4 rounded-xl border border-app-border space-y-3 shadow-sm">
+            <div className="flex flex-wrap justify-between items-center gap-2">
+              <label className="text-xs font-bold uppercase text-app-emerald flex items-center gap-1.5">
+                <Icon name="file-text" className="w-4 h-4 text-app-navy" /> Desgrabación de la Clase
+              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handlePegarDesgrabacion}
+                  className="px-3 py-1.5 bg-app-card border border-app-border hover:border-app-emerald text-app-emerald text-xs font-bold rounded-xl flex items-center gap-1.5"
+                >
+                  <Icon name="clipboard" className="w-3.5 h-3.5" /> Pegar del Portapapeles
+                </button>
+                <label className="cursor-pointer px-3.5 py-1.5 bg-app-navy text-white font-bold text-xs rounded-xl shadow-card flex items-center gap-1.5 hover:brightness-110 transition-all">
+                  <Icon name="upload" className="w-3.5 h-3.5" />
+                  <span>Subir Archivo (.txt)</span>
+                  <input type="file" accept=".txt,.md,text/plain" className="hidden" onChange={handleDesgrabacionFile} />
+                </label>
+              </div>
+            </div>
+            <textarea
+              value={form.desgrabacion_md || ''}
+              onChange={e => setForm({ ...form, desgrabacion_md: e.target.value })}
+              className="w-full p-3 rounded-xl bg-app-card border border-app-border text-xs text-app-text outline-none h-32 leading-relaxed font-mono"
+              placeholder="Pegá acá la desgrabación de la clase (copiada del Historial o de donde la tengas), o subí un archivo de texto."
+            />
+            {form.desgrabacion_md ? (
+              <p className="text-[11px] text-app-muted">{form.desgrabacion_md.length.toLocaleString('es-AR')} caracteres guardados.</p>
+            ) : null}
           </div>
 
           {/* ── SECCIÓN DE AUDIOS (SUBIDA DIRECTA + ENLACE + GRABADORA EN VIVO) ── */}
@@ -6714,24 +6955,25 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
               </div>
             )}
           </div>
-
-          {/* Form Actions */}
-          <div className="flex justify-end gap-3 pt-3 border-t border-app-border">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-xl border border-app-border bg-app-surface text-app-muted hover:text-app-text font-bold text-xs"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2.5 rounded-xl bg-app-emerald text-white font-extrabold text-xs shadow-emerald hover:brightness-110 flex items-center gap-2"
-            >
-              <Icon name="check" className="w-4 h-4 text-white" /> Guardar Protocolo de Clase
-            </button>
-          </div>
         </form>
+
+        {/* Form Actions: pegado abajo de verdad, no flota con un hueco debajo */}
+        <div className="shrink-0 flex justify-end gap-3 px-5 sm:px-6 py-3 border-t border-app-border bg-app-modal pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2.5 rounded-xl border border-app-border bg-app-surface text-app-muted hover:text-app-text font-bold text-xs"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            form="form-protocolo-clase"
+            className="px-6 py-2.5 rounded-xl bg-app-emerald text-white font-extrabold text-xs shadow-emerald hover:brightness-110 flex items-center gap-2"
+          >
+            <Icon name="check" className="w-4 h-4 text-white" /> Guardar Protocolo de Clase
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -6952,8 +7194,8 @@ function ModalApunteSplitView({
   const currentDisplayMateria = materias.find(m => m.id === form.materia_id)?.nombre || materiaNombre || 'Cátedra';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-full max-h-[94vh] flex flex-col rounded-2xl shadow-fluffy overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-2 md:p-4 animate-fade-in">
+      <div className="bg-app-modal border border-app-border w-full max-w-6xl h-full max-h-[94dvh] flex flex-col rounded-t-3xl sm:rounded-2xl shadow-fluffy overflow-hidden">
         
         {/* Header Modal */}
         <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-b border-app-border bg-app-surface gap-2">
@@ -7241,11 +7483,7 @@ function ModalApunteSplitView({
 
             <div className="flex-1 w-full bg-slate-900/60 rounded-xl border border-app-border overflow-hidden flex flex-col items-center justify-center">
               {compiledPDF ? (
-                <iframe
-                  src={compiledPDF.blobUrl}
-                  className="w-full h-full border-0 bg-white"
-                  title="Visor PDF Académico"
-                />
+<VisorPDF src={compiledPDF.blobUrl} titulo="Apunte compilado" />
               ) : (
                 <div className="p-8 text-center space-y-3 max-w-md">
                   <div className="w-12 h-12 rounded-xl bg-app-emerald-bg text-app-emerald mx-auto flex items-center justify-center border border-app-emerald/20">
@@ -7457,8 +7695,8 @@ function ModalSubirDocumentoPDF({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-fade-in">
-      <div className="bg-app-card border border-app-border w-full max-w-xl rounded-2xl shadow-fluffy overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-3 md:p-4 animate-fade-in">
+      <div className="bg-app-card border border-app-border w-full max-w-xl rounded-t-3xl sm:rounded-2xl shadow-fluffy overflow-hidden flex flex-col max-h-[92dvh]">
         {/* Header */}
         <div className="flex justify-between items-center px-5 py-4 border-b border-app-border bg-app-surface">
           <div className="flex items-center gap-2.5">
@@ -7663,6 +7901,112 @@ function ModalSubirDocumentoPDF({
 const ModalSubirApuntePDF = ModalSubirDocumentoPDF;
 
 // ── 6. VISOR ACADÉMICO DE PDF DE ALTA FIDELIDAD ──
+function VisorPDF({ src, titulo = 'Documento' }) {
+  const [pdf, setPdf] = useState(null);
+  const [pagina, setPagina] = useState(1);
+  const [totalPaginas, setTotalPaginas] = useState(0);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState(null);
+  const contenedorRef = useRef(null);
+  const canvasRef = useRef(null);
+  const tareaRenderRef = useRef(null);
+
+  useEffect(() => {
+    let vivo = true;
+    setPdf(null);
+    setPagina(1);
+    setTotalPaginas(0);
+    setError(null);
+    setCargando(true);
+    if (!src || !window.pdfjsLib) {
+      setCargando(false);
+      if (!window.pdfjsLib) setError('No se pudo cargar el visor de PDF.');
+      return;
+    }
+    window.pdfjsLib.getDocument({ url: src }).promise.then(doc => {
+      if (!vivo) return;
+      setPdf(doc);
+      setTotalPaginas(doc.numPages);
+      setCargando(false);
+    }).catch(e => {
+      if (!vivo) return;
+      console.warn('[VisorPDF] no se pudo abrir el documento:', e);
+      setError('No se pudo mostrar este PDF.');
+      setCargando(false);
+    });
+    return () => { vivo = false; };
+  }, [src]);
+
+  useEffect(() => {
+    if (!pdf) return;
+    let vivo = true;
+    (async () => {
+      try {
+        if (tareaRenderRef.current) { try { tareaRenderRef.current.cancel(); } catch (e) {} }
+        const page = await pdf.getPage(pagina);
+        if (!vivo) return;
+        const canvas = canvasRef.current;
+        const contenedor = contenedorRef.current;
+        if (!canvas || !contenedor) return;
+        const viewportBase = page.getViewport({ scale: 1 });
+        const anchoDisponible = Math.max(contenedor.clientWidth - 24, 260);
+        const escala = anchoDisponible / viewportBase.width;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const viewport = page.getViewport({ scale: escala * dpr });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = `${viewport.width / dpr}px`;
+        canvas.style.height = `${viewport.height / dpr}px`;
+        const ctx = canvas.getContext('2d');
+        const tarea = page.render({ canvasContext: ctx, viewport });
+        tareaRenderRef.current = tarea;
+        await tarea.promise;
+      } catch (e) {
+        if (e && e.name === 'RenderingCancelledException') return;
+        console.warn('[VisorPDF] error al dibujar la página:', e);
+      }
+    })();
+    return () => { vivo = false; };
+  }, [pdf, pagina]);
+
+  if (cargando) {
+    return (
+      <div className="w-full h-full flex items-center justify-center">
+        <Icon name="loader" className="w-6 h-6 text-app-muted animate-spin" />
+      </div>
+    );
+  }
+  if (error || !src) {
+    return (
+      <div className="w-full h-full flex items-center justify-center p-8 text-center">
+        <div className="space-y-2">
+          <Icon name="alert-triangle" className="w-8 h-8 text-app-amber mx-auto" />
+          <p className="text-sm font-bold text-app-text">{error || 'No hay archivo para mostrar.'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col overflow-hidden bg-slate-900/60">
+      <div ref={contenedorRef} className="flex-1 overflow-auto scroll-suave flex items-start justify-center p-3 sm:p-6">
+        <canvas ref={canvasRef} className="bg-white shadow-fluffy rounded-sm" aria-label={titulo} />
+      </div>
+      {totalPaginas > 1 && (
+        <div className="shrink-0 flex items-center justify-center gap-3 py-2.5 border-t border-app-border bg-app-surface">
+          <button type="button" onClick={() => setPagina(p => Math.max(1, p - 1))} disabled={pagina <= 1} className="p-2 rounded-xl bg-app-card border border-app-border disabled:opacity-40">
+            <Icon name="chevron-left" className="w-4 h-4 text-app-text" />
+          </button>
+          <span className="text-xs font-bold text-app-text">Página {pagina} de {totalPaginas}</span>
+          <button type="button" onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))} disabled={pagina >= totalPaginas} className="p-2 rounded-xl bg-app-card border border-app-border disabled:opacity-40">
+            <Icon name="chevron-right" className="w-4 h-4 text-app-text" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
   const [pdfRemoto, setPdfRemoto] = useState(null);
   useEffect(() => {
@@ -7722,8 +8066,8 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-      <div className="bg-app-card border border-app-border w-full max-w-6xl h-[95vh] flex flex-col rounded-2xl shadow-fluffy overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-black/90 sm:bg-black/80 backdrop-blur-md flex items-stretch sm:items-center justify-center p-0 sm:p-4 animate-fade-in">
+      <div className="bg-app-card sm:border sm:border-app-border w-full h-[100dvh] sm:h-[95dvh] sm:max-w-6xl flex flex-col sm:rounded-2xl shadow-fluffy overflow-hidden">
         {/* Header */}
         <div className="flex flex-wrap justify-between items-center px-5 py-3.5 border-b border-app-border bg-app-surface gap-3">
           <div>
@@ -7793,11 +8137,7 @@ function ModalPDFViewer({ data, onClose, onDelete, showToast }) {
         {/* PDF Viewer Body */}
         <div className="flex-1 w-full h-full bg-slate-900/60 relative overflow-hidden flex flex-col items-center justify-center">
           {pdfSrc ? (
-            <iframe
-              src={pdfSrc}
-              className="w-full h-full border-0"
-              title={data.nombre_archivo || data.titulo}
-            />
+<VisorPDF src={pdfSrc} titulo={data.nombre_archivo || data.titulo} />
           ) : (
             <div className="p-8 text-center space-y-3">
               <div className="w-12 h-12 rounded-xl bg-app-amber-bg text-app-amber mx-auto flex items-center justify-center">
@@ -7843,7 +8183,7 @@ function ModalSearch({ materias, biblio, clases, apuntes, examenes, onClose, onS
 
     clases.forEach(c => {
       if (c.titulo_clase.toLowerCase().includes(q) || (c.aclaraciones && c.aclaraciones.toLowerCase().includes(q))) {
-        list.push({ type: 'Clase', title: c.titulo_clase, sub: `${c.materia} • Clase #${c.nro_clase}`, raw: c });
+        list.push({ type: 'Clase', title: c.titulo_clase, sub: `${c.materia} • ${c.nro_clase ? `Clase #${c.nro_clase}` : 'Clase'}`, raw: c });
       }
     });
 
@@ -10372,7 +10712,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-app-base text-app-text flex items-center justify-center p-4">
+        <div className="min-h-dvh bg-app-base text-app-text flex items-center justify-center p-4">
           <div className="max-w-md w-full bg-app-card border border-app-border p-6 sm:p-8 rounded-2xl shadow-fluffy text-center space-y-4">
             <div className="w-14 h-14 mx-auto rounded-2xl bg-app-emerald-bg text-app-emerald border border-app-emerald/30 flex items-center justify-center">
               <Icon name="shield-check" className="w-7 h-7 text-app-emerald" size={28} />

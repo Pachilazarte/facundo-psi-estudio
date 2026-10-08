@@ -1385,3 +1385,21 @@ body {
     column-rule: 1px solid #CBD5E1 !important;
   }
 }
+
+/* ======================================================
+   SAFARI / iOS — el celular y la compu usan motores distintos.
+   ====================================================== */
+
+/* Safari agranda la página sola al tocar un campo de texto más chico de 16px.
+   Eso es lo que se ve como "la pantalla hace zoom sola" en los modales. */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Scroll con inercia en los paneles largos (listas, visor de PDF, modales). */
+.scroll-suave {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
