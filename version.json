@@ -1,7 +1,7 @@
 {
-  "version": "2.37.4",
-  "buildDate": "2026-10-12T21:00:00.000Z",
+  "version": "2.37.6",
+  "buildDate": "2026-10-12T21:45:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "En Safari se podía hacer zoom con los dedos y la barra de botones se corría del borde. Ahora la pantalla queda fija."
+  "notes": "Bloqueado el rebote elástico de iOS que dejaba arrastrar toda la pantalla y corría la barra de botones del borde."
 }

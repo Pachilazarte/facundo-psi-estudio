@@ -150,8 +150,22 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.37.4';
+const VERSION_APP = '2.37.6';
 const NOVEDADES = [
+  {
+    version: '2.37.6',
+    fecha: '12/10/2026',
+    cambios: [
+      'En iPhone se podía arrastrar toda la pantalla de más (el rebote elástico de iOS), dejando franjas en blanco arriba o abajo y corriendo la barra de botones. Ahora la pantalla queda fija, sin ese rebote.',
+    ],
+  },
+  {
+    version: '2.37.5',
+    fecha: '12/10/2026',
+    cambios: [
+      'Con señal floja, la app podía quedar en pantalla blanca al actualizar en segundo plano. Ahora, si falla la descarga de la versión nueva, usa la última guardada en vez de no mostrar nada.',
+    ],
+  },
   {
     version: '2.37.4',
     fecha: '12/10/2026',

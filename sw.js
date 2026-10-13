@@ -1,4 +1,4 @@
-const CACHE_NAME = 'psiestudio-v2.37.4';
+const CACHE_NAME = 'psiestudio-v2.37.6';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -91,10 +91,15 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Si no hay red, usar copia en caché
+          // Si no hay red, usar copia en caché. Si no hay una copia exacta de
+          // esta versión (?v=...), usar cualquier copia guardada del mismo
+          // archivo en vez de dejar la pantalla en blanco.
           return caches.match(event.request).then((cached) => {
             if (cached) return cached;
-            if (event.request.mode === 'navigate') return caches.match('./index.html');
+            return caches.match(event.request, { ignoreSearch: true }).then((cualquiera) => {
+              if (cualquiera) return cualquiera;
+              if (event.request.mode === 'navigate') return caches.match('./index.html');
+            });
           });
         })
     );
