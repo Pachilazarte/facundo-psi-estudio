@@ -150,8 +150,15 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.37.6';
+const VERSION_APP = '2.37.7';
 const NOVEDADES = [
+  {
+    version: '2.37.7',
+    fecha: '12/10/2026',
+    cambios: [
+      'El arreglo del rebote elástico de iOS estaba en un archivo de estilos que no se cargaba. Corregido: ahora sí bloquea que arrastres toda la pantalla de más.',
+    ],
+  },
   {
     version: '2.37.6',
     fecha: '12/10/2026',

@@ -68,12 +68,32 @@
   --shadow-card: 0 4px 12px -2px rgba(0, 0, 0, 0.4);
 }
 
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   background-color: var(--color-bg-base);
   color: var(--color-text-main);
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none;
+}
+
+/* El scroll real pasa acá adentro, no en body: así Safari no puede
+   arrastrar toda la página más allá de sus límites (rebote elástico)
+   ni despegar la barra de botones del borde inferior. */
+#root {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
 }
 
 /* Custom Scrollbar for Fluffy Aesthetic */

@@ -111,24 +111,36 @@
 
 html {
   scroll-behavior: smooth;
-  overscroll-behavior-y: none;
   height: 100%;
+  overflow: hidden;
 }
 
 body {
   background-color: var(--bg-body);
   color: var(--text-main);
   font-family: var(--font-sans);
-  min-height: 100vh;
-  min-height: 100dvh;
-  overflow-x: hidden;
-  overscroll-behavior-y: none;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none;
   transition: background-color 0.3s ease, color 0.3s ease;
   background-image:
     radial-gradient(ellipse at 10% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 45%),
     radial-gradient(ellipse at 90% 15%, rgba(59, 130, 246, 0.08) 0%, transparent 45%),
     radial-gradient(ellipse at 50% 100%, rgba(244, 239, 230, 0.5) 0%, transparent 60%);
   background-attachment: fixed;
+}
+
+/* El scroll real pasa acá adentro, no en body: así Safari no puede
+   arrastrar toda la página más allá de sus límites (rebote elástico). */
+#root {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 [data-theme="dark"] body {
