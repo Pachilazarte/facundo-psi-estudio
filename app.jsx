@@ -150,8 +150,36 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.37.0';
+const VERSION_APP = '2.37.4';
 const NOVEDADES = [
+  {
+    version: '2.37.4',
+    fecha: '12/10/2026',
+    cambios: [
+      'En Safari se podía hacer zoom con los dedos y eso corría la barra de botones de abajo lejos del borde. Ahora la pantalla queda fija, como una app.',
+    ],
+  },
+  {
+    version: '2.37.3',
+    fecha: '12/10/2026',
+    cambios: [
+      'Las tarjetas de Ajustes ahora se acomodan mejor en pantallas altas, en vez de quedar pegadas arriba.',
+    ],
+  },
+  {
+    version: '2.37.2',
+    fecha: '12/10/2026',
+    cambios: [
+      'El cartel de Netlify tapaba el botón "Guardar" en Clase, Examen y Apunte: ahora les deja espacio abajo.',
+    ],
+  },
+  {
+    version: '2.37.1',
+    fecha: '12/10/2026',
+    cambios: [
+      'Arreglado: un audio subido para desgrabar podía quedar sin procesar ninguna parte. Era un límite de tamaño mal calculado, nada que ver con ninguna computadora.',
+    ],
+  },
   {
     version: '2.37.0',
     fecha: '08/10/2026',
@@ -3520,7 +3548,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-dvh bg-app-base text-app-text transition-colors duration-300">
+    <div className="min-h-dvh bg-app-base text-app-text transition-colors duration-300 flex flex-col">
       {/* ══ HEADER (FULL RESPONSIVE NAVIGATION) ══ */}
       <header className="sticky top-0 z-40 bg-app-base/95 backdrop-blur-xl border-b border-app-border px-3 sm:px-6 py-2.5 transition-colors">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
@@ -3667,7 +3695,7 @@ function App() {
       </nav>
 
       {/* ══ MAIN VIEW CONTAINER ══ */}
-      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-32 md:pb-8">
+      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-32 md:pb-8 flex-1 w-full flex flex-col justify-center">
 
         {/* ── TAB: MATERIAS (AULAS Y CARPETAS) ── */}
         {activeTab === 'materias' && !selectedMateriaId && (
@@ -6459,7 +6487,7 @@ function ModalExamenWithLinking({ initialData, availableTexts, availableUnits, o
             <textarea value={form.temas || ''} onChange={e => setForm({ ...form, temas: e.target.value })} className="w-full p-3 rounded-xl bg-app-surface border border-app-border text-xs text-app-text outline-none h-16" placeholder="Puntos específicos a evaluar..." />
           </div>
 
-          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110">
+          <button type="submit" className="w-full py-3.5 bg-app-emerald text-white font-bold rounded-xl shadow-emerald hover:brightness-110 mb-16 sm:mb-0">
             Guardar Examen y Vincular Textos
           </button>
         </form>
@@ -6958,7 +6986,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
         </form>
 
         {/* Form Actions: pegado abajo de verdad, no flota con un hueco debajo */}
-        <div className="shrink-0 flex justify-end gap-3 px-5 sm:px-6 py-3 border-t border-app-border bg-app-modal pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <div className="shrink-0 flex justify-end gap-3 px-5 sm:px-6 py-3 border-t border-app-border bg-app-modal pb-[calc(4rem+env(safe-area-inset-bottom))] sm:pb-3">
           <button
             type="button"
             onClick={onClose}
@@ -7509,7 +7537,7 @@ function ModalApunteSplitView({
         )}
 
         {/* Footer Actions */}
-        <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-t border-app-border bg-app-surface gap-3">
+        <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 pt-3 border-t border-app-border bg-app-surface gap-3 pb-[calc(4rem+env(safe-area-inset-bottom))] sm:pb-3">
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-app-amber">
               <input
@@ -9116,8 +9144,11 @@ function GrabadoraDesgrabadorView({
 
   // ── CARGAS DE AUDIO (archivo subido o grabación): todo en la base ──
   // Un proceso toma las cargas pendientes de la tabla cargas_audio, lee el audio del bucket "audios",
-  // desgraba por partes de 150 s y guarda cada parte en la base. Si se corta, retoma desde la última parte.
-  const CARGA_PARTE_SEG = 150;
+  // desgraba por partes de 90 s y guarda cada parte en la base. Si se corta, retoma desde la última parte.
+  // 90 s (~2,8 MB) es el tamaño ya probado: a 150 s (~4,8 MB), Netlify infla el cuerpo a base64 por
+  // dentro y supera su límite real de plataforma antes de que llegue a la función (413 vacío,
+  // confirmado el 2026-10-12). Si se toca este número, probar antes contra la función en vivo.
+  const CARGA_PARTE_SEG = 90;
   const cargasRef = useRef({ procesando: false });
   const [cargas, setCargas] = useState([]);
 

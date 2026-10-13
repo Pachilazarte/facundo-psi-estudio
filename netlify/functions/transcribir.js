@@ -1,10 +1,13 @@
 // Función de Netlify: transcribe un fragmento de audio con Groq.
 // - La key de Groq vive en la variable GROQ_API_KEY de Netlify (nunca en el navegador).
 // - Solo responde si el pedido trae el header x-app-token igual a PSI_API_TOKEN (variable de Netlify).
-// - Netlify acepta cuerpos de hasta ~6 MB, por eso la web manda fragmentos chicos.
-
+// - Esta función usa la firma clásica (exports.handler): Netlify la recibe como si fuera AWS Lambda,
+//   y por dentro pasa el cuerpo binario como base64 (un 33% más pesado) antes de que isBase64Encoded
+//   llegue acá. Un WAV de 4,58 MB (150 s) ya rebota con 413 vacío (ni llega a este código) porque el
+//   cuerpo real en tránsito supera el límite de la plataforma. Probado en vivo el 2026-10-12: 90 s
+//   (2,75 MB) pasa bien, 150 s (4,58 MB) no. Por eso MAX_BYTES queda bien por debajo de ahí.
 const GROQ_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
-const MAX_BYTES = 5.5 * 1024 * 1024;
+const MAX_BYTES = 3.5 * 1024 * 1024;
 
 function respuesta(statusCode, data) {
   return {
