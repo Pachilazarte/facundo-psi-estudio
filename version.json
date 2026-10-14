@@ -1,7 +1,7 @@
 {
-  "version": "2.37.7",
-  "buildDate": "2026-10-12T22:00:00.000Z",
+  "version": "2.37.8",
+  "buildDate": "2026-10-14T12:00:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "El arreglo del rebote de iOS estaba en un archivo que no se cargaba. Corregido en el archivo correcto (colors.css)."
+  "notes": "Se quitó la barra inferior: un botón flotante abre todas las secciones."
 }

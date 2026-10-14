@@ -12,20 +12,23 @@ jobs:
     steps:
       - name: Ping Supabase Database & Rest API
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # La URL y la anon key son públicas (ya viajan en el frontend). El secret, si existe, tiene prioridad.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://eckgwyvbevlpnhjrsaxy.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVja2d3eXZiZXZscG5oanJzYXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2MzM1ODgsImV4cCI6MjEwNjIwOTU4OH0.MfgjL7yQPidqir2ybVEpcfeAsrioZGIIvgVv_bMyI7I' }}
         run: |
           echo "Ejecutando Heartbeat contra Supabase para prevenir pausa por inactividad..."
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
+          STATUS=$(curl -s -o /tmp/keepalive.json -w "%{http_code}" \
             -X GET "$SUPABASE_URL/rest/v1/supabase_keep_alive?select=*&limit=1" \
             -H "apikey: $SUPABASE_ANON_KEY" \
             -H "Authorization: Bearer $SUPABASE_ANON_KEY")
-          
-          echo "Respuesta de Supabase:"
-          echo "$RESPONSE"
-          
-          if [[ "$RESPONSE" == *"HTTP_STATUS:200"* ]]; then
-            echo "✅ Heartbeat exitoso! Supabase responde activamente."
+
+          echo "HTTP $STATUS"
+          cat /tmp/keepalive.json
+          echo
+
+          if [ "$STATUS" = "200" ]; then
+            echo "Heartbeat exitoso: Supabase responde."
           else
-            echo "⚠️ Advertencia: HTTP Status no es 200. Verifique credenciales."
+            echo "::error::Supabase respondió HTTP $STATUS en el heartbeat. Revisar la base o la clave."
+            exit 1
           fi

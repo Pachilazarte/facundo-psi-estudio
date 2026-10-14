@@ -150,8 +150,15 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.37.7';
+const VERSION_APP = '2.37.8';
 const NOVEDADES = [
+  {
+    version: '2.37.8',
+    fecha: '14/10/2026',
+    cambios: [
+      'La barra de abajo se quitó: ahora un botón flotante abre todas las secciones (Aulas, Lecturas, Apuntes, Clases, Exámenes) junto con Estudio, Contenido y Mi Cuenta.',
+    ],
+  },
   {
     version: '2.37.7',
     fecha: '12/10/2026',
@@ -3670,53 +3677,24 @@ function App() {
         </div>
       </header>
 
-      {/* ══ MOBILE BOTTOM NAVIGATION DOCK (100% NATIVE MOBILE VIEW) ══ */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-app-card/95 backdrop-blur-xl border-t border-app-border px-2 pt-1.5 pb-[calc(4rem+env(safe-area-inset-bottom,0px))] flex justify-around items-center shadow-fluffy">
-        {[
-          { id: 'materias', label: 'Aulas', icon: 'layers' },
-          { id: 'biblio', label: 'Lecturas', icon: 'book-open' },
-          { id: 'apuntes', label: 'Apuntes', icon: 'file-text' },
-          { id: 'clases', label: 'Clases', icon: 'presentation' },
-          { id: 'examenes', label: 'Exámenes', icon: 'calendar-check' },
-        ].map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => { setActiveTab(tab.id); }}
-              className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all flex-1 ${
-                isActive ? 'text-app-emerald font-extrabold scale-105' : 'text-app-muted hover:text-app-text font-medium'
-              }`}
-            >
-              <div className={`p-1.5 rounded-xl transition-all ${isActive ? 'bg-app-emerald-bg border border-app-emerald/30' : ''}`}>
-                <Icon name={tab.icon} className={`w-5 h-5 ${isActive ? 'text-app-emerald' : 'text-app-muted'}`} />
-              </div>
-              <span className="text-[11px] tracking-tight mt-0.5">{tab.label}</span>
-            </button>
-          );
-        })}
-        
-        {/* Más Menu Button */}
-        <button
-          ref={masBotonRef}
-          onClick={() => {
-            const r = masBotonRef.current ? masBotonRef.current.getBoundingClientRect() : null;
-            if (r) setOrigenMenuRadial({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-            setModalMoreMenu(true);
-          }}
-          className={`flex flex-col items-center justify-center py-1 px-2 rounded-xl transition-all flex-1 ${
-            activeTab === 'pdf' || activeTab === 'perfil' || activeTab === 'system' ? 'text-app-emerald font-extrabold' : 'text-app-muted hover:text-app-text'
-          }`}
-        >
-          <div className="p-1.5 rounded-xl">
-            <Icon name="more-horizontal" className="w-5 h-5 text-app-muted" />
-          </div>
-          <span className="text-[11px] tracking-tight mt-0.5">Más</span>
-        </button>
-      </nav>
+      {/* ══ BOTÓN FLOTANTE DE MENÚ (reemplaza la barra inferior) ══ */}
+      <button
+        ref={masBotonRef}
+        type="button"
+        aria-label="Abrir menú"
+        onClick={() => {
+          const r = masBotonRef.current ? masBotonRef.current.getBoundingClientRect() : null;
+          if (r) setOrigenMenuRadial({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+          setModalMoreMenu(true);
+        }}
+        className="md:hidden fixed right-4 z-40 w-14 h-14 rounded-full bg-app-emerald text-white shadow-emerald flex items-center justify-center hover:brightness-110 active:scale-95 transition-transform"
+        style={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
+      >
+        <Icon name="more-horizontal" className="w-6 h-6" />
+      </button>
 
       {/* ══ MAIN VIEW CONTAINER ══ */}
-      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-32 md:pb-8 flex-1 w-full flex flex-col justify-center">
+      <main className="max-w-7xl mx-auto p-3.5 md:p-5 pb-28 md:pb-8 flex-1 w-full flex flex-col justify-center">
 
         {/* ── TAB: MATERIAS (AULAS Y CARPETAS) ── */}
         {activeTab === 'materias' && !selectedMateriaId && (
@@ -5729,6 +5707,18 @@ function NotaExpandible({ texto, limite = 220 }) {
 function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOpenFlashcards, origen }) {
   const CATEGORIAS = [
     {
+      id: 'secciones',
+      label: 'Secciones',
+      icon: 'layers',
+      opciones: [
+        { id: 'materias', title: 'Aulas', icon: 'layers', action: () => onNavigate('materias') },
+        { id: 'biblio', title: 'Lecturas', icon: 'book-open', action: () => onNavigate('biblio') },
+        { id: 'apuntes', title: 'Apuntes', icon: 'file-text', action: () => onNavigate('apuntes') },
+        { id: 'clases', title: 'Clases', icon: 'presentation', action: () => onNavigate('clases') },
+        { id: 'examenes', title: 'Exámenes', icon: 'calendar-check', action: () => onNavigate('examenes') },
+      ],
+    },
+    {
       id: 'contenido',
       label: 'Contenido',
       icon: 'layers',
@@ -5817,9 +5807,10 @@ function ModalMoreMenu({ onClose, onNavigate, onOpenPomodoro, onOpenSearch, onOp
 
   // Arco hacia arriba-izquierda desde el origen: nunca cruza hacia la derecha ni hacia
   // abajo del botón, porque el botón vive pegado al borde inferior derecho de la pantalla.
-  const radio = 118;
-  const anguloInicio = items.length >= 3 ? 185 : 200;
-  const anguloFin = items.length >= 3 ? 265 : 250;
+  const muchos = items.length >= 4;
+  const radio = muchos ? 168 : 118;
+  const anguloInicio = muchos ? 180 : items.length >= 3 ? 185 : 200;
+  const anguloFin = muchos ? 270 : items.length >= 3 ? 265 : 250;
   const paso = items.length > 1 ? (anguloFin - anguloInicio) / (items.length - 1) : 0;
   const posiciones = items.map((_, i) => {
     const angulo = items.length === 1 ? (anguloInicio + anguloFin) / 2 : anguloInicio + paso * i;
