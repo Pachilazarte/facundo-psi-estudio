@@ -1,7 +1,7 @@
 {
-  "version": "2.37.8",
-  "buildDate": "2026-10-14T12:00:00.000Z",
+  "version": "2.37.9",
+  "buildDate": "2026-10-16T12:00:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Se quitó la barra inferior: un botón flotante abre todas las secciones."
+  "notes": "Subida de audios largos sin límite: segmentación automática en fragmentos de 90s (2.8 MB) y desgrabación unificada."
 }

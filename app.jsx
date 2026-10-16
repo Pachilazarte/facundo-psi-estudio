@@ -2599,8 +2599,16 @@ function App() {
       try {
         const limpias = filas.map((f) => sanitizeForCloud[tabla](f));
         const { error } = await supabaseClient.from(tabla).upsert(limpias, { onConflict: 'id' });
-        if (error) throw new Error(error.message);
-        hizo = true;
+        if (error) {
+          if (error.code === '23505' || String(error.message).includes('conflict') || String(error.message).includes('duplicate')) {
+            console.warn(`[PsiEstudio] Registro existente en ${tabla}, conservando base de datos:`, error.message);
+            hizo = true;
+          } else {
+            throw new Error(error.message);
+          }
+        } else {
+          hizo = true;
+        }
       } catch (e) {
         errores.push(`${tabla}: ${e.message}`);
       }
@@ -9191,13 +9199,35 @@ function GrabadoraDesgrabadorView({
   const encolarCargaAudio = async (file) => {
     if (!supabaseClient) { alert('No hay conexión a internet: no se puede subir el audio.'); return; }
     const id = `carga_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const ext = ((file.name.split('.').pop() || 'audio').toLowerCase()).replace(/[^a-z0-9]/g, '') || 'audio';
-    const ruta = `cargas/${id}/original.${ext}`;
     const matObj = materias.find((m) => m.id === targetMateriaId);
+
+    showToast('Preparando audio para desgrabación...', 'music');
+
+    // 1. Decodificar el archivo en el navegador a 16 kHz Mono
+    let decodificado = null;
     try {
-      showToast('Subiendo el audio...', 'upload-cloud');
-      await subirAudioABase(ruta, file, file.type || 'audio/mp4');
-      const { error } = await supabaseClient.from('cargas_audio').insert([{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      let arrayBuffer = await file.arrayBuffer();
+      decodificado = await ctx.decodeAudioData(arrayBuffer);
+      arrayBuffer = null; // Liberar memoria del archivo original de inmediato
+      try { ctx.close(); } catch (e) {}
+    } catch (err) {
+      console.error('Error al decodificar audio:', err);
+      alert('No se pudo decodificar el archivo de audio. Verificá que sea un formato de audio válido (.mp3, .m4a, .wav, .caf). Si es muy pesado, probá en una PC.');
+      return;
+    }
+
+    const PARTE = CARGA_PARTE_SEG * 16000;
+    const totalPartes = Math.ceil(decodificado.length / PARTE);
+
+    if (totalPartes === 0) {
+      alert('El archivo no contiene audio registrable.');
+      return;
+    }
+
+    // 2. Registrar la clase en la base de datos como una sola carga
+    try {
+      const { error: insErr } = await supabaseClient.from('cargas_audio').insert([{
         id,
         origen: 'archivo',
         nombre: file.name,
@@ -9205,20 +9235,79 @@ function GrabadoraDesgrabadorView({
         materia: matObj ? matObj.nombre : 'Psicología General',
         clase_num: targetClaseNum,
         tema: temaClase || '',
-        archivos: [ruta],
+        archivos: [],
         partes: {},
         partes_listas: 0,
-        partes_total: 0,
-        estado: 'pendiente',
+        partes_total: totalPartes,
+        estado: 'en_proceso',
       }]);
-      if (error) throw new Error(error.message);
-      showToast('Audio guardado. Se desgraba en segundo plano; podés seguir usando la app.', 'check');
+      if (insErr) throw new Error(insErr.message);
     } catch (e) {
-      alert(mensajeAmigable(e, 'No se pudo subir el audio'));
+      alert(mensajeAmigable(e, 'No se pudo registrar la carga'));
       return;
     }
+
     refrescarCargas();
     avisarCargas();
+    showToast(`Audio segmentado en ${totalPartes} partes. Subiendo y desgrabando en segundo plano...`, 'check');
+
+    // 3. Procesar progresivamente cada fragmento de 90s:
+    // Sube fragmentos de ~2,75 MB (nunca superan el límite de 50 MB de Supabase ni los 6 MB de Netlify)
+    // y los transcribe de forma transparente para unirlos en un solo texto.
+    (async () => {
+      const rutas = [];
+      const partes = {};
+      try {
+        for (let i = 0; i < totalPartes; i++) {
+          const desde = i * PARTE;
+          const cantidad = Math.min(PARTE, decodificado.length - desde);
+          const wavBlob = audioBufferToWav16kMono(decodificado, desde, cantidad);
+          const rutaParte = `cargas/${id}/${String(i + 1).padStart(3, '0')}.wav`;
+
+          // Subir fragmento al storage (seguro y bajo el límite)
+          await subirAudioABase(rutaParte, wavBlob, 'audio/wav');
+          rutas.push(rutaParte);
+
+          // Transcribir el fragmento directamente con Groq Whisper
+          const data = await transcribirParte(wavBlob, 'audio/wav');
+          partes[i] = { text: data.text || '', duration: data.duration || (cantidad / 16000), segments: data.segments || [] };
+
+          // Actualizar la fila en Supabase para que el progreso se guarde al instante
+          await supabaseClient.from('cargas_audio').update({
+            archivos: [...rutas],
+            partes,
+            partes_listas: Object.keys(partes).length,
+            updated_at: new Date().toISOString(),
+          }).eq('id', id);
+
+          refrescarCargas();
+        }
+
+        // Marcar carga completada
+        await supabaseClient.from('cargas_audio').update({
+          estado: 'completada',
+          error: null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', id);
+
+        refrescarCargas();
+        avisarCargas();
+        showToast(`Desgrabación lista: ${file.name}`, 'sparkles');
+      } catch (err) {
+        console.error('Error al procesar fragmentos:', err);
+        await supabaseClient.from('cargas_audio').update({
+          archivos: [...rutas],
+          partes,
+          partes_listas: Object.keys(partes).length,
+          estado: 'error',
+          error: err.message || String(err),
+          updated_at: new Date().toISOString(),
+        }).eq('id', id);
+        refrescarCargas();
+      } finally {
+        decodificado = null;
+      }
+    })();
   };
 
   const reintentarCarga = async (id) => {
@@ -9274,43 +9363,26 @@ function GrabadoraDesgrabadorView({
   const procesarUnaCarga = async (carga) => {
     await marcar(carga.id, { estado: 'en_proceso', error: null });
     try {
-      let decodificado = null;
-      let total;
-      if (carga.origen === 'archivo') {
-        const blob = await (await fetch(await urlAudioDeBase(carga.archivos[0]))).blob();
-        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        decodificado = await ctx.decodeAudioData(await blob.arrayBuffer());
-        try { ctx.close(); } catch (e) {}
-        total = Math.ceil(decodificado.length / (CARGA_PARTE_SEG * 16000));
-      } else {
-        total = carga.archivos.length;
-      }
+      const total = carga.partes_total || (carga.archivos && carga.archivos.length) || 0;
       await marcar(carga.id, { partes_total: total });
 
       const partes = { ...(carga.partes || {}) };
       for (let i = 0; i < total; i++) {
         if (partes[i]) continue; // ya desgrabada en un intento anterior
-        let cuerpo;
-        let tipo;
-        if (decodificado) {
-          const PARTE = CARGA_PARTE_SEG * 16000;
-          const desde = i * PARTE;
-          const cantidad = Math.min(PARTE, decodificado.length - desde);
-          cuerpo = audioBufferToWav16kMono(decodificado, desde, cantidad);
-          tipo = 'audio/wav';
-        } else {
-          const ruta = carga.archivos[i];
-          cuerpo = await (await fetch(await urlAudioDeBase(ruta))).blob();
-          tipo = tipoPorRuta(ruta);
-        }
+        if (!carga.archivos || !carga.archivos[i]) break;
+        const ruta = carga.archivos[i];
+        const cuerpo = await (await fetch(await urlAudioDeBase(ruta))).blob();
+        const tipo = tipoPorRuta(ruta);
         const data = await transcribirParte(cuerpo, tipo);
         partes[i] = { text: data.text || '', duration: data.duration || 0, segments: data.segments || [] };
         await marcar(carga.id, { partes, partes_listas: Object.keys(partes).length });
         refrescarCargas();
       }
 
-      await marcar(carga.id, { estado: 'completada', error: null });
-      showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
+      if (Object.keys(partes).length >= total && total > 0) {
+        await marcar(carga.id, { estado: 'completada', error: null });
+        showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
+      }
     } catch (e) {
       await marcar(carga.id, { estado: 'error', error: e.message || String(e) });
     }
