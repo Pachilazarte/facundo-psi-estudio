@@ -150,8 +150,16 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.38.0';
+const VERSION_APP = '2.38.1';
 const NOVEDADES = [
+  {
+    version: '2.38.1',
+    fecha: '26/10/2026',
+    cambios: [
+      'Rescate de cargas incompletas: ahora podés desgrabar y salvar las partes que ya se hayan subido a la nube sin que tire error.',
+      'Botón "Salvar lo subido" para recuperar fragmentos de grabaciones o subidas cortadas.',
+    ],
+  },
   {
     version: '2.38.0',
     fecha: '26/10/2026',

@@ -1,8 +1,8 @@
 {
-  "version": "2.38.0",
-  "buildDate": "2026-10-26T17:30:00.000Z",
+  "version": "2.38.1",
+  "buildDate": "2026-10-26T18:30:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Desgrabador multi-audio para clases cortadas, visualización de nombres de archivo en historial, cola de desgrabación anti-bloqueo y modo lectura en apuntes.",
-  "timestamp": "2026-10-26T17:30:00.000Z"
+  "notes": "Rescate automático de fragmentos subidos en cargas incompletas y botón Salvar lo subido.",
+  "timestamp": "2026-10-26T18:30:00.000Z"
 }
