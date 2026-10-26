@@ -9444,6 +9444,23 @@ function GrabadoraDesgrabadorView({
     avisarCargas();
   };
 
+  const desgrabarLoSubido = async (id) => {
+    const carga = cargas.find((c) => c.id === id);
+    if (!carga || !carga.archivos || carga.archivos.length === 0) {
+      alert('No hay fragmentos de audio guardados en esta carga.');
+      return;
+    }
+    await supabaseClient.from('cargas_audio').update({
+      partes_total: carga.archivos.length,
+      estado: 'pendiente',
+      error: null,
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+    refrescarCargas();
+    avisarCargas();
+    showToast(`Desgrabando las ${carga.archivos.length} partes guardadas en la nube...`, 'check');
+  };
+
   // Llama a la función de Netlify con reintentos y backoff inteligente para 429 (rate limit de Groq)
   const transcribirParte = async (cuerpo, tipo) => {
     for (let intento = 1; ; intento++) {
@@ -9500,13 +9517,13 @@ function GrabadoraDesgrabadorView({
     await marcar(carga.id, { estado: 'en_proceso', error: null });
     try {
       const archivos = carga.archivos || [];
-      const total = carga.partes_total || archivos.length || 0;
-      if (total === 0 || archivos.length === 0) {
-        throw new Error('La carga no contiene fragmentos de audio grabados.');
+      const totalDeclarado = carga.partes_total || archivos.length || 0;
+      if (archivos.length === 0) {
+        throw new Error('La carga no contiene fragmentos de audio guardados.');
       }
-      if (archivos.length < total) {
-        throw new Error(`La carga está incompleta (${archivos.length} de ${total} partes). Podés eliminarla y volver a subirla.`);
-      }
+
+      // Si hay menos archivos que los declarados originalmente, procesamos lo guardado para rescatar el audio
+      const total = Math.min(totalDeclarado, archivos.length);
       await marcar(carga.id, { partes_total: total });
 
       const partes = { ...(carga.partes || {}) };
@@ -9531,8 +9548,12 @@ function GrabadoraDesgrabadorView({
       }
 
       if (Object.keys(partes).length >= total && total > 0) {
-        await marcar(carga.id, { estado: 'completada', error: null });
-        showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
+        const esIncompleta = totalDeclarado > archivos.length;
+        const nombreFinal = esIncompleta && !carga.nombre.includes('(Parcial')
+          ? `${carga.nombre} (Parcial: ${total}/${totalDeclarado})`
+          : carga.nombre;
+        await marcar(carga.id, { estado: 'completada', nombre: nombreFinal, error: null });
+        showToast(`Desgrabación lista: ${nombreFinal}`, 'sparkles');
       }
     } catch (e) {
       console.error('Error al procesar carga:', e);
@@ -10617,9 +10638,24 @@ function GrabadoraDesgrabadorView({
                         <span className="text-app-emerald font-bold">Grabando ({c.partes_total || 0} fragmentos guardados)</span>
                       )}
                       {c.estado === 'error' && (
-                        <button onClick={() => reintentarCarga(c.id)} className="px-2 py-1 bg-app-ruby-bg text-app-ruby rounded-lg font-bold hover:bg-app-ruby hover:text-white transition-all">
-                          Reintentar
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                          <button
+                            onClick={() => reintentarCarga(c.id)}
+                            className="px-2 py-1 bg-app-ruby-bg text-app-ruby rounded-lg font-bold hover:bg-app-ruby hover:text-white transition-all"
+                            title="Reintentar desgrabación"
+                          >
+                            Reintentar
+                          </button>
+                          {c.archivos && c.archivos.length > 0 && c.archivos.length < c.partes_total && (
+                            <button
+                              onClick={() => desgrabarLoSubido(c.id)}
+                              className="px-2 py-1 bg-app-amber-bg text-app-amber border border-app-amber/30 rounded-lg font-bold hover:bg-app-amber hover:text-black transition-all"
+                              title="Desgrabar y rescatar los fragmentos guardados en la nube"
+                            >
+                              Salvar lo subido ({c.archivos.length} partes)
+                            </button>
+                          )}
+                        </div>
                       )}
                       <button
                         type="button"
