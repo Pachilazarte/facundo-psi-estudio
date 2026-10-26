@@ -150,8 +150,26 @@ const mensajeAmigable = (e, accion) => {
 
 // Versión de la app y lo que cambió en cada una. Al publicar una versión nueva: subir VERSION_APP,
 // version.json, sw.js (CACHE_NAME) e index.html (?v=), y agregar una entrada arriba de NOVEDADES.
-const VERSION_APP = '2.37.8';
+const VERSION_APP = '2.38.0';
 const NOVEDADES = [
+  {
+    version: '2.38.0',
+    fecha: '26/10/2026',
+    cambios: [
+      'Desgrabador multi-audio: ahora podés subir varios audios a la vez y unirlos en una sola clase si la grabación se cortó en partes.',
+      'El historial de desgrabaciones ahora muestra el nombre original del archivo de audio subido.',
+      'Cola de desgrabación ultra-resiliente con guardado previo de fragmentos y control inteligente de reintentos.',
+      'Botón para cancelar y eliminar cargas de audio trabadas.',
+      'Nuevo modo lectura y visor de apuntes con descargas rápidas en A4 y cuadernillo (2 páginas/hoja).'
+    ],
+  },
+  {
+    version: '2.37.9',
+    fecha: '16/10/2026',
+    cambios: [
+      'Segmentación automática de audios largos en fragmentos de 90s y desgrabación unificada sin límite de peso.',
+    ],
+  },
   {
     version: '2.37.8',
     fecha: '14/10/2026',
@@ -4491,16 +4509,13 @@ function App() {
                               </>
                             ) : (
                               <button
-                                onClick={() => setModalApunte({ open: true, data: a })}
-                                className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                                onClick={() => setModalApunte({ open: true, data: a, mode: 'preview' })} className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
                               >
                                 <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
                               </button>
                             )}
                             <button
-                              onClick={() => setModalApunte({ open: true, data: a })}
-                              className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border"
-                              title="Editar apunte / Ver editor split"
+                              onClick={() => setModalApunte({ open: true, data: a, mode: 'editor' })} className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border" title="Editar apunte"
                             >
                               <Icon name="edit-3" className="w-3.5 h-3.5" />
                             </button>
@@ -5067,16 +5082,13 @@ function App() {
                           </>
                         ) : (
                           <button
-                            onClick={() => setModalApunte({ open: true, data: a })}
-                            className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
+                            onClick={() => setModalApunte({ open: true, data: a, mode: 'preview' })} className="px-3 py-1 bg-app-surface text-app-text font-bold rounded-xl border border-app-border hover:border-app-emerald flex items-center gap-1"
                           >
                             <Icon name="book-open" className="w-3.5 h-3.5 text-app-emerald" /> Ver / Hoja Doble
                           </button>
                         )}
                         <button
-                          onClick={() => setModalApunte({ open: true, data: a })}
-                          className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border"
-                          title="Editar apunte / Ver editor split"
+                          onClick={() => setModalApunte({ open: true, data: a, mode: 'editor' })} className="p-1.5 text-app-muted hover:text-app-text rounded-xl border border-transparent hover:border-app-border" title="Editar apunte"
                         >
                           <Icon name="edit-3" className="w-3.5 h-3.5" />
                         </button>
@@ -5552,6 +5564,7 @@ function App() {
       {modalApunte.open && (
         <ModalApunteSplitView
           initialData={modalApunte.data}
+          initialMode={modalApunte.mode}
           materiaNombre={currentMateria?.nombre || ''}
           materias={materias}
           initialMateriaId={modalApunte.data?.materia_id || selectedMateriaId || (globalMateriaFilter !== 'todas' ? globalMateriaFilter : null)}
@@ -7031,6 +7044,7 @@ Estructura tu respuesta exactamente con este formato para cada diapositiva:
 // ── 4.8 MODAL APUNTE / GUÍA DE ESTUDIO SPLIT-VIEW CON GENERADOR PDF ──
 function ModalApunteSplitView({
   initialData = null,
+  initialMode = null,
   materiaNombre = '',
   materias = [],
   initialMateriaId = null,
@@ -7053,7 +7067,11 @@ function ModalApunteSplitView({
     created_at: initialData?.created_at || new Date().toISOString()
   }));
 
-  const [activeViewTab, setActiveViewTab] = useState('editor'); // 'editor' | 'preview' | 'pdf'
+  const [activeViewTab, setActiveViewTab] = useState(() => {
+    if (initialMode) return initialMode;
+    return (initialData && initialData.contenido) ? 'preview' : 'editor';
+  });
+  const [cachedBooklet, setCachedBooklet] = useState(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [compiledPDF, setCompiledPDF] = useState(null);
   const textareaRef = useRef(null);
@@ -7186,16 +7204,31 @@ function ModalApunteSplitView({
           showToast
         });
       } else {
-        const result = await generateAcademicPDFBlob({
-          materia: activeMateriaName,
-          unidad: form.unidad,
-          titulo: form.titulo || 'Apunte Académico',
-          contenido: form.contenido
-        });
+        let result = compiledPDF;
+        const cacheKey = `${form.titulo}___${form.contenido.length}___${form.unidad}`;
+        if (!result || result._cacheKey !== cacheKey) {
+          if (showToast) showToast('Compilando PDF de alta calidad...', 'refresh-cw');
+          await new Promise(r => setTimeout(r, 60));
+          result = await generateAcademicPDFBlob({
+            materia: activeMateriaName,
+            unidad: form.unidad,
+            titulo: form.titulo || 'Apunte Académico',
+            contenido: form.contenido
+          });
+          result._cacheKey = cacheKey;
+          setCompiledPDF(result);
+          setCachedBooklet(null);
+        }
 
         if (forDownload) {
           if (twoColumns) {
-            const bookletBlob = await convertPDFToTwoColumns(result.blob);
+            let bookletBlob = cachedBooklet;
+            if (!bookletBlob) {
+              if (showToast) showToast('Armando cuadernillo de 2 páginas por carilla...', 'refresh-cw');
+              await new Promise(r => setTimeout(r, 60));
+              bookletBlob = await convertPDFToTwoColumns(result.blob);
+              setCachedBooklet(bookletBlob);
+            }
             const bookletUrl = URL.createObjectURL(bookletBlob);
             const a = document.createElement('a');
             a.href = bookletUrl;
@@ -7211,7 +7244,6 @@ function ModalApunteSplitView({
             if (showToast) showToast('Descargando PDF A4...', 'download');
           }
         } else {
-          setCompiledPDF(result);
           setActiveViewTab('pdf');
           if (showToast) showToast(`PDF generado (${result.pageCount} páginas)`, 'check-circle');
         }
@@ -7265,6 +7297,18 @@ function ModalApunteSplitView({
           <div className="flex items-center gap-1 bg-app-card p-1 rounded-xl border border-app-border text-xs">
             <button
               type="button"
+              onClick={() => setActiveViewTab('preview')}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                activeViewTab === 'preview'
+                  ? 'bg-app-emerald text-white shadow-emerald'
+                  : 'text-app-muted hover:text-app-text'
+              }`}
+            >
+              <Icon name="eye" className="w-3.5 h-3.5" />
+              <span>Visualización</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveViewTab('editor')}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
                 activeViewTab === 'editor'
@@ -7277,18 +7321,6 @@ function ModalApunteSplitView({
             </button>
             <button
               type="button"
-              onClick={() => setActiveViewTab('preview')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
-                activeViewTab === 'preview'
-                  ? 'bg-app-emerald text-white shadow-emerald'
-                  : 'text-app-muted hover:text-app-text'
-              }`}
-            >
-              <Icon name="eye" className="w-3.5 h-3.5" />
-              <span>Vista Previa</span>
-            </button>
-            <button
-              type="button"
               onClick={() => handleCompilePDF(false)}
               className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
                 activeViewTab === 'pdf'
@@ -7297,7 +7329,7 @@ function ModalApunteSplitView({
               }`}
             >
               <Icon name="book-open" className="w-3.5 h-3.5" />
-              <span>PDF Hoja Doble</span>
+              <span>Visor PDF</span>
             </button>
           </div>
 
@@ -7313,57 +7345,58 @@ function ModalApunteSplitView({
           </div>
         </div>
 
-        {/* Top Form Controls Bar */}
-        <div className="px-4 sm:px-6 py-2.5 bg-app-card border-b border-app-border grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-          <div className="sm:col-span-5">
-            <input
-              type="text"
-              value={form.titulo}
-              onChange={e => setForm({ ...form, titulo: e.target.value })}
-              placeholder="Título del Apunte (ej: WISC-IV - Consignas y Baremo)"
-              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm font-black text-app-text outline-none focus:border-app-emerald"
-              required
-            />
+        {/* Top Form Controls Bar (Visible ONLY in Editor Mode to avoid cluttering reading view) */}
+        {activeViewTab === 'editor' && (
+          <div className="px-4 sm:px-6 py-2.5 bg-app-card border-b border-app-border grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center animate-fade-in">
+            <div className="sm:col-span-5">
+              <input
+                type="text"
+                value={form.titulo}
+                onChange={e => setForm({ ...form, titulo: e.target.value })}
+                placeholder="Título del Apunte (ej: WISC-IV - Consignas y Baremo)"
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs sm:text-sm font-black text-app-text outline-none focus:border-app-emerald"
+                required
+              />
+            </div>
+            <div className="sm:col-span-3">
+              <select
+                value={form.materia_id || (materias[0]?.id || '')}
+                onChange={e => {
+                  const targetMat = materias.find(m => m.id === e.target.value);
+                  setForm({ ...form, materia_id: e.target.value, materia: targetMat?.nombre || '' });
+                }}
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+              >
+                {materias.map(m => (
+                  <option key={m.id} value={m.id}>{m.abreviatura || m.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <select
+                value={form.unidad}
+                onChange={e => setForm({ ...form, unidad: e.target.value })}
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+              >
+                {unitsList.map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <select
+                value={form.tipo}
+                onChange={e => setForm({ ...form, tipo: e.target.value })}
+                className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
+              >
+                <option value="Resumen">Resumen</option>
+                <option value="Guía de Cátedra">Guía de Cátedra</option>
+                <option value="Ficha Técnica">Ficha Técnica</option>
+                <option value="Parcial / Apunte">Parcial / Apunte</option>
+              </select>
+            </div>
           </div>
-          <div className="sm:col-span-3">
-            <select
-              value={form.materia_id || (materias[0]?.id || '')}
-              onChange={e => {
-                const targetMat = materias.find(m => m.id === e.target.value);
-                setForm({ ...form, materia_id: e.target.value, materia: targetMat?.nombre || '' });
-              }}
-              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
-            >
-              {materias.map(m => (
-                <option key={m.id} value={m.id}>{m.abreviatura || m.nombre}</option>
-              ))}
-            </select>
-          </div>
-          <div className="sm:col-span-2">
-            <select
-              value={form.unidad}
-              onChange={e => setForm({ ...form, unidad: e.target.value })}
-              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
-            >
-              {unitsList.map(u => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          </div>
-          <div className="sm:col-span-2">
-            <select
-              value={form.tipo}
-              onChange={e => setForm({ ...form, tipo: e.target.value })}
-              className="w-full p-2.5 rounded-xl bg-app-surface border border-app-border text-xs font-bold text-app-text outline-none focus:border-app-emerald"
-            >
-              <option value="Resumen">Resumen</option>
-              <option value="Guía de Cátedra">Guía de Cátedra</option>
-              <option value="Mapa Conceptual">Mapa Conceptual</option>
-              <option value="Fichas de Examen">Fichas de Examen</option>
-              <option value="Notas de Clase">Notas de Clase</option>
-            </select>
-          </div>
-        </div>
+        )}
 
         {/* Tab 1: Split-View Editor & Preview */}
         {activeViewTab === 'editor' && (
@@ -7485,18 +7518,62 @@ function ModalApunteSplitView({
 
         {/* Tab 2: Full Preview on Mobile / Desktop */}
         {activeViewTab === 'preview' && (
-          <div className="flex-1 overflow-y-auto p-5 sm:p-8 bg-app-card space-y-4">
-            <div className="max-w-3xl mx-auto space-y-4">
-              <div className="border-b border-app-border pb-3">
-                <span className="text-[11px] font-black uppercase px-2.5 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
-                  {materiaNombre} • {form.unidad}
+          <div className="flex-1 flex flex-col overflow-hidden bg-app-card">
+            {/* Barra de Acciones de Visualización y Descarga Rápida */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-2.5 bg-app-surface border-b border-app-border shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase px-2.5 py-1 rounded-lg bg-app-emerald-bg text-app-emerald border border-app-emerald/20 flex items-center gap-1.5">
+                  <Icon name="eye" className="w-3.5 h-3.5 text-app-emerald" /> Modo Lectura
                 </span>
-                <h1 className="text-xl sm:text-2xl font-black text-app-text mt-2">{form.titulo || 'Apunte sin título'}</h1>
+                <span className="text-xs font-bold text-app-muted hidden sm:inline">
+                  {currentDisplayMateria} • {form.unidad}
+                </span>
               </div>
-              <div
-                className="text-xs sm:text-sm text-app-text leading-relaxed space-y-2"
-                dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="text-app-muted italic">No hay contenido escrito en este apunte.</p>' }}
-              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(true, false)}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-card hover:bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+                  title="Descargar PDF en hoja A4 estándar"
+                >
+                  <Icon name={isGeneratingPDF ? "refresh-cw" : "download"} className={`w-3.5 h-3.5 text-app-emerald ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+                  <span>Descargar A4</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCompilePDF(true, true)}
+                  disabled={isGeneratingPDF}
+                  className="px-3.5 py-1.5 bg-app-emerald text-white font-extrabold text-xs rounded-xl shadow-emerald hover:brightness-110 flex items-center gap-1.5 transition-all"
+                  title="Descargar cuadernillo económico de 2 páginas por hoja"
+                >
+                  <Icon name={isGeneratingPDF ? "refresh-cw" : "book-open"} className={`w-3.5 h-3.5 text-white ${isGeneratingPDF ? 'animate-spin' : ''}`} />
+                  <span>Descargar 2 Págs/Hoja</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveViewTab('editor')}
+                  className="px-3.5 py-1.5 bg-app-card hover:bg-app-surface border border-app-border hover:border-app-emerald text-app-text font-bold text-xs rounded-xl flex items-center gap-1.5 transition-all"
+                  title="Activar el editor para modificar el texto"
+                >
+                  <Icon name="edit-3" className="w-3.5 h-3.5 text-app-emerald" />
+                  <span>Editar apunte</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido formateado del apunte */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-8 space-y-4">
+              <div className="max-w-3xl mx-auto space-y-4">
+                <div className="border-b border-app-border pb-3">
+                  <h1 className="text-xl sm:text-2xl font-black text-app-text">{form.titulo || 'Apunte sin título'}</h1>
+                </div>
+                <div
+                  className="text-xs sm:text-sm text-app-text leading-relaxed space-y-2 select-text"
+                  dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(form.contenido) || '<p class="text-app-muted italic">No hay contenido escrito en este apunte.</p>' }}
+                />
+              </div>
             </div>
           </div>
         )}
@@ -8562,6 +8639,7 @@ function GrabadoraDesgrabadorView({
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem('psi_audio_server_url') || 'http://localhost:8000');
   const [serverOnline, setServerOnline] = useState(null);
   const [showConfig, setShowConfig] = useState(false);
+  const [modalMultiAudio, setModalMultiAudio] = useState(null);
 
   // Máquina de estados de grabación en vivo: 'idle' | 'recording' | 'paused' | 'processing'
   const [recordingState, setRecordingState] = useState('idle');
@@ -9196,6 +9274,23 @@ function GrabadoraDesgrabadorView({
 
   const avisarCargas = () => window.dispatchEvent(new Event('psi-cargas'));
 
+  const eliminarCarga = async (id) => {
+    if (!supabaseClient) return;
+    if (!window.confirm('¿Querés cancelar o eliminar esta carga de audio?')) return;
+    try {
+      const carga = cargas.find((c) => c.id === id);
+      if (carga && carga.archivos && carga.archivos.length > 0) {
+        supabaseClient.storage.from('audios').remove(carga.archivos).catch(() => {});
+      }
+      await supabaseClient.from('cargas_audio').delete().eq('id', id);
+      showToast('Carga eliminada', 'trash');
+      refrescarCargas();
+      avisarCargas();
+    } catch (e) {
+      alert(mensajeAmigable(e, 'No se pudo eliminar la carga'));
+    }
+  };
+
   const encolarCargaAudio = async (file) => {
     if (!supabaseClient) { alert('No hay conexión a internet: no se puede subir el audio.'); return; }
     const id = `carga_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -9203,13 +9298,12 @@ function GrabadoraDesgrabadorView({
 
     showToast('Preparando audio para desgrabación...', 'music');
 
-    // 1. Decodificar el archivo en el navegador a 16 kHz Mono
     let decodificado = null;
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       let arrayBuffer = await file.arrayBuffer();
       decodificado = await ctx.decodeAudioData(arrayBuffer);
-      arrayBuffer = null; // Liberar memoria del archivo original de inmediato
+      arrayBuffer = null;
       try { ctx.close(); } catch (e) {}
     } catch (err) {
       console.error('Error al decodificar audio:', err);
@@ -9225,8 +9319,20 @@ function GrabadoraDesgrabadorView({
       return;
     }
 
-    // 2. Registrar la clase en la base de datos como una sola carga
     try {
+      showToast(`Guardando ${totalPartes} fragmentos de audio en la nube...`, 'upload-cloud');
+      const rutas = [];
+      for (let i = 0; i < totalPartes; i++) {
+        const desde = i * PARTE;
+        const cantidad = Math.min(PARTE, decodificado.length - desde);
+        const wavBlob = audioBufferToWav16kMono(decodificado, desde, cantidad);
+        const rutaParte = `cargas/${id}/${String(i + 1).padStart(3, '0')}.wav`;
+        await subirAudioABase(rutaParte, wavBlob, 'audio/wav');
+        rutas.push(rutaParte);
+      }
+      decodificado = null;
+
+      // Registrar la clase con todos sus fragmentos ya resguardados
       const { error: insErr } = await supabaseClient.from('cargas_audio').insert([{
         id,
         origen: 'archivo',
@@ -9235,79 +9341,101 @@ function GrabadoraDesgrabadorView({
         materia: matObj ? matObj.nombre : 'Psicología General',
         clase_num: targetClaseNum,
         tema: temaClase || '',
-        archivos: [],
+        archivos: rutas,
         partes: {},
         partes_listas: 0,
         partes_total: totalPartes,
-        estado: 'en_proceso',
+        estado: 'pendiente',
       }]);
       if (insErr) throw new Error(insErr.message);
+
+      refrescarCargas();
+      avisarCargas();
+      showToast(`Audio guardado (${totalPartes} partes). Desgrabando en segundo plano...`, 'check');
     } catch (e) {
-      alert(mensajeAmigable(e, 'No se pudo registrar la carga'));
-      return;
+      alert(mensajeAmigable(e, 'No se pudo guardar la carga'));
     }
+  };
 
-    refrescarCargas();
-    avisarCargas();
-    showToast(`Audio segmentado en ${totalPartes} partes. Subiendo y desgrabando en segundo plano...`, 'check');
+  const encolarCargasUnificadas = async (files) => {
+    if (!supabaseClient) { alert('No hay conexión a internet: no se puede subir el audio.'); return; }
+    if (!files || files.length === 0) return;
 
-    // 3. Procesar progresivamente cada fragmento de 90s:
-    // Sube fragmentos de ~2,75 MB (nunca superan el límite de 50 MB de Supabase ni los 6 MB de Netlify)
-    // y los transcribe de forma transparente para unirlos en un solo texto.
-    (async () => {
-      const rutas = [];
-      const partes = {};
-      try {
-        for (let i = 0; i < totalPartes; i++) {
+    // Ordenar naturalmente por nombre para que p1 vaya antes de p2
+    const ordenados = [...files].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    const id = `carga_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const matObj = materias.find((m) => m.id === targetMateriaId);
+    const nombreUnificado = ordenados.map((f) => f.name.replace(/\.[^/.]+$/, '')).join(' + ');
+
+    showToast(`Unificando y procesando ${ordenados.length} audios de la clase...`, 'music');
+
+    const rutas = [];
+    let parteGlobal = 0;
+
+    try {
+      for (let fIdx = 0; fIdx < ordenados.length; fIdx++) {
+        const file = ordenados[fIdx];
+        showToast(`Decodificando audio ${fIdx + 1} de ${ordenados.length}: ${file.name}...`, 'music');
+
+        let decodificado = null;
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+          let arrayBuffer = await file.arrayBuffer();
+          decodificado = await ctx.decodeAudioData(arrayBuffer);
+          arrayBuffer = null;
+          try { ctx.close(); } catch (e) {}
+        } catch (err) {
+          console.error(`Error al decodificar ${file.name}:`, err);
+          alert(`No se pudo decodificar el archivo "${file.name}".`);
+          return;
+        }
+
+        const PARTE = CARGA_PARTE_SEG * 16000;
+        const totalPartesArchivo = Math.ceil(decodificado.length / PARTE);
+
+        for (let i = 0; i < totalPartesArchivo; i++) {
           const desde = i * PARTE;
           const cantidad = Math.min(PARTE, decodificado.length - desde);
           const wavBlob = audioBufferToWav16kMono(decodificado, desde, cantidad);
-          const rutaParte = `cargas/${id}/${String(i + 1).padStart(3, '0')}.wav`;
-
-          // Subir fragmento al storage (seguro y bajo el límite)
+          parteGlobal++;
+          const rutaParte = `cargas/${id}/${String(parteGlobal).padStart(3, '0')}.wav`;
           await subirAudioABase(rutaParte, wavBlob, 'audio/wav');
           rutas.push(rutaParte);
-
-          // Transcribir el fragmento directamente con Groq Whisper
-          const data = await transcribirParte(wavBlob, 'audio/wav');
-          partes[i] = { text: data.text || '', duration: data.duration || (cantidad / 16000), segments: data.segments || [] };
-
-          // Actualizar la fila en Supabase para que el progreso se guarde al instante
-          await supabaseClient.from('cargas_audio').update({
-            archivos: [...rutas],
-            partes,
-            partes_listas: Object.keys(partes).length,
-            updated_at: new Date().toISOString(),
-          }).eq('id', id);
-
-          refrescarCargas();
         }
-
-        // Marcar carga completada
-        await supabaseClient.from('cargas_audio').update({
-          estado: 'completada',
-          error: null,
-          updated_at: new Date().toISOString(),
-        }).eq('id', id);
-
-        refrescarCargas();
-        avisarCargas();
-        showToast(`Desgrabación lista: ${file.name}`, 'sparkles');
-      } catch (err) {
-        console.error('Error al procesar fragmentos:', err);
-        await supabaseClient.from('cargas_audio').update({
-          archivos: [...rutas],
-          partes,
-          partes_listas: Object.keys(partes).length,
-          estado: 'error',
-          error: err.message || String(err),
-          updated_at: new Date().toISOString(),
-        }).eq('id', id);
-        refrescarCargas();
-      } finally {
         decodificado = null;
+        await new Promise((r) => setTimeout(r, 60));
       }
-    })();
+
+      if (rutas.length === 0) {
+        alert('Los archivos no contienen audio procesable.');
+        return;
+      }
+
+      const { error: insErr } = await supabaseClient.from('cargas_audio').insert([{
+        id,
+        origen: 'archivo',
+        nombre: nombreUnificado,
+        materia_id: matObj ? matObj.id : null,
+        materia: matObj ? matObj.nombre : 'Psicología General',
+        clase_num: targetClaseNum,
+        tema: temaClase || '',
+        archivos: rutas,
+        partes: {},
+        partes_listas: 0,
+        partes_total: rutas.length,
+        estado: 'pendiente',
+      }]);
+      if (insErr) throw new Error(insErr.message);
+
+      refrescarCargas();
+      avisarCargas();
+      showToast(`Clase unificada (${rutas.length} fragmentos). Desgrabando en segundo plano...`, 'check');
+    } catch (e) {
+      alert(mensajeAmigable(e, 'No se pudo subir y unificar los audios'));
+    }
   };
 
   const reintentarCarga = async (id) => {
@@ -9316,7 +9444,7 @@ function GrabadoraDesgrabadorView({
     avisarCargas();
   };
 
-  // Llama a la función de Netlify con reintentos. Un fallo transitorio no pierde lo ya desgrabado.
+  // Llama a la función de Netlify con reintentos y backoff inteligente para 429 (rate limit de Groq)
   const transcribirParte = async (cuerpo, tipo) => {
     for (let intento = 1; ; intento++) {
       try {
@@ -9326,10 +9454,18 @@ function GrabadoraDesgrabadorView({
           body: cuerpo,
         });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || `respuesta ${res.status}`);
+        if (!res.ok) {
+          const esRateLimit = res.status === 429;
+          if (intento >= (esRateLimit ? 8 : 4)) {
+            throw new Error(json.error || `respuesta ${res.status}`);
+          }
+          const espera = esRateLimit ? (15000 * intento) : (4000 * intento);
+          await new Promise((r) => setTimeout(r, espera));
+          continue;
+        }
         return json;
       } catch (e) {
-        if (intento >= 4) throw e;
+        if (intento >= 5) throw e;
         await new Promise((r) => setTimeout(r, 4000 * intento));
       }
     }
@@ -9339,7 +9475,7 @@ function GrabadoraDesgrabadorView({
 
   // Arma la desgrabación completa a partir de las partes, con los tiempos corridos.
   const armarContenidoApunte = (carga, partes, total) => {
-    const lineas = [`DESGRABACIÓN: ${carga.materia} - CLASE #${carga.clase_num}`];
+    const lineas = [`DESGRABACIÓN: ${carga.nombre || carga.materia} - CLASE #${carga.clase_num || ''}`];
     if (carga.tema) lineas.push(`Tema: ${carga.tema}`);
     lineas.push('');
     let acumulado = 0;
@@ -9363,16 +9499,31 @@ function GrabadoraDesgrabadorView({
   const procesarUnaCarga = async (carga) => {
     await marcar(carga.id, { estado: 'en_proceso', error: null });
     try {
-      const total = carga.partes_total || (carga.archivos && carga.archivos.length) || 0;
+      const archivos = carga.archivos || [];
+      const total = carga.partes_total || archivos.length || 0;
+      if (total === 0 || archivos.length === 0) {
+        throw new Error('La carga no contiene fragmentos de audio grabados.');
+      }
+      if (archivos.length < total) {
+        throw new Error(`La carga está incompleta (${archivos.length} de ${total} partes). Podés eliminarla y volver a subirla.`);
+      }
       await marcar(carga.id, { partes_total: total });
 
       const partes = { ...(carga.partes || {}) };
       for (let i = 0; i < total; i++) {
         if (partes[i]) continue; // ya desgrabada en un intento anterior
-        if (!carga.archivos || !carga.archivos[i]) break;
-        const ruta = carga.archivos[i];
-        const cuerpo = await (await fetch(await urlAudioDeBase(ruta))).blob();
+        if (!archivos[i]) break;
+
+        const ruta = archivos[i];
+        const signedUrl = await urlAudioDeBase(ruta);
+        const resAudio = await fetch(signedUrl);
+        if (!resAudio.ok) throw new Error(`No se pudo leer el fragmento ${i + 1}`);
+        const cuerpo = await resAudio.blob();
         const tipo = tipoPorRuta(ruta);
+
+        // Pausa preventiva de 1.2s para respetar límites de Groq (20 RPM)
+        await new Promise((r) => setTimeout(r, 1200));
+
         const data = await transcribirParte(cuerpo, tipo);
         partes[i] = { text: data.text || '', duration: data.duration || 0, segments: data.segments || [] };
         await marcar(carga.id, { partes, partes_listas: Object.keys(partes).length });
@@ -9384,6 +9535,7 @@ function GrabadoraDesgrabadorView({
         showToast(`Desgrabación lista: ${carga.nombre}`, 'sparkles');
       }
     } catch (e) {
+      console.error('Error al procesar carga:', e);
       await marcar(carga.id, { estado: 'error', error: e.message || String(e) });
     }
   };
@@ -9425,7 +9577,7 @@ function GrabadoraDesgrabadorView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── HISTORIAL: desgrabaciones leídas de la base (cargas completadas + desgrabaciones antiguas) ──
+    // ── HISTORIAL: desgrabaciones leídas de la base (cargas completadas + desgrabaciones antiguas) ──
   const [historialDB, setHistorialDB] = useState([]);
   const [expandidoHistorial, setExpandidoHistorial] = useState(null);
   const [audioAbierto, setAudioAbierto] = useState(null);
@@ -9450,7 +9602,7 @@ function GrabadoraDesgrabadorView({
     const [cargasRes, apuRes] = await Promise.all([
       supabaseClient
         .from('cargas_audio')
-        .select('id,materia,clase_num,tema,partes,partes_total,archivos,created_at')
+        .select('id,nombre,materia,clase_num,tema,partes,partes_total,archivos,created_at')
         .eq('estado', 'completada')
         .order('created_at', { ascending: false })
         .limit(100),
@@ -9464,10 +9616,28 @@ function GrabadoraDesgrabadorView({
     const items = [];
     (cargasRes.data || []).forEach((c) => {
       const { contenido } = armarContenidoApunte(c, c.partes || {}, c.partes_total || 0);
-      items.push({ id: c.id, materia: c.materia, clase: c.clase_num, tema: c.tema, fecha: c.created_at, texto: contenido, archivos: c.archivos || [] });
+      items.push({
+        id: c.id,
+        nombre: c.nombre || '',
+        materia: c.materia,
+        clase: c.clase_num,
+        tema: c.tema,
+        fecha: c.created_at,
+        texto: contenido,
+        archivos: c.archivos || []
+      });
     });
     (apuRes.data || []).forEach((a) => {
-      items.push({ id: a.id, materia: a.materia, clase: null, tema: a.titulo, fecha: a.created_at, texto: a.contenido || '', archivos: [] });
+      items.push({
+        id: a.id,
+        nombre: a.titulo || '',
+        materia: a.materia,
+        clase: null,
+        tema: a.titulo,
+        fecha: a.created_at,
+        texto: a.contenido || '',
+        archivos: []
+      });
     });
     items.sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)));
     setHistorialDB(items);
@@ -9493,12 +9663,13 @@ function GrabadoraDesgrabadorView({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Desgrabacion_${(h.materia || 'clase').replace(/[^\w-]+/g, '_')}_Clase${h.clase || ''}.txt`;
+    const baseName = h.nombre ? h.nombre.replace(/\.[^/.]+$/, '') : `Desgrabacion_${h.materia || 'clase'}_Clase${h.clase || ''}`;
+    a.download = `${baseName.replace(/[^\w.-]+/g, '_')}_desgrabacion.txt`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
 
-  // Procesar Audio con Pipeline Multicapa (Telemetría Real, sin progresos simulados)
+    // Procesar Audio con Pipeline Multicapa (Telemetría Real, sin progresos simulados)
   const processAudioWithBackend = async (audioBlobOrFile, filename = 'clase.m4a') => {
     setIsProcessing(true);
     setProcessingProgress(0);
@@ -10311,11 +10482,14 @@ function GrabadoraDesgrabadorView({
                 <input
                   type="file"
                   id="audioFileInput"
-                  accept="audio/*,.caf,.m4a,.mp3,.wav,.json"
+                  accept="audio/*,.caf,.m4a,.mp3,.wav,.json,.ogg,.aac,.flac,.weba,.webm"
+                  multiple
                   className="hidden"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
+                    const filesList = Array.from(e.target.files || []);
+                    if (filesList.length === 0) return;
+                    if (filesList.length === 1) {
+                      const file = filesList[0];
                       if (file.name.endsWith('.json')) {
                         const reader = new FileReader();
                         reader.onload = (evt) => {
@@ -10332,16 +10506,84 @@ function GrabadoraDesgrabadorView({
                       } else {
                         encolarCargaAudio(file);
                       }
+                    } else {
+                      setModalMultiAudio({ files: filesList });
                     }
+                    e.target.value = '';
                   }}
                 />
                 <label htmlFor="audioFileInput" className="cursor-pointer flex flex-col items-center gap-2">
                   <Icon name="file-audio" className="w-8 h-8 text-app-emerald" />
-                  <span className="text-xs font-extrabold text-app-text">Arrastra o haz clic para subir un audio (.m4a, .mp3, .caf, .wav)</span>
-                  <span className="text-[11px] text-app-muted">Soporta clases completas de 1 a 2 horas</span>
+                  <span className="text-xs font-extrabold text-app-text">Arrastra o haz clic para subir audios (.m4a, .mp3, .caf, .wav)</span>
+                  <span className="text-[11px] text-app-muted">Soporta múltiples archivos a la vez y clases completas de 1 a 2 horas</span>
                 </label>
               </div>
             </div>
+
+            {/* Modal para selección de múltiples audios */}
+            {modalMultiAudio && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="bg-app-card border border-app-border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-scale-up">
+                  <div className="flex items-center gap-3 text-app-emerald">
+                    <Icon name="layers" className="w-6 h-6" />
+                    <h3 className="text-base font-black text-app-text">
+                      {modalMultiAudio.files.length} audios seleccionados
+                    </h3>
+                  </div>
+                  <p className="text-xs text-app-muted leading-relaxed">
+                    Detectamos varios archivos de audio. ¿Pertenecen a partes de la misma clase interrumpida o son clases separadas?
+                  </p>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 p-3 rounded-xl bg-app-surface border border-app-border">
+                    {modalMultiAudio.files.map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs font-mono text-app-text">
+                        <span className="w-5 h-5 rounded-full bg-app-emerald-bg text-app-emerald font-bold flex items-center justify-center text-[10px] shrink-0">
+                          {i + 1}
+                        </span>
+                        <span className="truncate flex-1">{f.name}</span>
+                        <span className="text-[10px] text-app-muted shrink-0">{(f.size / (1024 * 1024)).toFixed(1)} MB</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const files = modalMultiAudio.files;
+                        setModalMultiAudio(null);
+                        encolarCargasUnificadas(files);
+                      }}
+                      className="w-full py-2.5 px-4 bg-app-emerald text-white text-xs font-bold rounded-xl shadow-emerald flex items-center justify-center gap-2 hover:brightness-110 transition-all"
+                    >
+                      <Icon name="link" className="w-4 h-4" />
+                      <span>Unir en una sola clase (grabación en partes)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const files = modalMultiAudio.files;
+                        setModalMultiAudio(null);
+                        (async () => {
+                          for (const f of files) {
+                            await encolarCargaAudio(f);
+                          }
+                        })();
+                      }}
+                      className="w-full py-2.5 px-4 bg-app-surface border border-app-border text-app-text hover:border-app-emerald text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Icon name="copy" className="w-4 h-4" />
+                      <span>Subir como clases separadas</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalMultiAudio(null)}
+                      className="w-full py-2 text-xs font-bold text-app-muted hover:text-app-text text-center"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Cargas en segundo plano: todo queda en la base; se puede seguir usando la app */}
             {cargas.length > 0 && (
@@ -10350,15 +10592,21 @@ function GrabadoraDesgrabadorView({
                   <Icon name="list" className="w-4 h-4 text-app-emerald" /> Clases en proceso
                 </h4>
                 {cargas.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0">
+                  <div key={c.id} className="flex items-center justify-between gap-3 text-xs p-3 rounded-xl bg-app-surface border border-app-border">
+                    <div className="min-w-0 flex-1">
                       <p className="font-bold text-app-text truncate">{c.nombre}</p>
                       <p className="text-app-muted truncate">{c.materia} · Clase {c.clase_num}</p>
+                      {c.estado === 'error' && c.error && (
+                        <p className="text-[11px] text-app-ruby mt-0.5 max-w-[280px] break-words">{c.error}</p>
+                      )}
                     </div>
-                    <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 flex items-center gap-2">
                       {c.estado === 'completada' && <span className="text-app-emerald font-bold">Lista en el Historial</span>}
                       {(c.estado === 'pendiente' || c.estado === 'en_proceso') && (
-                        <span className="text-app-amber font-bold">Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}</span>
+                        <span className="text-app-amber font-bold flex items-center gap-1.5">
+                          <Icon name="refresh-cw" className="w-3.5 h-3.5 animate-spin" />
+                          Desgrabando {c.partes_listas || 0}/{c.partes_total || '?'}
+                        </span>
                       )}
                       {c.estado === 'grabando' && sesionGrabacionRef.current !== c.id && (
                         <button onClick={() => reintentarCarga(c.id)} className="text-app-amber font-bold underline">
@@ -10368,14 +10616,19 @@ function GrabadoraDesgrabadorView({
                       {c.estado === 'grabando' && sesionGrabacionRef.current === c.id && (
                         <span className="text-app-emerald font-bold">Grabando ({c.partes_total || 0} fragmentos guardados)</span>
                       )}
-                      {c.estado === 'error' && c.error && (
-                        <p className="text-[11px] text-app-ruby mb-1 max-w-[260px] break-words">Hubo un problema al desgrabar. Probá de nuevo.</p>
-                      )}
                       {c.estado === 'error' && (
-                        <button onClick={() => reintentarCarga(c.id)} className="text-app-ruby font-bold underline">
-                          Reintentar ({c.partes_listas || 0} partes guardadas)
+                        <button onClick={() => reintentarCarga(c.id)} className="px-2 py-1 bg-app-ruby-bg text-app-ruby rounded-lg font-bold hover:bg-app-ruby hover:text-white transition-all">
+                          Reintentar
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => eliminarCarga(c.id)}
+                        className="p-1.5 text-app-muted hover:text-app-ruby hover:bg-app-card rounded-lg transition-all"
+                        title="Eliminar o cancelar esta carga"
+                      >
+                        <Icon name="trash-2" className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -10726,16 +10979,33 @@ function GrabadoraDesgrabadorView({
                 .filter((h) => {
                   if (!historyFilter) return true;
                   const f = historyFilter.toLowerCase();
-                  return (h.materia || '').toLowerCase().includes(f) || (h.tema || '').toLowerCase().includes(f);
+                  return (h.materia || '').toLowerCase().includes(f) ||
+                         (h.tema || '').toLowerCase().includes(f) ||
+                         (h.nombre || '').toLowerCase().includes(f);
                 })
                 .map((h) => (
                   <div key={h.id} className="bg-app-card border border-app-border p-4 rounded-xl shadow-card space-y-3">
                     <div>
-                      <h4 className="text-sm font-extrabold text-app-text">{h.materia}</h4>
-                      <p className="text-xs text-app-muted font-medium">
-                        {h.tema || 'Sin tema'}{h.clase ? ` • Clase #${h.clase}` : ''}
-                      </p>
-                      <p className="text-[11px] text-app-muted font-mono">{new Date(h.fecha).toLocaleString('es-AR')}</p>
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-app-emerald-bg text-app-emerald border border-app-emerald/20">
+                          {h.materia}
+                        </span>
+                        {h.clase ? (
+                          <span className="text-[10px] font-bold text-app-muted">
+                            Clase #{h.clase}
+                          </span>
+                        ) : null}
+                      </div>
+                      <h4 className="text-sm font-extrabold text-app-text flex items-center gap-1.5 break-words">
+                        <Icon name="file-audio" className="w-4 h-4 text-app-emerald shrink-0" />
+                        <span>{h.nombre || h.tema || 'Desgrabación de Audio'}</span>
+                      </h4>
+                      {h.tema && h.nombre && h.tema !== h.nombre && (
+                        <p className="text-xs text-app-muted font-medium mt-1">
+                          Tema: {h.tema}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-app-muted font-mono mt-1">{new Date(h.fecha).toLocaleString('es-AR')}</p>
                     </div>
 
                     {audioAbierto === h.id && (

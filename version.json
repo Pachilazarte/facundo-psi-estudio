@@ -1,7 +1,8 @@
 {
-  "version": "2.37.9",
-  "buildDate": "2026-10-16T12:00:00.000Z",
+  "version": "2.38.0",
+  "buildDate": "2026-10-26T17:30:00.000Z",
   "name": "PsiEstudio & PsiVoice",
   "channel": "production",
-  "notes": "Subida de audios largos sin límite: segmentación automática en fragmentos de 90s (2.8 MB) y desgrabación unificada."
+  "notes": "Desgrabador multi-audio para clases cortadas, visualización de nombres de archivo en historial, cola de desgrabación anti-bloqueo y modo lectura en apuntes.",
+  "timestamp": "2026-10-26T17:30:00.000Z"
 }
